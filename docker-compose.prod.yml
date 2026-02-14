@@ -1,0 +1,36 @@
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: prod_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: prod_secret
+      POSTGRES_DB: prod
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d prod"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: ${BACKEND_IMAGE:-ghcr.io/owner/prod-backend:latest}
+    container_name: prod_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_PASSWORD: prod_secret
+    ports:
+      - "80:80"
+    volumes:
+      - backend_logs:/app/logs
+
+volumes:
+  postgres_data:
+  backend_logs:
