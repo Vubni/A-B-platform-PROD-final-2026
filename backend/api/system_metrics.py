@@ -13,7 +13,6 @@ def _inc(name: str, labels: dict[str, str] | None = None, value: float = 1.0) ->
 
 
 def _seed_demo_values() -> None:
-    """Стартовые значения для демо: видно примеры метрик до первых запросов."""
     _inc("http_requests_total", {"method": "GET",
          "path": "/health", "status": "200"}, 15)
     _inc("http_requests_total", {"method": "GET",

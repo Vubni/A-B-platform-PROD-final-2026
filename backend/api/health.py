@@ -1,4 +1,6 @@
 """Readiness state: True когда все критичные зависимости готовы."""
+from aiohttp_apispec import docs
+from aiohttp import web
 _ready = False
 
 
@@ -11,10 +13,6 @@ def is_ready() -> bool:
     return _ready
 
 
-from aiohttp import web
-from aiohttp_apispec import docs
-
-
 @docs(
     tags=["Health"],
     summary="Проба живости",
@@ -22,7 +20,6 @@ from aiohttp_apispec import docs
     responses={200: {"description": "Процесс запущен"}},
 )
 async def health(request: web.Request) -> web.Response:
-    """Health check — живость процесса."""
     return web.Response(status=200, text="OK")
 
 
@@ -36,7 +33,6 @@ async def health(request: web.Request) -> web.Response:
     },
 )
 async def ready(request: web.Request) -> web.Response:
-    """Readiness check — готовность к приёму трафика."""
     if is_ready():
         return web.Response(status=200, text="OK")
     return web.Response(status=503, text="Service Unavailable")

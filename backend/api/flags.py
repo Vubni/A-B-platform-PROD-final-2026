@@ -30,11 +30,13 @@ def _validate_default_value_by_type(value_type: str, default_value: str) -> None
             else:
                 int(default_value)
         except ValueError:
-            raise ValueError("default_value must be a valid number for value_type=number")
+            raise ValueError(
+                "default_value must be a valid number for value_type=number")
         return
     if value_type == "bool":
         if default_value.lower() not in ("true", "false", "1", "0", "yes", "no"):
-            raise ValueError("default_value for value_type=bool must be one of: true, false, 1, 0, yes, no")
+            raise ValueError(
+                "default_value for value_type=bool must be one of: true, false, 1, 0, yes, no")
         return
     raise ValueError(f"value_type must be one of {FLAG_VALUE_TYPES}")
 
@@ -53,7 +55,8 @@ class FlagCreate(BaseModel):
         if not v or len(v) > 255:
             raise ValueError("key must be non-empty and up to 255 characters")
         if not FLAG_KEY_PATTERN.match(v):
-            raise ValueError("key must start with a letter and contain only letters, digits and underscore")
+            raise ValueError(
+                "key must start with a letter and contain only letters, digits and underscore")
         return v
 
     @field_validator("value_type")

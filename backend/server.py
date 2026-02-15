@@ -12,8 +12,7 @@ from api import auth, health, flags, experiments, decide, events, reports, users
 from database.database import Database
 
 
-async def _check_readiness(app):
-    """Проверка готовности: БД и прочие зависимости. В будущем можно добавить Redis, кеши и т.д."""
+async def check_readiness(app):
     health.set_ready(False)
     try:
         async with Database() as db:
@@ -26,14 +25,9 @@ async def _check_readiness(app):
         logger.warning(f"Readiness: ошибка проверки — {e}")
 
 
-async def startup_readiness(app):
-    """Запуск проверки готовности при старте приложения."""
-    await _check_readiness(app)
-
-
 if __name__ == "__main__":
     app = web.Application()
-    app.on_startup.append(startup_readiness)
+    app.on_startup.append(check_readiness)
 
     cors = aiohttp_cors.setup(app, defaults={
         "*": aiohttp_cors.ResourceOptions(
@@ -76,7 +70,8 @@ if __name__ == "__main__":
         web.patch(prefix + "/users/{id}", users.users_update),
         web.get(prefix + "/approver-groups", users.approver_groups_list),
         web.post(prefix + "/approver-groups", users.approver_groups_create),
-        web.patch(prefix + "/approver-groups/{id}", users.approver_groups_update),
+        web.patch(
+            prefix + "/approver-groups/{id}", users.approver_groups_update),
 
         web.post(prefix + "/flags", flags.flags_create),
         web.get(prefix + "/flags", flags.flags_list),
