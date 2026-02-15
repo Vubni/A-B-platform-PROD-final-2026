@@ -95,6 +95,23 @@ class ApproverGroupListResponseSchema(Schema):
     approver_groups = fields.List(fields.Nested(ApproverGroupItemSchema))
 
 
+class FlagCreateSchema(Schema):
+    key = fields.Str(required=True, description="Уникальный ключ флага (буква, цифры, подчёркивание)")
+    value_type = fields.Str(
+        required=True,
+        validate=mvalidate.OneOf(("string", "number", "bool")),
+        description="Тип значения: string, number, bool",
+    )
+    default_value = fields.Str(required=True, description="Значение по умолчанию при отсутствии эксперимента")
+    description = fields.Str(allow_none=True, description="Описание флага")
+    owner = fields.Str(allow_none=True, description="Владелец/команда")
+    metadata = fields.Dict(allow_none=True, description="Произвольные метаданные")
+
+
+class FlagUpdateSchema(Schema):
+    default_value = fields.Str(required=True, description="Новое значение по умолчанию (только это поле можно обновить)")
+
+
 class ErrorDetailSchema(Schema):
     name = fields.Str(description="Имя параметра, вызвавшего ошибку")
     type = fields.Str(description="Тип ошибки (например, missing)")

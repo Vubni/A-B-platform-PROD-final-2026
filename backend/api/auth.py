@@ -19,14 +19,13 @@ class AuthLogin(BaseModel):
 
 @docs(
     tags=["Auth"],
-    summary="Авторизация (логин)",
+    summary="Авторизация",
     description=(
-        "Принять email и пароль, вернуть JWT-токен сессии и данные пользователя (без пароля). "
-        "Токен передавать в заголовке: Authorization: Bearer <token>."
+        "Авторизация, возвращает токен и данные пользователя"
     ),
     responses={
-        200: {"description": "Успешный вход (token, user)"},
-        400: {"description": "Некорректный запрос"},
+        200: {"description": "Успешный вход (token, user без пароля)"},
+        400: {"description": "Некорректный запрос (email или пароль)"},
         401: {"description": "Неверный email или пароль"},
     },
 )
