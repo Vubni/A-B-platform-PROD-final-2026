@@ -8,7 +8,7 @@ from aiohttp_apispec import (
 import aiohttp_cors
 
 from config import logger
-from api import health, flags, experiments, decide, events, reports, users, system_metrics
+from api import auth, health, flags, experiments, decide, events, reports, users, system_metrics
 from database.database import Database
 
 
@@ -68,12 +68,15 @@ if __name__ == "__main__":
         web.get("/ready", health.ready),
         web.get("/metrics", system_metrics.metrics_export),
 
+        web.post(prefix + "/auth", auth.auth_login),
+
         web.get(prefix + "/users", users.users_list),
         web.post(prefix + "/users", users.users_create),
         web.get(prefix + "/users/{id}", users.users_get),
         web.patch(prefix + "/users/{id}", users.users_update),
         web.get(prefix + "/approver-groups", users.approver_groups_list),
-        web.put(prefix + "/approver-groups", users.approver_groups_set),
+        web.post(prefix + "/approver-groups", users.approver_groups_create),
+        web.patch(prefix + "/approver-groups/{id}", users.approver_groups_update),
 
         web.post(prefix + "/flags", flags.flags_create),
         web.get(prefix + "/flags", flags.flags_list),

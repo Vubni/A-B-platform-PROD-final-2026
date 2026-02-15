@@ -26,7 +26,7 @@ async def handle_get_file(request):
             return web.Response(
                 body=f.read(),
                 content_type=content_type,
-                charset=charset  # Отдельный параметр для кодировки
+                charset=charset
             )
     else:
         return web.Response(status=404, text='404 Not Found: File not found')

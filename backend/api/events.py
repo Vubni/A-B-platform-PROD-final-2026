@@ -19,7 +19,7 @@ from api.system_metrics import record_events_submitted
 )
 async def events_submit(request: web.Request) -> web.Response:
     record_events_submitted(
-        accepted=1)  # по пакету; в проде — accepted из ответа
+        accepted=1)
     return web.json_response(
         {
             "accepted": 0,

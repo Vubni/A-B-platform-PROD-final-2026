@@ -1,17 +1,14 @@
 CREATE TYPE user_role AS ENUM ('admin', 'experimenter', 'approver', 'viewer');
 
 CREATE TABLE IF NOT EXISTS users (
-    id BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY (
-        INCREMENT 1 START 1 MINVALUE 1 CACHE 1
-    ),
+    id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
     email VARCHAR UNIQUE NOT NULL,
     first_name VARCHAR UNIQUE NOT NULL,
     password VARCHAR NOT NULL,
     verified BOOLEAN DEFAULT FALSE,
     role user_role NOT NULL DEFAULT 'viewer',
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (id)
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -19,14 +16,11 @@ CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_users_first_name ON users(first_name);
 
 CREATE TABLE IF NOT EXISTS approver_groups (
-    id BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY (
-        INCREMENT 1 START 1 MINVALUE 1 CACHE 1
-    ),
-    experimenter_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+    id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
+    experimenter_id UUID REFERENCES users(id) ON DELETE CASCADE,
     min_approvals INTEGER NOT NULL DEFAULT 1 CHECK (min_approvals >= 1),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (id),
     UNIQUE (experimenter_id)
 );
 
@@ -36,8 +30,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_approver_groups_fallback_unique
 CREATE INDEX IF NOT EXISTS idx_approver_groups_experimenter ON approver_groups(experimenter_id);
 
 CREATE TABLE IF NOT EXISTS approver_group_members (
-    approver_group_id BIGINT NOT NULL REFERENCES approver_groups(id) ON DELETE CASCADE,
-    approver_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    approver_group_id UUID NOT NULL REFERENCES approver_groups(id) ON DELETE CASCADE,
+    approver_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     PRIMARY KEY (approver_group_id, approver_id)
 );
 

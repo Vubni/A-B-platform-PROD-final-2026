@@ -3,36 +3,68 @@ import string, asyncio
 import re, threading
 from aiohttp import web
 from config import logger
-from database import functions as func_db
 from functools import wraps
+from datetime import datetime, date, time as time_type, timezone
+import uuid
+import jwt
+from config import SECRET
+from api import validate
 
 
-async def check_authorization(request:web.Request):
+async def check_authorization(request: web.Request):
     try:
+
         auth_header = request.headers.get('Authorization')
-        
+
         if auth_header:
             parts = auth_header.split()
             if len(parts) == 2 and parts[0].lower() == 'bearer':
-                return await func_db.check_token(parts[1])
-            else:
-                return web.Response(status=401, text="Invalid Authorization format")
-        else:
-            return web.Response(status=401, text="Authorization header missing")
+                result = check_token(parts[1])
+                return result
+        return None
     except Exception as e:
         logger.error("check_authorization error: ", e)
-        return web.Response(status=500, text=str(e))
+        return None
+
+def validate_uuid(v: str) -> str:
+    try:
+        return str(uuid.UUID(v))
+    except (ValueError, TypeError):
+        return None
+
+def create_token(payload) -> str:
+    """Кодирование данных"""
+    token = jwt.encode(
+        payload,
+        SECRET,
+        algorithm="HS256"
+    )
+
+    return token
+
+def parse_uuid(value: str) -> str | None:
+    try:
+        return str(uuid.UUID(value))
+    except (ValueError, TypeError):
+        return None
+
+
+def check_token(token):
+    """Расшифровка токена"""
+    try:
+        decoded = jwt.decode(
+            token,
+            SECRET,
+            algorithms=["HS256"]
+        )
+        return decoded
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
     
 
 def generate_unique_code(length:int=32):
-    """Генерация рандомного кода из символов латиницы, цифры и _
-
-    Args:
-        length (int, optional): Длина кода. Defaults to 32.
-
-    Returns:
-        str: Сгенерированный код
-    """
     characters = string.ascii_letters + string.digits + '_'
     return ''.join(secrets.choice(characters) for _ in range(length))
 
@@ -70,6 +102,32 @@ def is_valid_email(email:str) -> bool:
         return False
 
     return True
+
+
+def serialize_json(obj):
+    if hasattr(obj, 'model_dump'):
+        obj = obj.model_dump()
+    elif hasattr(obj, 'dict'):
+        obj = obj.dict()
+
+    if isinstance(obj, datetime):
+        if obj.tzinfo is None:
+            return obj.strftime('%Y-%m-%dT%H:%M:%SZ')
+        else:
+            return obj.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    elif isinstance(obj, date) and not isinstance(obj, datetime):
+        return obj.strftime('%Y-%m-%dT00:00:00Z')
+    elif isinstance(obj, time_type):
+        return datetime.combine(date(1970, 1, 1), obj).strftime('%Y-%m-%dT%H:%M:%SZ')
+    elif isinstance(obj, dict):
+        return {key: serialize_json(value) for key, value in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        result = [serialize_json(item) for item in obj]
+        return tuple(result) if isinstance(obj, tuple) else result
+    elif isinstance(obj, uuid.UUID):
+        return str(obj)
+    else:
+        return obj
     
 
 def is_hashable(obj):
@@ -83,7 +141,7 @@ def is_hashable(obj):
 def cache_with_expiration(expiration_seconds: int):
     def decorator(func):
         cache = {}
-        async_lock = None  # Ленивая инициализация асинхронного лока
+        async_lock = None
         sync_lock = threading.Lock()
 
         def get_cache_key(*args, **kwargs):
@@ -95,7 +153,7 @@ def cache_with_expiration(expiration_seconds: int):
         async def async_wrapped(*args, **kwargs):
             nonlocal async_lock
             if async_lock is None:
-                async_lock = asyncio.Lock()  # Создаем лок в текущем event loop
+                async_lock = asyncio.Lock()
             async with async_lock:
                 now = time.time()
                 key = get_cache_key(*args, **kwargs)

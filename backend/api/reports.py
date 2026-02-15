@@ -1,4 +1,3 @@
-"""Reports API — how product/analyst sees experiment results."""
 from aiohttp import web
 from aiohttp_apispec import docs
 

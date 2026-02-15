@@ -10,7 +10,9 @@ DATE_BASE_CONNECT = {"host": os.getenv("DB_HOST", "0.0.0.0"),
                      "password": os.getenv("DB_PASSWORD"),
                      "database": os.getenv("DB_NAME", "prod")}
 
+SECRET = os.getenv("RANDOM_SECRET", "AJd27GqoS#gvxp@V")
 
+AUTH_TOKEN_EXPIRATION = 24 * 3600
 
 
 logger = logging.getLogger()

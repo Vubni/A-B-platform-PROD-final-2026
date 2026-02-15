@@ -1,5 +1,6 @@
 import json
 import asyncio
+import uuid
 from typing import Union, List, Dict, Optional
 from asyncpg import Connection, connect, Record, PostgresConnectionError
 from config import DATE_BASE_CONNECT, logger
@@ -23,7 +24,7 @@ class Database:
                 self.connection = await connect(**DATE_BASE_CONNECT)
                 self.transaction = self.connection.transaction()
                 await self.transaction.start()
-                self._retry_count = 0  # Сброс счетчика при успешном подключении
+                self._retry_count = 0 
                 return self
             except PostgresConnectionError as e:
                 self._retry_count += 1
@@ -97,7 +98,10 @@ class Database:
                 
             if isinstance(data, Record):
                 return {key: self.serialize(data[key]) for key in data.keys()}
-                
+
+            if isinstance(data, uuid.UUID):
+                return str(data)
+
             return data
         except (TypeError, json.JSONDecodeError) as e:
             logger.error(f"Ошибка сериализации данных: {e}")
@@ -135,16 +139,19 @@ class Database:
             self._handle_exception(e, sql)
             return None
 
-    async def fetchval(self, sql: str, params: tuple = ()) -> Optional[int]:
-        """Получение скалярного значения"""
+    async def fetchval(self, sql: str, params: tuple = ()) -> Optional[Union[int, str]]:
+        """Получение скалярного значения (может быть int или UUID строкой)"""
         if not await self._check_connection():
             return None
-            
+
         try:
             if "RETURNING" not in sql.upper():
                 sql = f"{sql} RETURNING id"
-                
-            return await self.connection.fetchval(sql, *params)
+
+            result = await self.connection.fetchval(sql, *params)
+            if result is not None and hasattr(result, '__str__'):
+                return str(result)
+            return result
         except Exception as e:
             self._handle_exception(e, sql)
             return None
