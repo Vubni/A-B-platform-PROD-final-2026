@@ -1,183 +1,518 @@
-"""Experiments API for LOTTY A/B Platform."""
+"""Experiments API: создание, список, обновление, жизненный цикл и ревью."""
+from typing import Optional
+
 from aiohttp import web
-from aiohttp_apispec import docs
+from aiohttp_apispec import docs, request_schema
+from pydantic import BaseModel, field_validator
+
+from api import validate
+from core import validate_uuid, check_authorization
+from docs.schems import (
+    ExperimentCreateSchema,
+    ExperimentListResponseSchema,
+    ExperimentItemSchema,
+    ExperimentUpdateSchema,
+    StatusUpdateSchema,
+    VariantCreateSchema,
+    VariantUpdateSchema,
+    ExperimentVariantSchema,
+    GuardrailHistoryResponseSchema,
+)
+from functions.experiments import (
+    add_experiment_variant,
+    check_access_to_experiment,
+    create_experiment,
+    delete_experiment_variant,
+    get_experiment_by_id,
+    get_experiments_list,
+    get_guardrail_history,
+    update_experiment,
+    update_experiment_status,
+    update_experiment_variant,
+)
+
+VALID_STATUSES = (
+    "draft", "on_review", "approved", "running", "paused",
+    "completed", "archived", "rejected",
+)
+METRIC_TYPES = ("primary", "auxiliary", "guardrail")
+
+
+def _experiment_id_from_request(request: web.Request) -> Optional[str]:
+    raw = request.match_info.get("id", "").strip()
+    if not raw:
+        return None
+    return validate_uuid(raw) if validate_uuid(raw) else None
+
+
+def _variant_id_from_request(request: web.Request) -> Optional[str]:
+    raw = request.match_info.get("variant_id", "").strip()
+    if not raw:
+        return None
+    return validate_uuid(raw) if validate_uuid(raw) else None
+
+
+
+class ExperimentCreate(BaseModel):
+    flag_id: str
+    name: str
+    audience_fraction: float
+    targeting_rule: Optional[str] = None
+    primary_metric_key: Optional[str] = None
+
+    @field_validator("flag_id")
+    @classmethod
+    def flag_id_uuid(cls, v: str) -> str:
+        u = validate_uuid(v)
+        if not u:
+            raise ValueError("Invalid UUID for flag_id")
+        return u
+
+    @field_validator("name")
+    @classmethod
+    def name_length(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Name is required")
+        if len(v) > 255:
+            raise ValueError("Name must be at most 255 characters")
+        return v.strip()
+
+    @field_validator("audience_fraction")
+    @classmethod
+    def audience_fraction_range(cls, v: float) -> float:
+        if v is None or v <= 0 or v > 1:
+            raise ValueError("Audience fraction must be in (0, 1]")
+        return v
+
+    @field_validator("targeting_rule")
+    @classmethod
+    def targeting_rule_opt(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and len(v) > 2048:
+            raise ValueError("Targeting rule too long")
+        return v
+
+    @field_validator("primary_metric_key")
+    @classmethod
+    def primary_metric_opt(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and len(v) > 255:
+            raise ValueError("Primary metric key too long")
+        return v
+
+
+class ExperimentUpdate(BaseModel):
+    name: Optional[str] = None
+    audience_fraction: Optional[float] = None
+    targeting_rule: Optional[str] = None
+    primary_metric_key: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def name_length(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and (not v.strip() or len(v) > 255):
+            raise ValueError("Name must be non-empty and at most 255 characters")
+        return v.strip() if v else v
+
+    @field_validator("audience_fraction")
+    @classmethod
+    def audience_fraction_range(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None and (v <= 0 or v > 1):
+            raise ValueError("Audience fraction must be in (0, 1]")
+        return v
+
+    @field_validator("targeting_rule")
+    @classmethod
+    def targeting_rule_opt(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and len(v) > 2048:
+            raise ValueError("Targeting rule too long")
+        return v
+
+    @field_validator("primary_metric_key")
+    @classmethod
+    def primary_metric_opt(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and len(v) > 255:
+            raise ValueError("Primary metric key too long")
+        return v
+
+
+class ReviewAction(BaseModel):
+    comment: Optional[str] = None
+
+
+class StatusUpdate(BaseModel):
+    status: str
+    comment: Optional[str] = None
+
+    @field_validator("status")
+    @classmethod
+    def status_valid(cls, v: str) -> str:
+        if v not in VALID_STATUSES:
+            raise ValueError(f"Status must be one of {VALID_STATUSES}")
+        return v
+
+
+class VariantCreate(BaseModel):
+    variant_name: str
+    variant_value: str
+    weight: float
+    is_control: bool = False
+
+    @field_validator("variant_name")
+    @classmethod
+    def name_nonempty(cls, v: str) -> str:
+        if not v or not v.strip() or len(v) > 255:
+            raise ValueError("variant_name: non-empty, max 255 chars")
+        return v.strip()
+
+    @field_validator("variant_value")
+    @classmethod
+    def value_len(cls, v: str) -> str:
+        if len(v) > 2048:
+            raise ValueError("variant_value max 2048 characters")
+        return v
+
+    @field_validator("weight")
+    @classmethod
+    def weight_nonneg(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("weight must be >= 0")
+        return v
+
+
+class VariantUpdate(BaseModel):
+    variant_value: Optional[str] = None
+    weight: Optional[float] = None
+    is_control: Optional[bool] = None
+
+    @field_validator("variant_value")
+    @classmethod
+    def value_len(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and len(v) > 2048:
+            raise ValueError("variant_value max 2048 characters")
+        return v
+
+    @field_validator("weight")
+    @classmethod
+    def weight_nonneg(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None and v < 0:
+            raise ValueError("weight must be >= 0")
+        return v
 
 
 @docs(
     tags=["Experiments"],
     summary="Создать эксперимент",
-    description="Создание нового эксперимента в состоянии черновика.",
+    description="Создание нового эксперимента в состоянии черновика. created_by берётся из токена.",
     responses={
-        201: {"description": "Эксперимент создан"},
+        201: {"description": "Эксперимент создан", "schema": ExperimentItemSchema},
         400: {"description": "Некорректный запрос"},
-        409: {"description": "Конфликт ключа флага"},
+        404: {"description": "Флаг не найден"},
     },
 )
-async def experiments_create(request: web.Request) -> web.Response:
-    return web.json_response({"status": "not_implemented"}, status=501)
+@request_schema(ExperimentCreateSchema(), location="json", put_into="data")
+@validate.validate(ExperimentCreate)
+async def experiments_create(request: web.Request, parsed: ExperimentCreate) -> web.Response:
+    auth_payload = await check_authorization(request)
+    if not auth_payload:
+        return validate.format_401_error(request, "Token is required")
+    if auth_payload.get("role") != "experimenter":
+        return validate.format_403_error(request, "Not enough permissions to create experiments")
+
+    created_by = auth_payload.get("id")
+    experiment = await create_experiment(
+        flag_id=parsed.flag_id,
+        name=parsed.name,
+        audience_fraction=parsed.audience_fraction,
+        created_by=created_by,
+        targeting_rule=parsed.targeting_rule,
+        primary_metric_key=parsed.primary_metric_key,
+    )
+    if not experiment:
+        return validate.format_404_error(request, "Flag not found", details={"field": "flag_id"})
+    return web.json_response(experiment, status=201)
 
 
 @docs(
     tags=["Experiments"],
     summary="Список экспериментов",
-    description="Получить список экспериментов с опциональными фильтрами по статусу и флагу.",
-    responses={200: {"description": "Список экспериментов"}},
+    description="Получить список экспериментов. Опционально: flag_id, status (query).",
+    responses={
+        200: {"description": "Список экспериментов", "schema": ExperimentListResponseSchema},
+    },
 )
 async def experiments_list(request: web.Request) -> web.Response:
-    return web.json_response({"experiments": [], "status": "not_implemented"}, status=200)
+    auth_payload = await check_authorization(request)
+    if not auth_payload:
+        return validate.format_401_error(request, "Token is required")
+
+    flag_id = request.query.get("flag_id") or None
+    status = request.query.get("status") or None
+    if flag_id and not validate_uuid(flag_id):
+        flag_id = None
+    if status and status not in VALID_STATUSES:
+        status = None
+
+    experiments = await get_experiments_list(flag_id=flag_id, status=status)
+    return web.json_response({"experiments": experiments})
 
 
 @docs(
     tags=["Experiments"],
     summary="Получить эксперимент",
-    description="Получить эксперимент по ID с полной конфигурацией и историей.",
+    description="Получить эксперимент по ID с вариантами, метриками и flag_key.",
     responses={
-        200: {"description": "Данные эксперимента"},
+        200: {"description": "Данные эксперимента", "schema": ExperimentItemSchema},
         404: {"description": "Эксперимент не найден"},
     },
 )
 async def experiments_get(request: web.Request) -> web.Response:
-    exp_id = request.match_info.get("id", "")
-    return web.json_response({"id": exp_id, "status": "not_implemented"}, status=200)
+    auth_payload = await check_authorization(request)
+    if not auth_payload:
+        return validate.format_401_error(request, "Token is required")
+
+    exp_id = _experiment_id_from_request(request)
+    if not exp_id:
+        return validate.format_404_error(request, "Invalid experiment id")
+
+    experiment = await get_experiment_by_id(exp_id)
+    if not experiment:
+        return validate.format_404_error(request, "Experiment not found")
+    return web.json_response(experiment)
 
 
 @docs(
     tags=["Experiments"],
     summary="Обновить эксперимент",
-    description="Обновить эксперимент. Разрешено только в состоянии черновика.",
+    description="Обновить эксперимент. Разрешено только в состоянии черновика. Версия увеличивается, создаётся снимок.",
     responses={
-        200: {"description": "Эксперимент обновлён"},
-        400: {"description": "Некорректный запрос или неверное состояние"},
+        200: {"description": "Эксперимент обновлён", "schema": ExperimentItemSchema},
+        400: {"description": "Некорректный запрос или эксперимент не в черновике"},
         404: {"description": "Эксперимент не найден"},
     },
 )
-async def experiments_update(request: web.Request) -> web.Response:
-    exp_id = request.match_info.get("id", "")
-    return web.json_response({"id": exp_id, "status": "not_implemented"}, status=200)
+@request_schema(ExperimentUpdateSchema(), location="json", put_into="data")
+@validate.validate(ExperimentUpdate)
+async def experiments_update(request: web.Request, parsed: ExperimentUpdate) -> web.Response:
+    auth_payload = await check_authorization(request)
+    if not auth_payload:
+        return validate.format_401_error(request, "Token is required")
+    if auth_payload.get("role") != "experimenter":
+        return validate.format_403_error(request, "Not enough permissions to update experiments")
+
+    exp_id = _experiment_id_from_request(request)
+    if not exp_id:
+        return validate.format_404_error(request, "Invalid experiment id")
+
+    experiment = await get_experiment_by_id(exp_id)
+    if not experiment:
+        return validate.format_404_error(request, "Experiment not found")
+    if experiment.get("status") != "draft":
+        return web.json_response(
+            {"error": "Experiment can be updated only in draft status", "status": experiment["status"]},
+            status=400)
+    created_by = experiment.get("created_by")
+    if str(created_by) != str(auth_payload.get("id")):
+        return validate.format_403_error(request, "Only owner or admin can update this experiment")
+
+    updated = await update_experiment(
+        experiment_id=exp_id,
+        name=parsed.name,
+        audience_fraction=parsed.audience_fraction,
+        targeting_rule=parsed.targeting_rule,
+        primary_metric_key=parsed.primary_metric_key)
+    if not updated:
+        return validate.format_404_error(request, "Experiment not found or not in draft")
+    return web.json_response(updated)
 
 
 @docs(
     tags=["Experiments"],
-    summary="Отправить на ревью",
-    description="Перевод эксперимента из черновика в состояние ревью.",
+    summary="Обновить статус эксперимента",
+    description="Единый эндпоинт смены статуса. Тело: { \"status\": \"on_review\" } (или approved, running, paused, completed, draft, rejected). Для ревью-действий опционально { \"comment\": \"...\" }.",
     responses={
-        200: {"description": "Отправлено на ревью"},
-        400: {"description": "Недопустимый переход состояния"},
+        200: {"description": "Статус обновлён", "schema": ExperimentItemSchema},
+        400: {"description": "Недопустимый переход или ошибка валидации"},
+        403: {"description": "Нет прав"},
         404: {"description": "Эксперимент не найден"},
+        409: {"description": "Конфликт (например, уже запущен другой эксперимент на флаг)"},
     },
 )
-async def experiments_submit_review(request: web.Request) -> web.Response:
-    exp_id = request.match_info.get("id", "")
-    return web.json_response({"id": exp_id, "status": "not_implemented"}, status=200)
+@request_schema(StatusUpdateSchema(), location="json", put_into="data")
+@validate.validate(StatusUpdate)
+async def experiments_update_status(request: web.Request, parsed: StatusUpdate) -> web.Response:
+    auth_payload = await check_authorization(request)
+    if not auth_payload:
+        return validate.format_401_error(request, "Token is required")
+
+    exp_id = _experiment_id_from_request(request)
+    if not exp_id:
+        return validate.format_404_error(request, "Invalid experiment id")
+
+    experiment = await get_experiment_by_id(exp_id)
+    if not experiment:
+        return validate.format_404_error(request, "Experiment not found")
+
+    current = experiment["status"]
+    new_status = parsed.status
+    user_id = str(auth_payload.get("id"))
+    role = auth_payload.get("role")
+    created_by = experiment["created_by"]
+    is_owner = str(created_by) == user_id
+
+    if current == "on_review" and new_status in ("draft", "rejected", "approved"):
+        if role != "approver":
+            return validate.format_403_error(request, "Only approvers can perform review actions")
+        if not await check_access_to_experiment(exp_id, user_id):
+            return validate.format_403_error(request, "Not enough permissions for this experiment")
+        updated = await update_experiment_status(
+            exp_id, new_status, comment=parsed.comment, reviewer_id=user_id)
+    else:
+        if role != "experimenter":
+            return validate.format_403_error(request, "Only experimenters can change status to on_review/running/paused/completed")
+        if not is_owner:
+            return validate.format_403_error(request, "Only owner can change this experiment status")
+        updated = await update_experiment_status(exp_id, new_status, comment=parsed.comment, reviewer_id=user_id)
+
+    if not updated:
+        if new_status == "running":
+            return validate.format_409_error(request, "Another experiment for this flag is already running")
+        if new_status == "paused":
+            return validate.format_409_error(request, "Another experiment for this flag is already paused")
+        err = "Invalid status transition or validation failed (e.g. add variants for on_review)"
+        return web.json_response({"error": err, "current_status": current}, status=400)
+    return web.json_response(updated)
 
 
 @docs(
     tags=["Experiments"],
-    summary="Одобрить эксперимент",
-    description="Добавить одобрение. Эксперимент становится одобренным при достижении порога.",
+    summary="Добавить вариант к эксперименту",
+    description="Создать вариант. Доступно только в статусе draft.",
     responses={
-        200: {"description": "Одобрение записано"},
-        400: {"description": "Некорректно или уже одобрен"},
-        403: {"description": "Нет прав на одобрение"},
-        404: {"description": "Эксперимент не найден"},
-    },
-)
-async def experiments_approve(request: web.Request) -> web.Response:
-    exp_id = request.match_info.get("id", "")
-    return web.json_response({"id": exp_id, "status": "not_implemented"}, status=200)
-
-
-@docs(
-    tags=["Experiments"],
-    summary="Запросить изменения",
-    description="Вернуть эксперимент в черновик для внесения изменений.",
-    responses={
-        200: {"description": "Возвращён в черновик"},
-        400: {"description": "Недопустимое состояние"},
+        201: {"description": "Вариант создан", "schema": ExperimentVariantSchema},
+        400: {"description": "Эксперимент не в черновике или ошибка валидации"},
         403: {"description": "Нет прав"},
         404: {"description": "Эксперимент не найден"},
     },
 )
-async def experiments_request_changes(request: web.Request) -> web.Response:
-    exp_id = request.match_info.get("id", "")
-    return web.json_response({"id": exp_id, "status": "not_implemented"}, status=200)
+@request_schema(VariantCreateSchema(), location="json", put_into="data")
+@validate.validate(VariantCreate)
+async def experiments_variant_create(request: web.Request, parsed: VariantCreate) -> web.Response:
+    auth_payload = await check_authorization(request)
+    if not auth_payload:
+        return validate.format_401_error(request, "Token is required")
+    if auth_payload.get("role") != "experimenter":
+        return validate.format_403_error(request, "Not enough permissions")
+
+    exp_id = _experiment_id_from_request(request)
+    if not exp_id:
+        return validate.format_404_error(request, "Invalid experiment id")
+
+    experiment = await get_experiment_by_id(exp_id)
+    if not experiment:
+        return validate.format_404_error(request, "Experiment not found")
+    if experiment["status"] != "draft":
+        return web.json_response(
+            {"error": "Variants can be added only in draft", "status": experiment["status"]},
+            status=400)
+    if str(experiment["created_by"]) != str(auth_payload.get("id")):
+        return validate.format_403_error(request, "Only owner can add variants")
+
+    variant = await add_experiment_variant(
+        experiment_id=exp_id,
+        variant_name=parsed.variant_name,
+        variant_value=parsed.variant_value,
+        weight=parsed.weight,
+        is_control=parsed.is_control)
+    if not variant:
+        return web.json_response(
+            {"error": "Experiment not in draft or invariant violation (e.g. weights, control)"},
+            status=400)
+    return web.json_response(variant, status=201)
 
 
 @docs(
     tags=["Experiments"],
-    summary="Отклонить эксперимент",
-    description="Отклонить эксперимент. Можно отправить повторно после изменений.",
+    summary="Обновить вариант эксперимента",
+    description="Изменить variant_value, weight или is_control. Доступно только в draft.",
     responses={
-        200: {"description": "Эксперимент отклонён"},
-        400: {"description": "Недопустимое состояние"},
+        200: {"description": "Вариант обновлён", "schema": ExperimentVariantSchema},
+        400: {"description": "Эксперимент не в черновике"},
+        403: {"description": "Нет прав"},
+        404: {"description": "Эксперимент или вариант не найден"},
+    },
+)
+@request_schema(VariantUpdateSchema(), location="json", put_into="data")
+@validate.validate(VariantUpdate)
+async def experiments_variant_update(request: web.Request, parsed: VariantUpdate) -> web.Response:
+    auth_payload = await check_authorization(request)
+    if not auth_payload:
+        return validate.format_401_error(request, "Token is required")
+    if auth_payload.get("role") != "experimenter":
+        return validate.format_403_error(request, "Not enough permissions")
+
+    exp_id = _experiment_id_from_request(request)
+    variant_id = _variant_id_from_request(request)
+    if not exp_id or not variant_id:
+        return validate.format_404_error(request, "Invalid experiment id or variant id")
+
+    experiment = await get_experiment_by_id(exp_id)
+    if not experiment:
+        return validate.format_404_error(request, "Experiment not found")
+    if experiment.get("status") != "draft":
+        return web.json_response(
+            {"error": "Variants can be updated only in draft", "status": experiment.get("status")},
+            status=400,
+        )
+    if str(experiment.get("created_by")) != str(auth_payload.get("id")):
+        return validate.format_403_error(request, "Only owner can update variants")
+
+    variant = await update_experiment_variant(
+        experiment_id=exp_id,
+        variant_id=variant_id,
+        variant_value=parsed.variant_value,
+        weight=parsed.weight,
+        is_control=parsed.is_control)
+    if not variant:
+        return validate.format_404_error(request, "Variant not found or experiment not in draft")
+    return web.json_response(variant)
+
+
+@docs(
+    tags=["Experiments"],
+    summary="Удалить вариант эксперимента",
+    description="Удалить вариант. Доступно только в draft.",
+    responses={
+        204: {"description": "Вариант удалён"},
+        400: {"description": "Эксперимент не в черновике"},
         403: {"description": "Нет прав"},
         404: {"description": "Эксперимент не найден"},
     },
 )
-async def experiments_reject(request: web.Request) -> web.Response:
-    exp_id = request.match_info.get("id", "")
-    return web.json_response({"id": exp_id, "status": "not_implemented"}, status=200)
+async def experiments_variant_delete(request: web.Request) -> web.Response:
+    auth_payload = await check_authorization(request)
+    if not auth_payload:
+        return validate.format_401_error(request, "Token is required")
+    if auth_payload.get("role") != "experimenter":
+        return validate.format_403_error(request, "Not enough permissions")
 
+    exp_id = _experiment_id_from_request(request)
+    variant_id = _variant_id_from_request(request)
+    if not exp_id or not variant_id:
+        return validate.format_404_error(request, "Invalid experiment id or variant id")
 
-@docs(
-    tags=["Experiments"],
-    summary="Запустить эксперимент",
-    description="Переход из одобренного в состояние запущен.",
-    responses={
-        200: {"description": "Эксперимент запущен"},
-        400: {"description": "Недопустимое состояние или конфликт по флагу"},
-        403: {"description": "Нет прав"},
-        404: {"description": "Эксперимент не найден"},
-    },
-)
-async def experiments_start(request: web.Request) -> web.Response:
-    exp_id = request.match_info.get("id", "")
-    return web.json_response({"id": exp_id, "status": "not_implemented"}, status=200)
+    experiment = await get_experiment_by_id(exp_id)
+    if not experiment:
+        return validate.format_404_error(request, "Experiment not found")
+    if experiment.get("status") != "draft":
+        return web.json_response(
+            {"error": "Variants can be deleted only in draft", "status": experiment.get("status")},
+            status=400)
+    if str(experiment.get("created_by")) != str(auth_payload.get("id")):
+        return validate.format_403_error(request, "Only owner can delete variants")
 
-
-@docs(
-    tags=["Experiments"],
-    summary="Приостановить эксперимент",
-    description="Приостановить запущенный эксперимент. Останавливает распределение вариантов.",
-    responses={
-        200: {"description": "Эксперимент приостановлен"},
-        400: {"description": "Недопустимое состояние"},
-        404: {"description": "Эксперимент не найден"},
-    },
-)
-async def experiments_pause(request: web.Request) -> web.Response:
-    exp_id = request.match_info.get("id", "")
-    return web.json_response({"id": exp_id, "status": "not_implemented"}, status=200)
-
-
-@docs(
-    tags=["Experiments"],
-    summary="Возобновить эксперимент",
-    description="Возобновить приостановленный эксперимент.",
-    responses={
-        200: {"description": "Эксперимент возобновлён"},
-        400: {"description": "Недопустимое состояние или конфликт"},
-        404: {"description": "Эксперимент не найден"},
-    },
-)
-async def experiments_resume(request: web.Request) -> web.Response:
-    exp_id = request.match_info.get("id", "")
-    return web.json_response({"id": exp_id, "status": "not_implemented"}, status=200)
-
-
-@docs(
-    tags=["Experiments"],
-    summary="Завершить эксперимент",
-    description="Завершить эксперимент с исходом: rollout_winner, rollback или no_effect.",
-    responses={
-        200: {"description": "Эксперимент завершён"},
-        400: {"description": "Недопустимое состояние или отсутствует исход"},
-        404: {"description": "Эксперимент не найден"},
-    },
-)
-async def experiments_complete(request: web.Request) -> web.Response:
-    exp_id = request.match_info.get("id", "")
-    return web.json_response({"id": exp_id, "status": "not_implemented"}, status=200)
+    ok = await delete_experiment_variant(experiment_id=exp_id, variant_id=variant_id)
+    if not ok:
+        return validate.format_404_error(request, "Variant not found or experiment not in draft")
+    return web.Response(status=204)
 
 
 @docs(
@@ -185,10 +520,22 @@ async def experiments_complete(request: web.Request) -> web.Response:
     summary="История срабатываний guardrail",
     description="Получить историю срабатываний guardrail для эксперимента.",
     responses={
-        200: {"description": "История срабатываний guardrail"},
+        200: {"description": "История срабатываний guardrail", "schema": GuardrailHistoryResponseSchema},
         404: {"description": "Эксперимент не найден"},
     },
 )
 async def experiments_guardrail_history(request: web.Request) -> web.Response:
-    exp_id = request.match_info.get("id", "")
-    return web.json_response({"id": exp_id, "triggers": [], "status": "not_implemented"}, status=200)
+    auth_payload = await check_authorization(request)
+    if not auth_payload:
+        return validate.format_401_error(request, "Token is required")
+
+    exp_id = _experiment_id_from_request(request)
+    if not exp_id:
+        return validate.format_404_error(request, "Invalid experiment id")
+
+    experiment = await get_experiment_by_id(exp_id)
+    if not experiment:
+        return validate.format_404_error(request, "Experiment not found")
+
+    triggers = await get_guardrail_history(exp_id)
+    return web.json_response({"experiment_id": exp_id, "triggers": triggers})

@@ -174,3 +174,150 @@ APPROVER_GROUP_UPDATE_REQUEST_EXAMPLE = {
     "min_approvals": 3,
     "approver_ids": ["b2c3d4e5-f6a7-8901-bcde-f12345678901"],
 }
+
+# ——— Experiments (request) ———
+class ExperimentCreateSchema(Schema):
+    flag_id = fields.Str(required=True, description="UUID флага")
+    name = fields.Str(required=True, description="Название эксперимента, до 255 символов")
+    audience_fraction = fields.Float(required=True, description="Доля аудитории в (0, 1]")
+    targeting_rule = fields.Str(allow_none=True, description="Правило таргетинга, опционально")
+    primary_metric_key = fields.Str(allow_none=True, description="Ключ основной метрики, опционально")
+
+
+class ExperimentUpdateSchema(Schema):
+    name = fields.Str(required=False, description="Новое название")
+    audience_fraction = fields.Float(required=False, description="Новая доля аудитории (0, 1]")
+    targeting_rule = fields.Str(required=False, allow_none=True)
+    primary_metric_key = fields.Str(required=False, allow_none=True)
+
+
+class StatusUpdateSchema(Schema):
+    status = fields.Str(
+        required=True,
+        validate=mvalidate.OneOf((
+            "draft", "on_review", "approved", "running", "paused",
+            "completed", "archived", "rejected",
+        )),
+        description="Новый статус",
+    )
+    comment = fields.Str(allow_none=True, description="Комментарий (для ревью)")
+
+
+class VariantCreateSchema(Schema):
+    variant_name = fields.Str(required=True, description="Имя варианта")
+    variant_value = fields.Str(required=True, description="Значение варианта")
+    weight = fields.Float(required=True, description="Вес варианта (>= 0)")
+    is_control = fields.Bool(load_default=False, description="Является ли контрольным")
+
+
+class VariantUpdateSchema(Schema):
+    variant_value = fields.Str(required=False, description="Новое значение")
+    weight = fields.Float(required=False, description="Новый вес")
+    is_control = fields.Bool(required=False, description="Является ли контрольным")
+
+
+# ——— Experiments (response) ———
+class ExperimentVariantSchema(Schema):
+    id = fields.Str(description="UUID варианта")
+    variant_name = fields.Str()
+    variant_value = fields.Str()
+    weight = fields.Float()
+    is_control = fields.Bool()
+    created_at = fields.Str(allow_none=True)
+    updated_at = fields.Str(allow_none=True)
+
+
+class ExperimentItemSchema(Schema):
+    id = fields.Str()
+    flag_id = fields.Str()
+    flag_key = fields.Str(allow_none=True)
+    name = fields.Str()
+    status = fields.Str()
+    audience_fraction = fields.Float()
+    targeting_rule = fields.Str(allow_none=True)
+    primary_metric_key = fields.Str(allow_none=True)
+    version = fields.Int(allow_none=True)
+    created_by = fields.Str(allow_none=True)
+    created_at = fields.Str(allow_none=True)
+    updated_at = fields.Str(allow_none=True)
+    variants = fields.List(fields.Nested(ExperimentVariantSchema), allow_none=True)
+    metrics = fields.List(fields.Dict(), allow_none=True)
+
+
+class ExperimentListResponseSchema(Schema):
+    experiments = fields.List(fields.Nested(ExperimentItemSchema), description="Массив экспериментов")
+
+
+class GuardrailHistoryResponseSchema(Schema):
+    experiment_id = fields.Str(description="UUID эксперимента")
+    triggers = fields.List(fields.Dict(), description="История срабатываний guardrail")
+
+
+# ——— Flags (response) ———
+class FlagItemSchema(Schema):
+    id = fields.Str()
+    key = fields.Str()
+    value_type = fields.Str()
+    default_value = fields.Str()
+    description = fields.Str(allow_none=True)
+    owner = fields.Str(allow_none=True)
+    metadata = fields.Dict(allow_none=True)
+    created_at = fields.Str(allow_none=True)
+    updated_at = fields.Str(allow_none=True)
+
+
+class FlagListResponseSchema(Schema):
+    flags = fields.List(fields.Nested(FlagItemSchema), description="Массив флагов")
+
+
+# ——— Decide ———
+class DecideRequestSchema(Schema):
+    subject_id = fields.Str(required=True, description="Идентификатор субъекта")
+    attributes = fields.Dict(allow_none=True, description="Атрибуты субъекта")
+    flag_keys = fields.List(fields.Str(), description="Список ключей флагов")
+
+
+class DecisionItemSchema(Schema):
+    value = fields.Raw(description="Значение флага")
+    decision_id = fields.Str(allow_none=True, description="ID решения для атрибуции")
+    experiment_id = fields.Str(allow_none=True)
+    variant = fields.Str(allow_none=True)
+
+
+class DecideResponseSchema(Schema):
+    decisions = fields.Dict(description="Ключ — key флага, значение — объект {value, decision_id, experiment_id, variant}")
+    status = fields.Str(allow_none=True)
+
+
+# ——— Events ———
+class EventsSubmitResponseSchema(Schema):
+    accepted = fields.Int(description="Принято событий")
+    duplicates = fields.Int(description="Дубликатов")
+    rejected = fields.Int(description="Отклонено")
+    errors = fields.List(fields.Dict(), description="Ошибки по отклонённым")
+    status = fields.Str(allow_none=True)
+
+
+class EventTypeItemSchema(Schema):
+    id = fields.Str()
+    name = fields.Str(allow_none=True)
+    description = fields.Str(allow_none=True)
+    status = fields.Str(allow_none=True, description="Статус (например not_implemented)")
+
+
+class EventTypesListResponseSchema(Schema):
+    event_types = fields.List(fields.Nested(EventTypeItemSchema))
+    status = fields.Str(allow_none=True)
+
+
+# ——— Reports ———
+class ReportExperimentResponseSchema(Schema):
+    experiment_id = fields.Str()
+    variants = fields.List(fields.Dict())
+    metrics = fields.List(fields.Dict())
+    status = fields.Str(allow_none=True)
+
+
+class MetricsListResponseSchema(Schema):
+    metrics = fields.List(fields.Dict())
+    status = fields.Str(allow_none=True)

@@ -2,6 +2,7 @@ from aiohttp import web
 from aiohttp_apispec import docs
 
 from api.system_metrics import record_report_requested
+from docs.schems import ReportExperimentResponseSchema, MetricsListResponseSchema
 
 
 @docs(
@@ -12,7 +13,7 @@ from api.system_metrics import record_report_requested
         "целевая метрика, guardrail. Query params: start, end для временного окна."
     ),
     responses={
-        200: {"description": "Отчёт с метриками по вариантам"},
+        200: {"description": "Отчёт с метриками по вариантам", "schema": ReportExperimentResponseSchema},
         404: {"description": "Эксперимент не найден"},
     },
 )
@@ -34,7 +35,7 @@ async def reports_experiment(request: web.Request) -> web.Response:
     tags=["Reports"],
     summary="Каталог метрик",
     description="Получить каталог настраиваемых метрик (Админ).",
-    responses={200: {"description": "Список метрик"}},
+    responses={200: {"description": "Список метрик", "schema": MetricsListResponseSchema}},
 )
 async def metrics_list(request: web.Request) -> web.Response:
     return web.json_response({"metrics": [], "status": "not_implemented"}, status=200)
@@ -45,7 +46,7 @@ async def metrics_list(request: web.Request) -> web.Response:
     summary="Создать метрику",
     description="Создать метрику в каталоге (Админ). Задаёт правила вычисления из событий.",
     responses={
-        201: {"description": "Метрика создана"},
+        201: {"description": "Метрика создана", "schema": MetricsListResponseSchema},
         400: {"description": "Некорректный запрос"},
     },
 )

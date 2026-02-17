@@ -10,6 +10,7 @@ import jwt
 from config import SECRET
 from api import validate
 
+FLAG_KEY_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
 
 async def check_authorization(request: web.Request):
     try:

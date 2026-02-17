@@ -1,13 +1,12 @@
 """Feature Flags API."""
-import re
 from typing import Any, Optional
 
 from aiohttp import web
 from aiohttp_apispec import docs, request_schema
 from pydantic import BaseModel, field_validator
 
-from core import check_authorization
-from docs.schems import FlagCreateSchema, FlagUpdateSchema
+from core import check_authorization, FLAG_KEY_PATTERN
+from docs.schems import FlagCreateSchema, FlagUpdateSchema, FlagItemSchema, FlagListResponseSchema
 from functions.flags import (
     FLAG_VALUE_TYPES,
     create_flag,
@@ -16,8 +15,6 @@ from functions.flags import (
     update_flag_default_value,
 )
 from api import validate
-
-FLAG_KEY_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
 
 
 def _validate_default_value_by_type(value_type: str, default_value: str) -> None:
@@ -103,7 +100,7 @@ class FlagUpdate(BaseModel):
     summary="Создать feature flag",
     description="Создание нового feature flag с ключом, типом значения и значением по умолчанию.",
     responses={
-        201: {"description": "Флаг создан"},
+        201: {"description": "Флаг создан", "schema": FlagItemSchema},
         400: {"description": "Некорректный запрос"},
         409: {"description": "Флаг с таким ключом уже существует"},
     },
@@ -134,7 +131,7 @@ async def flags_create(request: web.Request, parsed: FlagCreate) -> web.Response
     tags=["Feature Flags"],
     summary="Список feature flags",
     description="Получить список всех feature flags",
-    responses={200: {"description": "Список флагов"}},
+    responses={200: {"description": "Список флагов", "schema": FlagListResponseSchema}},
 )
 async def flags_list(request: web.Request) -> web.Response:
     auth_payload = await check_authorization(request)
@@ -150,7 +147,7 @@ async def flags_list(request: web.Request) -> web.Response:
     summary="Получить feature flag",
     description="Получить feature flag по ключу.",
     responses={
-        200: {"description": "Данные флага"},
+        200: {"description": "Данные флага", "schema": FlagItemSchema},
         404: {"description": "Флаг не найден"},
     },
 )
@@ -174,7 +171,7 @@ async def flags_get(request: web.Request) -> web.Response:
     summary="Обновить значение по умолчанию feature flag",
     description="Обновить только значение по умолчанию существующего флага. Варианты и эксперименты не меняются.",
     responses={
-        200: {"description": "Флаг обновлён"},
+        200: {"description": "Флаг обновлён", "schema": FlagItemSchema},
         400: {"description": "Некорректный запрос"},
         404: {"description": "Флаг не найден"},
     },

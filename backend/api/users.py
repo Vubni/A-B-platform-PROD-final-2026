@@ -12,8 +12,12 @@ from docs.schems import (
     UserCreateSchema,
     UserUpdateSchema,
     UserListQuerySchema,
+    UserListResponseSchema,
+    UserProfileSchema,
     ApproverGroupSetSchema,
     ApproverGroupUpdateSchema,
+    ApproverGroupItemSchema,
+    ApproverGroupListResponseSchema,
 )
 from functions.users import (
     ROLES,
@@ -103,7 +107,7 @@ class UserList(BaseModel):
         "Список пользователей с опциональным фильтром по роли. "
         "Доступ: Admin — все пользователи."
     ),
-    responses={200: {"description": "Список пользователей (массив в поле users)"}},
+    responses={200: {"description": "Список пользователей (массив в поле users)", "schema": UserListResponseSchema}},
 )
 @request_schema(UserListQuerySchema(), location="querystring", put_into="querystring")
 @validate.validate(UserList)
@@ -123,7 +127,7 @@ async def users_list(request: web.Request, parsed: UserList) -> web.Response:
     summary="Создать пользователя",
     description="Создать пользователя и назначить роль. Доступ: Admin.",
     responses={
-        201: {"description": "Пользователь создан (объект пользователя без пароля)"},
+        201: {"description": "Пользователь создан (объект пользователя без пароля)", "schema": UserProfileSchema},
         400: {"description": "Некорректный запрос"},
         409: {"description": "Email или first_name уже заняты"},
     },
@@ -153,7 +157,7 @@ async def users_create(request: web.Request, parsed: UserCreate) -> web.Response
     summary="Получить пользователя",
     description="Получить пользователя по ID. Path: id — UUID пользователя.",
     responses={
-        200: {"description": "Данные пользователя (id, email, first_name, role, verified, created_at, updated_at)"},
+        200: {"description": "Данные пользователя (id, email, first_name, role, verified, created_at, updated_at)", "schema": UserProfileSchema},
         404: {"description": "Пользователь не найден"},
     },
 )
@@ -179,7 +183,7 @@ async def users_get(request: web.Request) -> web.Response:
     summary="Обновить пользователя",
     description="Обновить пользователя и/или назначить роль. Доступ: Admin. Path: id — UUID пользователя.",
     responses={
-        200: {"description": "Пользователь обновлён (объект пользователя без пароля)"},
+        200: {"description": "Пользователь обновлён (объект пользователя без пароля)", "schema": UserProfileSchema},
         400: {"description": "Некорректный запрос"},
         404: {"description": "Пользователь не найден"},
     },
@@ -213,7 +217,7 @@ async def users_update(request: web.Request, parsed: UserUpdate) -> web.Response
         "Для Experimenter без персональной группы используется fallback, "
         "а при её отсутствии — min_approvals=1, approver_ids=все admin."
     ),
-    responses={200: {"description": "Список групп аппруверов (поле approver_groups)"}},
+    responses={200: {"description": "Список групп аппруверов (поле approver_groups)", "schema": ApproverGroupListResponseSchema}},
 )
 async def approver_groups_list(request: web.Request) -> web.Response:
     auth_payload = await check_authorization(request)
@@ -235,7 +239,7 @@ async def approver_groups_list(request: web.Request) -> web.Response:
         "Доступ: Admin. В группу попадают только пользователи с role admin/approver."
     ),
     responses={
-        201: {"description": "Группа создана (объект группы с id, experimenter_id, min_approvals, created_at, updated_at)"},
+        201: {"description": "Группа создана (объект группы с id, experimenter_id, min_approvals, created_at, updated_at)", "schema": ApproverGroupItemSchema},
         400: {"description": "Некорректный запрос"},
         404: {"description": "Experimenter не найден"},
         409: {"description": "Группа для experimenter_id уже существует"},
@@ -273,7 +277,7 @@ async def approver_groups_create(request: web.Request, parsed: ApproverGroupSet)
         "Доступ: Admin. Path: id — UUID группы."
     ),
     responses={
-        200: {"description": "Группа обновлена (объект группы)"},
+        200: {"description": "Группа обновлена (объект группы)", "schema": ApproverGroupItemSchema},
         400: {"description": "Некорректный запрос"},
         404: {"description": "Группа не найдена"},
     },

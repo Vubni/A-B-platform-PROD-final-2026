@@ -4,7 +4,7 @@ import time
 from aiohttp import web
 from aiohttp_apispec import docs, request_schema
 
-from docs.schems import AuthLoginSchema
+from docs.schems import AuthLoginSchema, AuthLoginResponseSchema
 from pydantic import BaseModel
 
 from core import check_token, create_token
@@ -24,7 +24,7 @@ class AuthLogin(BaseModel):
         "Авторизация, возвращает токен и данные пользователя"
     ),
     responses={
-        200: {"description": "Успешный вход (token, user без пароля)"},
+        200: {"description": "Успешный вход (token, user без пароля)", "schema": AuthLoginResponseSchema},
         400: {"description": "Некорректный запрос (email или пароль)"},
         401: {"description": "Неверный email или пароль"},
     },

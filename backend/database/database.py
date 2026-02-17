@@ -7,7 +7,7 @@ from config import DATE_BASE_CONNECT, logger
 
 class Database:
     MAX_RETRIES = 30
-    RETRY_DELAY = 1  # seconds
+    RETRY_DELAY = 1
 
     def __init__(self):
         self.connection: Optional[Connection] = None

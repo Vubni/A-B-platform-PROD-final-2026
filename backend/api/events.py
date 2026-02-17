@@ -3,6 +3,7 @@ from aiohttp import web
 from aiohttp_apispec import docs
 
 from api.system_metrics import record_events_submitted
+from docs.schems import EventsSubmitResponseSchema, EventTypesListResponseSchema, EventTypeItemSchema
 
 
 @docs(
@@ -13,7 +14,7 @@ from api.system_metrics import record_events_submitted
         "Возвращает: количество принятых, дубликатов, отклонённых и ошибки по отклонённым."
     ),
     responses={
-        200: {"description": "Пакет обработан. См. счётчики accepted/duplicates/rejected."},
+        200: {"description": "Пакет обработан. См. счётчики accepted/duplicates/rejected.", "schema": EventsSubmitResponseSchema},
         400: {"description": "Некорректный формат пакета"},
     },
 )
@@ -36,7 +37,7 @@ async def events_submit(request: web.Request) -> web.Response:
     tags=["Events"],
     summary="Список типов событий (каталог)",
     description="Получить каталог типов событий. Админ создаёт/редактирует типы с метаданными и правилами валидации.",
-    responses={200: {"description": "Список типов событий"}},
+    responses={200: {"description": "Список типов событий", "schema": EventTypesListResponseSchema}},
 )
 async def event_types_list(request: web.Request) -> web.Response:
     return web.json_response({"event_types": [], "status": "not_implemented"}, status=200)
@@ -47,7 +48,7 @@ async def event_types_list(request: web.Request) -> web.Response:
     summary="Создать тип события",
     description="Создать тип события в каталоге (Админ).",
     responses={
-        201: {"description": "Тип события создан"},
+        201: {"description": "Тип события создан", "schema": EventTypeItemSchema},
         400: {"description": "Некорректный запрос"},
         403: {"description": "Только для админа"},
     },
@@ -61,7 +62,7 @@ async def event_types_create(request: web.Request) -> web.Response:
     summary="Получить тип события",
     description="Получить тип события по id.",
     responses={
-        200: {"description": "Данные типа события"},
+        200: {"description": "Данные типа события", "schema": EventTypeItemSchema},
         404: {"description": "Не найден"},
     },
 )
@@ -75,7 +76,7 @@ async def event_types_get(request: web.Request) -> web.Response:
     summary="Обновить тип события",
     description="Обновить тип события (Админ).",
     responses={
-        200: {"description": "Обновлено"},
+        200: {"description": "Обновлено", "schema": EventTypeItemSchema},
         400: {"description": "Некорректный запрос"},
         404: {"description": "Не найден"},
     },
@@ -90,7 +91,7 @@ async def event_types_update(request: web.Request) -> web.Response:
     summary="Архивировать тип события",
     description="Архивировать тип события (мягкое удаление).",
     responses={
-        200: {"description": "Архивировано"},
+        200: {"description": "Архивировано", "schema": EventTypeItemSchema},
         404: {"description": "Не найден"},
     },
 )
