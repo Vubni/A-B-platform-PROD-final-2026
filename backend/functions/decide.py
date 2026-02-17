@@ -17,7 +17,7 @@ async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any],
                     e.created_by, f.id AS flag_id, f.key AS flag_key
             FROM experiments e
             JOIN feature_flags f ON e.flag_id = f.id
-            WHERE e.status IN ('running', 'paused') AND f.key = ANY($1)""",
+            WHERE e.status = 'running' AND f.key = ANY($1)""",
             (flags,),
         )
         if not experiments:
