@@ -5,6 +5,7 @@ from aiohttp import web
 from aiohttp_apispec import docs, request_schema
 from pydantic import BaseModel, field_validator
 
+from dsl import validate_targeting_rule
 from api import validate
 from core import validate_uuid, check_authorization
 from docs.schems import (
@@ -89,6 +90,8 @@ class ExperimentCreate(BaseModel):
     def targeting_rule_opt(cls, v: Optional[str]) -> Optional[str]:
         if v is not None and len(v) > 2048:
             raise ValueError("Targeting rule too long")
+        if v is not None and not validate_targeting_rule(v):
+            raise ValueError("Invalid targeting rule")
         return v
 
     @field_validator("primary_metric_key")
@@ -124,6 +127,8 @@ class ExperimentUpdate(BaseModel):
     def targeting_rule_opt(cls, v: Optional[str]) -> Optional[str]:
         if v is not None and len(v) > 2048:
             raise ValueError("Targeting rule too long")
+        if v is not None and not validate_targeting_rule(v):
+            raise ValueError("Invalid targeting rule")
         return v
 
     @field_validator("primary_metric_key")
@@ -282,7 +287,11 @@ async def experiments_get(request: web.Request) -> web.Response:
 @docs(
     tags=["Experiments"],
     summary="Обновить эксперимент",
-    description="Обновить эксперимент. Разрешено только в состоянии черновика. Версия увеличивается, создаётся снимок.",
+    description=(
+        "Обновить эксперимент. В статусе draft можно менять параметры раздачи/таргетинга/метрики "
+        "(версия увеличивается, создаётся снимок). "
+        "После старта (running/paused/...) эксперимент 'заморожен': разрешено менять только name."
+    ),
     responses={
         200: {"description": "Эксперимент обновлён", "schema": ExperimentItemSchema},
         400: {"description": "Некорректный запрос или эксперимент не в черновике"},
@@ -305,23 +314,39 @@ async def experiments_update(request: web.Request, parsed: ExperimentUpdate) -> 
     experiment = await get_experiment_by_id(exp_id)
     if not experiment:
         return validate.format_404_error(request, "Experiment not found")
-    if experiment.get("status") != "draft":
-        return web.json_response(
-            {"error": "Experiment can be updated only in draft status", "status": experiment["status"]},
-            status=400)
     created_by = experiment.get("created_by")
     if str(created_by) != str(auth_payload.get("id")):
         return validate.format_403_error(request, "Only owner or admin can update this experiment")
 
-    updated = await update_experiment(
-        experiment_id=exp_id,
-        name=parsed.name,
-        audience_fraction=parsed.audience_fraction,
-        targeting_rule=parsed.targeting_rule,
-        primary_metric_key=parsed.primary_metric_key)
-    if not updated:
-        return validate.format_404_error(request, "Experiment not found or not in draft")
-    return web.json_response(updated)
+    status = experiment.get("status")
+
+    if not (parsed.name or parsed.audience_fraction or parsed.targeting_rule or parsed.primary_metric_key):
+        return web.json_response(
+            {"error": "No fields to update"}, 
+            status=400)
+
+    if status == "draft":
+        updated = await update_experiment(
+            experiment_id=exp_id,
+            name=parsed.name,
+            audience_fraction=parsed.audience_fraction,
+            targeting_rule=parsed.targeting_rule,
+            primary_metric_key=parsed.primary_metric_key)
+        return web.json_response(updated)
+
+    if status in ("running", "paused", "completed", "archived"):
+        if parsed.audience_fraction or parsed.targeting_rule or parsed.primary_metric_key:
+            return web.json_response(
+                {"error": "Experiment is frozen after start; only 'name' can be updated"}, 
+                status=400)
+
+        updated = await update_experiment(exp_id, parsed.name)
+        return web.json_response(updated)
+
+    return web.json_response(
+        {"error": "Experiment can be updated only in draft status", "status": status},
+        status=400,
+    )
 
 
 @docs(

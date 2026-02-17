@@ -14,15 +14,17 @@ REVIEW_ACTIONS = ("approved", "requested_changes", "rejected")
 
 async def create_experiment(flag_id: str, name: str, audience_fraction: float, created_by: Optional[str] = None, targeting_rule: Optional[str] = None, primary_metric_key: Optional[str] = None) -> Optional[dict]:
     async with Database() as db:
-        flag_row = await db.execute("SELECT id FROM feature_flags WHERE id = $1 AND name = $2", (flag_id, name))
+        flag_row = await db.execute("SELECT 1 FROM feature_flags WHERE id = $1", (flag_id,))
         if not flag_row:
             return None
-        await db.execute(
+        new_id = await db.fetchval(
             """INSERT INTO experiments (flag_id, name, audience_fraction, targeting_rule, primary_metric_key, created_by)
-               VALUES ($1, $2, $3, $4, $5, $6)""",
+               VALUES ($1, $2, $3, $4, $5, $6) RETURNING id""",
             (flag_id, name, audience_fraction, targeting_rule, primary_metric_key, created_by),
         )
-        return await get_experiment_by_id(flag_id)
+        if not new_id:
+            return None
+    return await get_experiment_by_id(str(new_id))
 
 
 async def get_experiment_by_id(experiment_id: str) -> Optional[dict]:
@@ -118,7 +120,7 @@ async def update_experiment(experiment_id: str, name: Optional[str] = None, audi
                    VALUES ($1, $2, $3)""",
                 (experiment_id, new_version, snapshot),
             )
-        return await get_experiment_by_id(experiment_id)
+    return await get_experiment_by_id(experiment_id)
 
 
 async def _build_experiment_snapshot(db, experiment_id: str) -> Optional[dict]:
@@ -238,7 +240,7 @@ async def submit_review(experiment_id: str) -> Optional[dict]:
         await db.execute(
             "UPDATE experiments SET status = 'on_review', updated_at = NOW() WHERE id = $1",
             (experiment_id,))
-        return await get_experiment_by_id(experiment_id)
+    return await get_experiment_by_id(experiment_id)
 
 
 async def get_review_approvals_count(experiment_id: str) -> int:
@@ -305,7 +307,7 @@ async def add_review_record(experiment_id: str, reviewer_id: str, action: str, c
                 await db.execute(
                     "UPDATE experiments SET status = 'approved', updated_at = NOW() WHERE id = $1",
                     (experiment_id,))
-        return await get_experiment_by_id(experiment_id)
+    return await get_experiment_by_id(experiment_id)
 
 
 STATUS_TRANSITIONS = {

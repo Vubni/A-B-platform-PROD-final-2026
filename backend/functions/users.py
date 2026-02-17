@@ -100,7 +100,7 @@ async def update_user(user_id: str, email: Optional[str] = None, first_name: Opt
             return None
         sql = f"UPDATE users SET {', '.join(updates)} WHERE id = ${idx}"
         await db.execute(sql, tuple(params))
-        return await get_user_by_id(user_id)
+    return await get_user_by_id(user_id)
 
 
 async def get_approver_group_for_experimenter(experimenter_id: str) -> dict | None:

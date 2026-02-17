@@ -25,6 +25,8 @@ services:
     container_name: prod_backend
     restart: unless-stopped
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     environment:
@@ -34,6 +36,36 @@ services:
       - "80:80"
     volumes:
       - backend_logs:/app/logs
+
+  migrate:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: prod_secret
+    volumes:
+      - ./docker/postgres/init.sql:/init.sql:ro
+    command: ["sh", "-c", "psql -h postgres -U user -d prod -f /init.sql"]
+    restart: "no"
+
+  tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.tests
+    environment:
+      API_BASE_URL: http://backend:80
+      DB_HOST: postgres
+      DB_USER: user
+      DB_PASSWORD: prod_secret
+      DB_NAME: prod
+    depends_on:
+      backend:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    command: ["sh", "-c", "python /app/tests/seed_test_data.py && pytest /app/tests/"]
+    profiles: ["test"]
 
 volumes:
   postgres_data:

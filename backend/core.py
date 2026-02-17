@@ -5,6 +5,7 @@ from aiohttp import web
 from config import logger
 from functools import wraps
 from datetime import datetime, date, time as time_type, timezone
+from decimal import Decimal
 import uuid
 import jwt
 from config import SECRET
@@ -127,6 +128,8 @@ def serialize_json(obj):
         return tuple(result) if isinstance(obj, tuple) else result
     elif isinstance(obj, uuid.UUID):
         return str(obj)
+    elif isinstance(obj, Decimal):
+        return float(obj)
     else:
         return obj
     

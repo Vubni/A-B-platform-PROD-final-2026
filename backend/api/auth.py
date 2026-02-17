@@ -44,7 +44,7 @@ async def auth_login(request: web.Request, parsed: AuthLogin) -> web.Response:
         return validate.format_401_error(request, "Invalid email or password")
 
     token_payload = {
-        "user_id": user["id"],
+        "id": user["id"],
         "role": user["role"],
         "exp": int(time.time()) + AUTH_TOKEN_EXPIRATION,
     }

@@ -175,7 +175,6 @@ APPROVER_GROUP_UPDATE_REQUEST_EXAMPLE = {
     "approver_ids": ["b2c3d4e5-f6a7-8901-bcde-f12345678901"],
 }
 
-# ——— Experiments (request) ———
 class ExperimentCreateSchema(Schema):
     flag_id = fields.Str(required=True, description="UUID флага")
     name = fields.Str(required=True, description="Название эксперимента, до 255 символов")
@@ -216,7 +215,6 @@ class VariantUpdateSchema(Schema):
     is_control = fields.Bool(required=False, description="Является ли контрольным")
 
 
-# ——— Experiments (response) ———
 class ExperimentVariantSchema(Schema):
     id = fields.Str(description="UUID варианта")
     variant_name = fields.Str()
@@ -253,7 +251,6 @@ class GuardrailHistoryResponseSchema(Schema):
     triggers = fields.List(fields.Dict(), description="История срабатываний guardrail")
 
 
-# ——— Flags (response) ———
 class FlagItemSchema(Schema):
     id = fields.Str()
     key = fields.Str()
@@ -270,7 +267,6 @@ class FlagListResponseSchema(Schema):
     flags = fields.List(fields.Nested(FlagItemSchema), description="Массив флагов")
 
 
-# ——— Decide ———
 class DecideRequestSchema(Schema):
     subject_id = fields.Str(required=True, description="Идентификатор субъекта")
     attributes = fields.Dict(allow_none=True, description="Атрибуты субъекта")
@@ -289,7 +285,6 @@ class DecideResponseSchema(Schema):
     status = fields.Str(allow_none=True)
 
 
-# ——— Events ———
 class EventsSubmitResponseSchema(Schema):
     accepted = fields.Int(description="Принято событий")
     duplicates = fields.Int(description="Дубликатов")
@@ -310,7 +305,6 @@ class EventTypesListResponseSchema(Schema):
     status = fields.Str(allow_none=True)
 
 
-# ——— Reports ———
 class ReportExperimentResponseSchema(Schema):
     experiment_id = fields.Str()
     variants = fields.List(fields.Dict())

@@ -1,3 +1,22 @@
+DROP TABLE IF EXISTS experiment_version_snapshots CASCADE;
+DROP TABLE IF EXISTS experiment_guardrail_history CASCADE;
+DROP TABLE IF EXISTS experiment_review_history CASCADE;
+DROP TABLE IF EXISTS experiment_metrics CASCADE;
+DROP TABLE IF EXISTS experiment_variants CASCADE;
+DROP TABLE IF EXISTS experiments CASCADE;
+DROP TABLE IF EXISTS feature_flags CASCADE;
+DROP TABLE IF EXISTS approver_group_members CASCADE;
+DROP TABLE IF EXISTS approver_groups CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS metric_catalog CASCADE;
+DROP FUNCTION IF EXISTS check_experiment_variants_invariants() CASCADE;
+DROP FUNCTION IF EXISTS check_experiment_audience_fraction() CASCADE;
+DROP FUNCTION IF EXISTS check_experiment_frozen_params() CASCADE;
+DROP FUNCTION IF EXISTS check_experiment_variants_frozen() CASCADE;
+DROP TYPE IF EXISTS experiment_status CASCADE;
+DROP TYPE IF EXISTS flag_value_type CASCADE;
+DROP TYPE IF EXISTS user_role CASCADE;
+
 CREATE TYPE user_role AS ENUM ('admin', 'experimenter', 'approver', 'viewer');
 
 CREATE TABLE IF NOT EXISTS users (
@@ -111,19 +130,23 @@ DECLARE
     af NUMERIC;
     total_weight NUMERIC;
     control_count INT;
+    variant_count INT;
 BEGIN
     eid := COALESCE(NEW.experiment_id, OLD.experiment_id);
-    IF (SELECT COUNT(*) FROM experiment_variants WHERE experiment_id = eid) = 0 THEN
+    SELECT COUNT(*) INTO variant_count FROM experiment_variants WHERE experiment_id = eid;
+    IF variant_count = 0 THEN
         RETURN COALESCE(NEW, OLD);
     END IF;
-    SELECT audience_fraction INTO af FROM experiments WHERE id = eid;
-    SELECT COALESCE(SUM(weight), 0) INTO total_weight FROM experiment_variants WHERE experiment_id = eid;
     SELECT COUNT(*) INTO control_count FROM experiment_variants WHERE experiment_id = eid AND is_control = TRUE;
     IF control_count <> 1 THEN
         RAISE EXCEPTION 'Experiment must have exactly one control variant (is_control = true). Currently: %', control_count;
     END IF;
-    IF total_weight IS NULL OR total_weight <> af THEN
-        RAISE EXCEPTION 'The sum of variant weights (%s) must match the experiment audience fraction (%s)', total_weight, af;
+    IF variant_count >= 2 THEN
+        SELECT audience_fraction INTO af FROM experiments WHERE id = eid;
+        SELECT COALESCE(SUM(weight), 0) INTO total_weight FROM experiment_variants WHERE experiment_id = eid;
+        IF total_weight IS NULL OR total_weight <> af THEN
+            RAISE EXCEPTION 'The sum of variant weights (%s) must match the experiment audience fraction (%s)', total_weight, af;
+        END IF;
     END IF;
     RETURN COALESCE(NEW, OLD);
 END;

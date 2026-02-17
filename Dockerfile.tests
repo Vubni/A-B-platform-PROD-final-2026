@@ -1,0 +1,17 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY backend/requirements.txt /app/backend/requirements.txt
+RUN pip install --no-cache-dir -r /app/backend/requirements.txt
+
+COPY requirements-test.txt /app/requirements-test.txt
+RUN pip install --no-cache-dir -r /app/requirements-test.txt
+
+COPY backend /app/backend
+COPY tests /app/tests
+COPY pytest.ini /app/pytest.ini
+
+RUN mkdir -p /app/logs /app/backend/logs
+
+CMD ["sh", "-c", "python /app/tests/seed_test_data.py && pytest -c /app/pytest.ini /app/tests/"]

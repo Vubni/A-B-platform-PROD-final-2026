@@ -63,13 +63,17 @@ class FlagCreate(BaseModel):
             raise ValueError(f"value_type must be one of {FLAG_VALUE_TYPES}")
         return v
 
-    @field_validator("default_value")
+    @field_validator("default_value", mode="before")
     @classmethod
-    def default_value_valid(cls, v: str, info) -> str:
-        if v is None or (isinstance(v, str) and v.strip() == ""):
+    def default_value_valid(cls, v, info) -> str:
+        if v is None:
+            raise ValueError("default_value is required")
+        if isinstance(v, (int, float)):
+            v = str(v)
+        if isinstance(v, str) and v.strip() == "":
             raise ValueError("default_value is required")
         v = v.strip() if isinstance(v, str) else str(v)
-        value_type = info.data.get("value_type")
+        value_type = info.data.get("value_type") if hasattr(info, "data") else None
         if value_type:
             _validate_default_value_by_type(value_type, v)
         return v

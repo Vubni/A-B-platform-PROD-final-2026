@@ -356,7 +356,8 @@ def validate_targeting_rule(rule: Optional[str]) -> bool:
     ast, parse_err = _parse_dsl_string(rule)
     if parse_err:
         return False
-    return _validate_dsl_node(ast) is None
+    temp = _validate_dsl_node(ast)
+    return True if temp is None else temp
 
 
 if __name__ == "__main__":

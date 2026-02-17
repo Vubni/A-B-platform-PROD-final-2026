@@ -5,6 +5,8 @@ import os
 
 load_dotenv()
 
+os.makedirs("logs", exist_ok=True)
+
 DATE_BASE_CONNECT = {"host": os.getenv("DB_HOST", "0.0.0.0"),
                      "user": os.getenv("DB_USER", "user"),
                      "password": os.getenv("DB_PASSWORD"),
