@@ -37,6 +37,28 @@ async def main() -> None:
     else:
         print("Experimenter already exists or conflict")
 
+    viewer = await create_user(
+        email="viewer@test.com",
+        first_name="TestViewer",
+        password="view123",
+        role="viewer",
+    )
+    if viewer:
+        print("Created viewer: viewer@test.com / view123")
+    else:
+        print("Viewer already exists or conflict")
+
+    approver = await create_user(
+        email="approver@test.com",
+        first_name="TestApprover",
+        password="app123",
+        role="approver",
+    )
+    if approver:
+        print("Created approver: approver@test.com / app123")
+    else:
+        print("Approver already exists or conflict")
+
     flag = await create_flag(
         key="test_feature_flag",
         value_type="string",

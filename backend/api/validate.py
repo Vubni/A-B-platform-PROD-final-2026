@@ -155,19 +155,15 @@ def require_auth(handler: Callable[[web.Request, Any], Awaitable[web.Response]])
     async def wrapper(request: web.Request, *args, **kwargs) -> web.Response:
         payload = await core.check_authorization(request)
         if not isinstance(payload, dict):
-            return payload
+            if payload is not None and isinstance(payload, web.Response):
+                return payload
+            return format_401_error(request)
         request['user_payload'] = payload
         return await handler(request, *args, **kwargs)
     return wrapper
 
 
 def validate(model: type[T], require_auth: bool = False) -> Callable:
-    """Декоратор для валидации тела запроса.
-
-    Args:
-        model: Pydantic модель для валидации.
-        require_auth: Если True, проверяет JWT токен ДО валидации тела запроса.
-    """
     def decorator(handler: Callable[[web.Request, Any], Awaitable[web.Response]]):
         @wraps(handler)
         async def wrapper(request: web.Request) -> web.Response:
@@ -176,7 +172,10 @@ def validate(model: type[T], require_auth: bool = False) -> Callable:
             if require_auth:
                 payload = await core.check_authorization(request)
                 if not isinstance(payload, dict):
-                    return payload
+                    if payload is not None and isinstance(payload, web.Response):
+                        return payload
+                    return format_401_error(request)
+                request["user_payload"] = payload
 
             if request.method in ('POST', 'PUT', 'PATCH'):
                 content_type = request.headers.get('Content-Type', '')

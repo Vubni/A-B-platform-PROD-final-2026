@@ -1,3 +1,6 @@
+DROP TABLE IF EXISTS event_occurrences CASCADE;
+DROP TABLE IF EXISTS event_types CASCADE;
+DROP TABLE IF EXISTS decisions CASCADE;
 DROP TABLE IF EXISTS experiment_version_snapshots CASCADE;
 DROP TABLE IF EXISTS experiment_guardrail_history CASCADE;
 DROP TABLE IF EXISTS experiment_review_history CASCADE;
@@ -266,3 +269,63 @@ CREATE TABLE IF NOT EXISTS experiment_version_snapshots (
 CREATE INDEX IF NOT EXISTS idx_experiment_version_snapshots_experiment ON experiment_version_snapshots(experiment_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_experiment_version_snapshots_version
     ON experiment_version_snapshots(experiment_id, version);
+
+-- Runtime Decide: решения (показы) — что выдали субъекту по каждому флагу
+CREATE TABLE IF NOT EXISTS decisions (
+    id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
+    decision_id UUID NOT NULL UNIQUE,
+    subject_id VARCHAR NOT NULL,
+    flag_id UUID NOT NULL REFERENCES feature_flags(id) ON DELETE CASCADE,
+    value TEXT NOT NULL,
+    experiment_id UUID REFERENCES experiments(id) ON DELETE SET NULL,
+    variant_id UUID REFERENCES experiment_variants(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_decisions_decision_id ON decisions(decision_id);
+CREATE INDEX IF NOT EXISTS idx_decisions_subject_id ON decisions(subject_id);
+CREATE INDEX IF NOT EXISTS idx_decisions_flag_id ON decisions(flag_id);
+CREATE INDEX IF NOT EXISTS idx_decisions_experiment_id ON decisions(experiment_id);
+CREATE INDEX IF NOT EXISTS idx_decisions_created_at ON decisions(created_at);
+
+-- Каталог типов событий: метаданные, параметры, валидация, участие в отчётах/алертах
+CREATE TABLE IF NOT EXISTS event_types (
+    id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
+    key VARCHAR NOT NULL UNIQUE,
+    display_name VARCHAR,
+    description TEXT,
+    required_params JSONB,
+    validation_rules JSONB,
+    report_alert_config JSONB,
+    status VARCHAR NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+COMMENT ON COLUMN event_types.key IS 'Уникальный ключ типа (exposure, purchase, click и т.д.)';
+COMMENT ON COLUMN event_types.display_name IS 'Человекочитаемое имя типа';
+COMMENT ON COLUMN event_types.description IS 'Описание типа события';
+COMMENT ON COLUMN event_types.required_params IS 'Обязательные доп. параметры: схема {param: type} или JSON Schema';
+COMMENT ON COLUMN event_types.validation_rules IS 'Правила валидации (формат на усмотрение движка)';
+COMMENT ON COLUMN event_types.report_alert_config IS 'Как событие участвует в отчётах/алертах: metric_key, aggregation, guardrail и т.д.';
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_event_types_key ON event_types(key);
+CREATE INDEX IF NOT EXISTS idx_event_types_status ON event_types(status);
+
+-- Произошедшие события (для decide/атрибуции): привязка к решению и к типу из каталога
+CREATE TABLE IF NOT EXISTS event_occurrences (
+    id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id VARCHAR NOT NULL UNIQUE,
+    decision_id UUID NOT NULL REFERENCES decisions(decision_id) ON DELETE RESTRICT,
+    event_type_id UUID NOT NULL REFERENCES event_types(id) ON DELETE RESTRICT,
+    subject_id VARCHAR NOT NULL,
+    "timestamp" TIMESTAMPTZ NOT NULL,
+    payload JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_event_occurrences_event_id ON event_occurrences(event_id);
+CREATE INDEX IF NOT EXISTS idx_event_occurrences_decision_id ON event_occurrences(decision_id);
+CREATE INDEX IF NOT EXISTS idx_event_occurrences_event_type_id ON event_occurrences(event_type_id);
+CREATE INDEX IF NOT EXISTS idx_event_occurrences_subject_id ON event_occurrences(subject_id);
+CREATE INDEX IF NOT EXISTS idx_event_occurrences_timestamp ON event_occurrences("timestamp");

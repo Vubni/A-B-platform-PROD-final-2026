@@ -268,21 +268,28 @@ class FlagListResponseSchema(Schema):
 
 
 class DecideRequestSchema(Schema):
-    subject_id = fields.Str(required=True, description="Идентификатор субъекта")
-    attributes = fields.Dict(allow_none=True, description="Атрибуты субъекта")
-    flag_keys = fields.List(fields.Str(), description="Список ключей флагов")
+    subject_id = fields.Str(required=True, description="Идентификатор субъекта (пользователя, устройства, сессии)")
+    attributes = fields.Dict(allow_none=True, description="Атрибуты субъекта для таргетинга (произвольные ключ-значение)")
+    flags = fields.List(fields.Str(), required=True, description="Список UUID флагов (минимум один)")
 
 
-class DecisionItemSchema(Schema):
-    value = fields.Raw(description="Значение флага")
-    decision_id = fields.Str(allow_none=True, description="ID решения для атрибуции")
-    experiment_id = fields.Str(allow_none=True)
-    variant = fields.Str(allow_none=True)
+class DecideExperimentSchema(Schema):
+    experiment_id = fields.Str(description="UUID эксперимента")
+    variant = fields.Str(description="Название варианта (control, treatment и т.д.)")
+
+
+class DecideFlagItemSchema(Schema):
+    flag_key = fields.Str(description="Ключ (UUID) флага")
+    flag_value = fields.Raw(description="Значение флага для этого субъекта (bool, число, строка — по типу флага)")
+    decision_id = fields.Str(allow_none=True, description="UUID решения для атрибуции событий (если решение записывалось)")
+    experiment = fields.Nested(DecideExperimentSchema, allow_none=True, description="Данные эксперимента, если субъект в эксперименте; иначе null")
 
 
 class DecideResponseSchema(Schema):
-    decisions = fields.Dict(description="Ключ — key флага, значение — объект {value, decision_id, experiment_id, variant}")
-    status = fields.Str(allow_none=True)
+    flags = fields.List(
+        fields.Nested(DecideFlagItemSchema),
+        description="Решения по флагам в том же порядке, что и в запросе"
+    )
 
 
 class EventsSubmitResponseSchema(Schema):

@@ -83,7 +83,8 @@ async def metrics_export(request: web.Request) -> web.Response:
 async def metrics_middleware(request: web.Request, handler):
     try:
         response = await handler(request)
-        record_request(request.method, request.path, response.status)
+        status = response.status if response is not None else 500
+        record_request(request.method, request.path, status)
         return response
     except Exception:
         record_request(request.method, request.path, 500)

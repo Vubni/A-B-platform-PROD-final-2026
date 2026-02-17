@@ -16,6 +16,8 @@ SECRET = os.getenv("RANDOM_SECRET", "AJd27GqoS#gvxp@V")
 
 AUTH_TOKEN_EXPIRATION = 24 * 3600
 
+MAX_ACTIVE_EXPERIMENTS_PER_SUBJECT = int(os.getenv("MAX_ACTIVE_EXPERIMENTS_PER_SUBJECT", "3"))
+EXPERIMENT_COOLDOWN_SECONDS = int(os.getenv("EXPERIMENT_COOLDOWN_SECONDS", str(7 * 24 * 3600)))
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

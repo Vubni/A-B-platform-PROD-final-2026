@@ -9,8 +9,9 @@
 - `test_experiments_api.py` — эксперименты (CRUD, статусы, варианты, guardrail-history).
 - `test_flags_api.py` — флаги (список, get по ключу, создание, обновление default_value).
 - `test_users_api.py` — авторизация и пользователи/профили (список, get, создание, обновление).
+- `test_decide_api.py` — Runtime Decide: 401 без токена, 403 для admin/experimenter, 200 для viewer, валидация 422/404; возврат default_value без эксперимента, консистентность для одного subject_id, порядок ответа как в запросе, доля аудитории ~20%.
 
-Сид данных для тестов выполняется скриптом `tests/seed_test_data.py` (пользователи admin@test.com, experimenter@test.com и флаг test_feature_flag).
+Сид данных для тестов выполняется скриптом `tests/seed_test_data.py` (пользователи admin@test.com, experimenter@test.com, viewer@test.com, approver@test.com и флаг test_feature_flag).
 
 ## Предусловия
 
@@ -52,6 +53,7 @@ pytest tests/test_health.py
 pytest tests/test_flags_api.py
 pytest tests/test_users_api.py
 pytest tests/test_experiments_api.py -k "create_success"
+pytest tests/test_decide_api.py
 ```
 
 ## Переменные окружения

@@ -35,7 +35,6 @@ def validate_uuid(v: str) -> str:
         return None
 
 def create_token(payload) -> str:
-    """Кодирование данных"""
     token = jwt.encode(
         payload,
         SECRET,
@@ -52,7 +51,6 @@ def parse_uuid(value: str) -> str | None:
 
 
 def check_token(token):
-    """Расшифровка токена"""
     try:
         decoded = jwt.decode(
             token,
@@ -72,7 +70,6 @@ def generate_unique_code(length:int=32):
 
 
 def is_domain_valid(domain):
-    """Проверяет, соответствует ли домен стандартам (RFC 1035)."""
     segments = domain.split('.')
     for segment in segments:
         if not segment:
@@ -84,7 +81,6 @@ def is_domain_valid(domain):
     return True
 
 def is_valid_email(email:str) -> bool:
-    """Проверка реальности почты"""
     regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     if not re.match(regex, email):
         return False
@@ -135,7 +131,6 @@ def serialize_json(obj):
     
 
 def is_hashable(obj):
-    """Проверяет, является ли объект хешируемым."""
     try:
         hash(obj)
         return True

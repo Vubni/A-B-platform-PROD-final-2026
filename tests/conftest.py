@@ -52,6 +52,30 @@ async def auth_headers_admin(admin_token):
 
 
 @pytest.fixture
+async def viewer_token(http_session, base_url):
+    """Токен пользователя viewer@test.com (после seed_test_data.py)."""
+    token, _ = await _login(http_session, base_url, "viewer@test.com", "view123")
+    return token
+
+
+@pytest.fixture
+async def auth_headers_viewer(viewer_token):
+    return {"Authorization": f"Bearer {viewer_token}"}
+
+
+@pytest.fixture
+async def approver_token(http_session, base_url):
+    """Токен пользователя approver@test.com (после seed_test_data.py)."""
+    token, _ = await _login(http_session, base_url, "approver@test.com", "app123")
+    return token
+
+
+@pytest.fixture
+async def auth_headers_approver(approver_token):
+    return {"Authorization": f"Bearer {approver_token}"}
+
+
+@pytest.fixture
 async def flag_id(http_session, base_url, auth_headers_admin):
     """ID флага test_feature_flag (должен быть создан seed-скриптом)."""
     url = f"{base_url}/api/v1/flags/test_feature_flag"

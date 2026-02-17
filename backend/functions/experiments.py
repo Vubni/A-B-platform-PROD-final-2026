@@ -1,4 +1,5 @@
 from decimal import Decimal
+import json
 from typing import Any, Optional
 
 from core import serialize_json
@@ -72,7 +73,7 @@ async def get_experiments_list(flag_id: Optional[str] = None, status: Optional[s
             idx += 1
         sql += " ORDER BY e.updated_at DESC"
         rows = await db.execute_all(sql, tuple(params))
-        return rows
+        return serialize_json(rows)
 
 
 async def update_experiment(experiment_id: str, name: Optional[str] = None, audience_fraction: Optional[float] = None, targeting_rule: Optional[str] = None, primary_metric_key: Optional[str] = None) -> Optional[dict]:
@@ -118,7 +119,7 @@ async def update_experiment(experiment_id: str, name: Optional[str] = None, audi
             await db.execute(
                 """INSERT INTO experiment_version_snapshots (experiment_id, version, snapshot)
                    VALUES ($1, $2, $3)""",
-                (experiment_id, new_version, snapshot),
+                (experiment_id, new_version, json.dumps(snapshot)),
             )
     return await get_experiment_by_id(experiment_id)
 

@@ -34,6 +34,18 @@ async def get_flag_by_key(key: str) -> Optional[dict]:
         return serialize_json(row)
 
 
+async def get_flag_by_id(flag_id: str) -> Optional[dict]:
+    async with Database() as db:
+        row = await db.execute(
+            """SELECT id, key, value_type::text, default_value, description, owner, metadata, created_at, updated_at
+               FROM feature_flags WHERE id = $1""",
+            (flag_id,),
+        )
+        if not row:
+            return None
+        return serialize_json(row)
+
+
 async def get_flags_list() -> list[dict]:
     async with Database() as db:
         rows = await db.execute_all(

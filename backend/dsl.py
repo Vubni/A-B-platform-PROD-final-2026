@@ -360,6 +360,72 @@ def validate_targeting_rule(rule: Optional[str]) -> bool:
     return True if temp is None else temp
 
 
+def _collect_attrs(node: Any) -> set[str]:
+    if not isinstance(node, dict):
+        return set()
+    keys = set(node.keys())
+    for logical_key in ("and", "or"):
+        if keys == {logical_key}:
+            attrs = set()
+            for child in node[logical_key]:
+                attrs |= _collect_attrs(child)
+            return attrs
+    if keys == {"not"}:
+        return _collect_attrs(node["not"])
+    if keys <= {"attr", "op", "value"} and "attr" in keys:
+        return {node["attr"]}
+    return set()
+
+
+def _evaluate_node(node: Any, data: dict[str, Any]) -> bool:
+    if not isinstance(node, dict):
+        return False
+    keys = set(node.keys())
+    if keys == {"not"}:
+        return not _evaluate_node(node["not"], data)
+    if keys == {"and"}:
+        return all(_evaluate_node(c, data) for c in node["and"])
+    if keys == {"or"}:
+        return any(_evaluate_node(c, data) for c in node["or"])
+    if keys <= {"attr", "op", "value"} and "attr" in keys and "op" in keys and "value" in keys:
+        attr = node["attr"]
+        op = node["op"]
+        value = node["value"]
+        lhs = data[attr]
+        if op == "==":
+            return lhs == value
+        if op == "!=":
+            return lhs != value
+        if op == ">":
+            return lhs > value
+        if op == ">=":
+            return lhs >= value
+        if op == "<":
+            return lhs < value
+        if op == "<=":
+            return lhs <= value
+        if op == "in":
+            return lhs in value
+        if op == "not in":
+            return lhs not in value
+    return False
+
+
+def evaluate_targeting_rule(dsl: str, data: dict[str, Any]) -> bool:
+    if not dsl or not dsl.strip():
+        return True
+    ast, parse_err = _parse_dsl_string(dsl)
+    if parse_err:
+        return False
+    validation_err = _validate_dsl_node(ast)
+    if validation_err:
+        return False
+    required_attrs = _collect_attrs(ast)
+    if not required_attrs.issubset(data.keys()):
+        return False
+    return _evaluate_node(ast, data)
+
+
 if __name__ == "__main__":
     assert not validate_targeting_rule("test")
     assert validate_targeting_rule('number > 10 and rule == "ds"')
@@ -373,3 +439,19 @@ if __name__ == "__main__":
     assert not validate_targeting_rule('name == "foo')
     assert validate_targeting_rule("")
     assert validate_targeting_rule(None)
+
+    assert evaluate_targeting_rule("year >= 18", {"year": 18}) is True
+    assert evaluate_targeting_rule("year >= 18", {"year": 20}) is True
+    assert evaluate_targeting_rule("year >= 18", {"year": 17}) is False
+    assert evaluate_targeting_rule('country in ["RU", "KZ"]', {"country": "RU"}) is True
+    assert evaluate_targeting_rule('country in ["RU", "KZ"]', {"country": "BY"}) is False
+    assert evaluate_targeting_rule('year >= 18 and country == "RU"', {"year": 20, "country": "RU"}) is True
+    assert evaluate_targeting_rule('year >= 18 and country == "RU"', {"year": 20, "country": "KZ"}) is False
+
+    assert evaluate_targeting_rule("year >= 18", {}) is False
+    assert evaluate_targeting_rule("year >= 18", {"country": "RU"}) is False
+    assert evaluate_targeting_rule('year >= 18 and country == "RU"', {"year": 20}) is False
+    assert evaluate_targeting_rule('year >= 18 and country == "RU"', {"country": "RU"}) is False
+
+    assert evaluate_targeting_rule("", {"year": 1}) is True
+    assert evaluate_targeting_rule("   ", {"year": 1}) is True
