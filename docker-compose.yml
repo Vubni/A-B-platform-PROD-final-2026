@@ -25,8 +25,6 @@ services:
     container_name: prod_backend
     restart: unless-stopped
     depends_on:
-      migrate:
-        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     environment:
@@ -36,18 +34,6 @@ services:
       - "80:80"
     volumes:
       - backend_logs:/app/logs
-
-  migrate:
-    image: postgres:16-alpine
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      PGPASSWORD: prod_secret
-    volumes:
-      - ./docker/postgres/init.sql:/init.sql:ro
-    command: ["sh", "-c", "psql -h postgres -U user -d prod -f /init.sql"]
-    restart: "no"
 
   tests:
     build:

@@ -1,6 +1,7 @@
 import json
 import asyncio
 import uuid
+from datetime import date, datetime, time
 from typing import Union, List, Dict, Optional
 from asyncpg import Connection, connect, Record, PostgresConnectionError
 from config import DATE_BASE_CONNECT, logger
@@ -88,6 +89,12 @@ class Database:
                 data = data.decode('utf-8')
                 
             if isinstance(data, str):
+                s = data.strip()
+                if (s.startswith("{") or s.startswith("[")) and s.endswith(("}", "]")):
+                    try:
+                        return self.serialize(json.loads(data))
+                    except (json.JSONDecodeError, TypeError):
+                        pass
                 return data
                 
             if isinstance(data, list):
@@ -101,6 +108,13 @@ class Database:
 
             if isinstance(data, uuid.UUID):
                 return str(data)
+
+            if isinstance(data, datetime):
+                return data.isoformat() if data.tzinfo else data.strftime("%Y-%m-%dT%H:%M:%SZ")
+            if isinstance(data, date) and not isinstance(data, datetime):
+                return data.isoformat()
+            if isinstance(data, time):
+                return data.strftime("%H:%M:%S")
 
             return data
         except (TypeError, json.JSONDecodeError) as e:

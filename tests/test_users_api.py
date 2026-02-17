@@ -237,15 +237,16 @@ async def test_users_update_success(http_session, base_url, auth_headers_admin):
         assert cr.status == 201
         user_id = (await cr.json())["id"]
 
+    updated_name = f"UpdatedName_{unique}"
     patch_url = f"{base_url}/api/v1/users/{user_id}"
     async with http_session.patch(
         patch_url,
-        json={"first_name": "UpdatedName", "role": "experimenter"},
+        json={"first_name": updated_name, "role": "experimenter"},
         headers=auth_headers_admin,
     ) as resp:
         assert resp.status == 200
         data = await resp.json()
-        assert data["first_name"] == "UpdatedName"
+        assert data["first_name"] == updated_name
         assert data["role"] == "experimenter"
         assert data["id"] == user_id
 

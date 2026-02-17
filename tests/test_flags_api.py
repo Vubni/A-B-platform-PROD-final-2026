@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 
 
@@ -70,7 +72,7 @@ async def test_flags_create_requires_auth(http_session, base_url):
 async def test_flags_create_success(http_session, base_url, auth_headers_admin):
     """POST /api/v1/flags создаёт флаг, возвращает 201."""
     url = f"{base_url}/api/v1/flags"
-    key = "api_test_flag_string"
+    key = f"api_test_flag_string_{uuid.uuid4().hex[:8]}"
     payload = {
         "key": key,
         "value_type": "string",
@@ -93,9 +95,10 @@ async def test_flags_create_number_and_bool(
 ):
     """POST /api/v1/flags с value_type number и bool."""
     url = f"{base_url}/api/v1/flags"
+    suffix = uuid.uuid4().hex[:8]
     async with http_session.post(
         url,
-        json={"key": "api_test_flag_number", "value_type": "number", "default_value": "42"},
+        json={"key": f"api_test_flag_number_{suffix}", "value_type": "number", "default_value": "42"},
         headers=auth_headers_admin,
     ) as resp:
         assert resp.status == 201
@@ -104,7 +107,7 @@ async def test_flags_create_number_and_bool(
         assert data["default_value"] == "42"
     async with http_session.post(
         url,
-        json={"key": "api_test_flag_bool", "value_type": "bool", "default_value": "true"},
+        json={"key": f"api_test_flag_bool_{suffix}", "value_type": "bool", "default_value": "true"},
         headers=auth_headers_admin,
     ) as resp:
         assert resp.status == 201
@@ -153,7 +156,7 @@ async def test_flags_create_invalid_key_returns_400(
 async def test_flags_update_success(http_session, base_url, auth_headers_admin):
     """PATCH /api/v1/flags/{key} обновляет default_value."""
     create_url = f"{base_url}/api/v1/flags"
-    key = "api_test_flag_to_patch"
+    key = f"api_test_flag_to_patch_{uuid.uuid4().hex[:8]}"
     async with http_session.post(
         create_url,
         json={"key": key, "value_type": "string", "default_value": "old"},
@@ -189,7 +192,7 @@ async def test_flags_update_not_found(http_session, base_url, auth_headers_admin
 async def test_flags_create_as_experimenter(http_session, base_url, auth_headers_experimenter):
     """Experimenter может создавать флаги (роль admin или experimenter)."""
     url = f"{base_url}/api/v1/flags"
-    key = "api_test_flag_by_experimenter"
+    key = f"api_test_flag_by_experimenter_{uuid.uuid4().hex[:8]}"
     async with http_session.post(
         url,
         json={"key": key, "value_type": "string", "default_value": "v"},

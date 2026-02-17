@@ -300,16 +300,44 @@ class EventsSubmitResponseSchema(Schema):
     status = fields.Str(allow_none=True)
 
 
+class EventTypeCreateSchema(Schema):
+    key = fields.Str(required=True, description="Уникальный ключ типа (exposure, click, purchase и т.д.)")
+    display_name = fields.Str(allow_none=True, description="Человекочитаемое имя")
+    description = fields.Str(allow_none=True)
+    required_params = fields.Raw(allow_none=True, description="Обязательные доп. параметры (JSON объект/схема)")
+    validation_rules = fields.Raw(allow_none=True)
+    report_alert_config = fields.Raw(allow_none=True, description="Участие в отчётах/алертах")
+    requires_show_event_type_id = fields.Str(allow_none=True, description="UUID типа «факт показа» для атрибуции")
+    is_critical = fields.Bool(load_default=False, description="Критичность события")
+
+
+class EventTypeUpdateSchema(Schema):
+    display_name = fields.Str(allow_none=True)
+    description = fields.Str(allow_none=True)
+    required_params = fields.Raw(allow_none=True)
+    validation_rules = fields.Raw(allow_none=True)
+    report_alert_config = fields.Raw(allow_none=True)
+    requires_show_event_type_id = fields.Str(allow_none=True)
+    is_critical = fields.Bool(allow_none=True)
+
+
 class EventTypeItemSchema(Schema):
     id = fields.Str()
-    name = fields.Str(allow_none=True)
+    key = fields.Str()
+    display_name = fields.Str(allow_none=True)
     description = fields.Str(allow_none=True)
-    status = fields.Str(allow_none=True, description="Статус (например not_implemented)")
+    required_params = fields.Raw(allow_none=True)
+    validation_rules = fields.Raw(allow_none=True)
+    report_alert_config = fields.Raw(allow_none=True)
+    status = fields.Str()
+    requires_show_event_type_id = fields.Str(allow_none=True, description="Тип события «факт показа» для атрибуции")
+    is_critical = fields.Bool()
+    created_at = fields.Str(allow_none=True)
+    updated_at = fields.Str(allow_none=True)
 
 
 class EventTypesListResponseSchema(Schema):
     event_types = fields.List(fields.Nested(EventTypeItemSchema))
-    status = fields.Str(allow_none=True)
 
 
 class ReportExperimentResponseSchema(Schema):

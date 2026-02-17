@@ -1,9 +1,81 @@
-"""Events API — how product sends 'what happened'."""
-from aiohttp import web
-from aiohttp_apispec import docs
+from typing import Optional, Any
 
+from aiohttp import web
+from aiohttp_apispec import docs, request_schema
+from pydantic import BaseModel, field_validator
+
+from core import check_authorization, validate_uuid
+from api import validate
 from api.system_metrics import record_events_submitted
-from docs.schems import EventsSubmitResponseSchema, EventTypesListResponseSchema, EventTypeItemSchema
+from docs.schems import (
+    EventsSubmitResponseSchema,
+    EventTypesListResponseSchema,
+    EventTypeItemSchema,
+    EventTypeCreateSchema,
+    EventTypeUpdateSchema,
+)
+from functions.event_types import (
+    list_event_types,
+    get_event_type_by_id,
+    create_event_type,
+    update_event_type,
+    archive_event_type,
+)
+
+
+class EventTypeCreate(BaseModel):
+    key: str
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    required_params: Optional[dict] = None
+    validation_rules: Optional[dict] = None
+    report_alert_config: Optional[dict] = None
+    requires_show_event_type_id: Optional[str] = None
+    is_critical: bool = False
+
+    @field_validator("key")
+    @classmethod
+    def key_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("key is required")
+        return v.strip()
+
+    @field_validator("requires_show_event_type_id")
+    @classmethod
+    def requires_show_uuid(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v == "":
+            return None
+        u = validate_uuid(v)
+        if not u:
+            raise ValueError("requires_show_event_type_id must be a valid UUID")
+        return u
+
+
+class EventTypeUpdate(BaseModel):
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    required_params: Optional[dict] = None
+    validation_rules: Optional[dict] = None
+    report_alert_config: Optional[dict] = None
+    requires_show_event_type_id: Optional[str] = None
+    is_critical: Optional[bool] = None
+
+    @field_validator("requires_show_event_type_id")
+    @classmethod
+    def requires_show_uuid(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v == "":
+            return None
+        u = validate_uuid(v)
+        if not u:
+            raise ValueError("requires_show_event_type_id must be a valid UUID")
+        return u
+
+
+def _event_type_id_from_request(request: web.Request) -> Optional[str]:
+    raw = request.match_info.get("id", "").strip()
+    if not raw:
+        return None
+    return validate_uuid(raw)
 
 
 @docs(
@@ -28,9 +100,7 @@ async def events_submit(request: web.Request) -> web.Response:
             "rejected": 0,
             "errors": [],
             "status": "not_implemented",
-        },
-        status=200,
-    )
+        }, status=200)
 
 
 @docs(
@@ -40,7 +110,14 @@ async def events_submit(request: web.Request) -> web.Response:
     responses={200: {"description": "Список типов событий", "schema": EventTypesListResponseSchema}},
 )
 async def event_types_list(request: web.Request) -> web.Response:
-    return web.json_response({"event_types": [], "status": "not_implemented"}, status=200)
+    auth_payload = await check_authorization(request)
+    if not auth_payload:
+        return validate.format_401_error(request, "Token is required")
+    status = request.query.get("status", "").strip() or None
+    if status and status not in ("active", "archived"):
+        status = None
+    items = await list_event_types(status=status)
+    return web.json_response({"event_types": items})
 
 
 @docs(
@@ -51,10 +128,49 @@ async def event_types_list(request: web.Request) -> web.Response:
         201: {"description": "Тип события создан", "schema": EventTypeItemSchema},
         400: {"description": "Некорректный запрос"},
         403: {"description": "Только для админа"},
+        409: {"description": "Тип с таким key уже существует"},
     },
 )
-async def event_types_create(request: web.Request) -> web.Response:
-    return web.json_response({"status": "not_implemented"}, status=501)
+@request_schema(EventTypeCreateSchema(), location="json", put_into="data")
+@validate.validate(EventTypeCreate)
+async def event_types_create(request: web.Request, parsed: EventTypeCreate) -> web.Response:
+    auth_payload = await check_authorization(request)
+    if not auth_payload:
+        return validate.format_401_error(request, "Token is required")
+    if auth_payload.get("role") != "admin":
+        return validate.format_403_error(request, "Only admin can create event types")
+    data, err = await create_event_type(
+        key=parsed.key,
+        display_name=parsed.display_name,
+        description=parsed.description,
+        required_params=parsed.required_params,
+        validation_rules=parsed.validation_rules,
+        report_alert_config=parsed.report_alert_config,
+        requires_show_event_type_id=parsed.requires_show_event_type_id,
+        is_critical=parsed.is_critical)
+    if err == "duplicate_key":
+        return validate.format_409_error(request, parsed.key, "Event type with this key already exists", field="key")
+    if err == "db_error":
+        return web.json_response(
+            validate.format_error_response(
+                code="INTERNAL_ERROR",
+                message="Failed to load created event type",
+                path=str(request.path_qs),
+                status=500,
+            ),
+            status=500,
+        )
+    if err == "invalid_requires_show":
+        return web.json_response(
+            validate.format_error_response(
+                code="BAD_REQUEST",
+                message="requires_show_event_type_id must reference an existing active event type",
+                path=str(request.path_qs),
+                status=400,
+                details={"field": "requires_show_event_type_id"},
+            ),
+            status=400)
+    return web.json_response(data, status=201)
 
 
 @docs(
@@ -67,8 +183,16 @@ async def event_types_create(request: web.Request) -> web.Response:
     },
 )
 async def event_types_get(request: web.Request) -> web.Response:
-    type_id = request.match_info.get("id", "")
-    return web.json_response({"id": type_id, "status": "not_implemented"}, status=200)
+    auth_payload = await check_authorization(request)
+    if not auth_payload:
+        return validate.format_401_error(request, "Token is required")
+    type_id = _event_type_id_from_request(request)
+    if not type_id:
+        return validate.format_404_error(request, "Invalid event type id")
+    item = await get_event_type_by_id(type_id)
+    if not item:
+        return validate.format_404_error(request, "Event type not found")
+    return web.json_response(item)
 
 
 @docs(
@@ -77,13 +201,53 @@ async def event_types_get(request: web.Request) -> web.Response:
     description="Обновить тип события (Админ).",
     responses={
         200: {"description": "Обновлено", "schema": EventTypeItemSchema},
-        400: {"description": "Некорректный запрос"},
+        400: {"description": "Некорректный запрос (например самозависимость или неверный requires_show)"},
         404: {"description": "Не найден"},
     },
 )
-async def event_types_update(request: web.Request) -> web.Response:
-    type_id = request.match_info.get("id", "")
-    return web.json_response({"id": type_id, "status": "not_implemented"}, status=200)
+@request_schema(EventTypeUpdateSchema(), location="json", put_into="data")
+@validate.validate(EventTypeUpdate)
+async def event_types_update(request: web.Request, parsed: EventTypeUpdate) -> web.Response:
+    auth_payload = await check_authorization(request)
+    if not auth_payload:
+        return validate.format_401_error(request, "Token is required")
+    if auth_payload.get("role") != "admin":
+        return validate.format_403_error(request, "Only admin can update event types")
+    type_id = _event_type_id_from_request(request)
+    if not type_id:
+        return validate.format_404_error(request, "Invalid event type id")
+    data, err = await update_event_type(
+        type_id,
+        display_name=parsed.display_name,
+        description=parsed.description,
+        required_params=parsed.required_params,
+        validation_rules=parsed.validation_rules,
+        report_alert_config=parsed.report_alert_config,
+        requires_show_event_type_id=parsed.requires_show_event_type_id,
+        is_critical=parsed.is_critical)
+    if err == "not_found":
+        return validate.format_404_error(request, "Event type not found")
+    if err == "self_reference":
+        return web.json_response(
+            validate.format_error_response(
+                code="BAD_REQUEST",
+                message="requires_show_event_type_id cannot reference the same event type",
+                path=str(request.path_qs),
+                status=400,
+                details={"field": "requires_show_event_type_id"},
+            ),
+            status=400)
+    if err == "invalid_requires_show":
+        return web.json_response(
+            validate.format_error_response(
+                code="BAD_REQUEST",
+                message="requires_show_event_type_id must reference an existing active event type",
+                path=str(request.path_qs),
+                status=400,
+                details={"field": "requires_show_event_type_id"},
+            ),
+            status=400)
+    return web.json_response(data)
 
 
 @docs(
@@ -96,5 +260,15 @@ async def event_types_update(request: web.Request) -> web.Response:
     },
 )
 async def event_types_archive(request: web.Request) -> web.Response:
-    type_id = request.match_info.get("id", "")
-    return web.json_response({"id": type_id, "status": "not_implemented"}, status=200)
+    auth_payload = await check_authorization(request)
+    if not auth_payload:
+        return validate.format_401_error(request, "Token is required")
+    if auth_payload.get("role") != "admin":
+        return validate.format_403_error(request, "Only admin can archive event types")
+    type_id = _event_type_id_from_request(request)
+    if not type_id:
+        return validate.format_404_error(request, "Invalid event type id")
+    item = await archive_event_type(type_id)
+    if not item:
+        return validate.format_404_error(request, "Event type not found")
+    return web.json_response(item)

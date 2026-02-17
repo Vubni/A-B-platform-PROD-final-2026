@@ -6,7 +6,6 @@ DECIDE_URL_SUFFIX = "/api/v1/decide"
 
 @pytest.mark.asyncio
 async def test_decide_requires_auth(http_session, base_url):
-    """POST /api/v1/decide без токена возвращает 401."""
     url = f"{base_url}{DECIDE_URL_SUFFIX}"
     payload = {
         "subject_id": "user-123",
@@ -21,7 +20,6 @@ async def test_decide_requires_auth(http_session, base_url):
 
 @pytest.mark.asyncio
 async def test_decide_forbidden_for_admin(http_session, base_url, auth_headers_admin, flag_id):
-    """POST /api/v1/decide с ролью admin возвращает 403 (разрешена только роль viewer)."""
     url = f"{base_url}{DECIDE_URL_SUFFIX}"
     payload = {
         "subject_id": "user-123",
@@ -36,7 +34,6 @@ async def test_decide_forbidden_for_admin(http_session, base_url, auth_headers_a
 
 @pytest.mark.asyncio
 async def test_decide_forbidden_for_experimenter(http_session, base_url, auth_headers_experimenter, flag_id):
-    """POST /api/v1/decide с ролью experimenter возвращает 403 (разрешена только роль viewer)."""
     url = f"{base_url}{DECIDE_URL_SUFFIX}"
     payload = {
         "subject_id": "user-123",
@@ -51,7 +48,6 @@ async def test_decide_forbidden_for_experimenter(http_session, base_url, auth_he
 
 @pytest.mark.asyncio
 async def test_decide_success_viewer(http_session, base_url, auth_headers_viewer, flag_id):
-    """POST /api/v1/decide с ролью viewer возвращает 200 и массив flags по спецификации."""
     url = f"{base_url}{DECIDE_URL_SUFFIX}"
     payload = {
         "subject_id": "subject-test-001",
@@ -67,7 +63,7 @@ async def test_decide_success_viewer(http_session, base_url, auth_headers_viewer
         item = data["flags"][0]
         assert "flag_key" in item
         assert "flag_value" in item
-        assert "decision_id" in item  # по спецификации: для атрибуции событий (или null)
+        assert "decision_id" in item
         assert item.get("experiment") is None or (
             isinstance(item["experiment"], dict)
             and "experiment_id" in item["experiment"]
@@ -79,7 +75,6 @@ async def test_decide_success_viewer(http_session, base_url, auth_headers_viewer
 async def test_decide_returns_default_value_when_no_experiment(
     http_session, base_url, auth_headers_viewer, flag_id
 ):
-    """Без активного эксперимента по флагу возвращается default_value флага (из спецификации)."""
     url = f"{base_url}{DECIDE_URL_SUFFIX}"
     payload = {
         "subject_id": "user-default-check",
@@ -98,7 +93,6 @@ async def test_decide_returns_default_value_when_no_experiment(
 async def test_decide_same_subject_same_value(
     http_session, base_url, auth_headers_viewer, flag_id
 ):
-    """Одному subject_id всегда возвращается одно и то же значение по флагу (консистентность)."""
     url = f"{base_url}{DECIDE_URL_SUFFIX}"
     payload = {
         "subject_id": "consistent-user-42",
@@ -119,7 +113,6 @@ async def test_decide_same_subject_same_value(
 
 @pytest.mark.asyncio
 async def test_decide_validation_empty_subject_id(http_session, base_url, auth_headers_viewer, flag_id):
-    """POST /api/v1/decide с пустым subject_id возвращает 422."""
     url = f"{base_url}{DECIDE_URL_SUFFIX}"
     payload = {
         "subject_id": "   ",
@@ -134,7 +127,6 @@ async def test_decide_validation_empty_subject_id(http_session, base_url, auth_h
 
 @pytest.mark.asyncio
 async def test_decide_validation_empty_flags(http_session, base_url, auth_headers_viewer):
-    """POST /api/v1/decide с пустым списком flags возвращает 422."""
     url = f"{base_url}{DECIDE_URL_SUFFIX}"
     payload = {
         "subject_id": "user-1",
@@ -149,7 +141,6 @@ async def test_decide_validation_empty_flags(http_session, base_url, auth_header
 
 @pytest.mark.asyncio
 async def test_decide_validation_invalid_flag_uuid(http_session, base_url, auth_headers_viewer):
-    """POST /api/v1/decide с невалидным UUID флага возвращает 422."""
     url = f"{base_url}{DECIDE_URL_SUFFIX}"
     payload = {
         "subject_id": "user-1",
@@ -164,7 +155,6 @@ async def test_decide_validation_invalid_flag_uuid(http_session, base_url, auth_
 
 @pytest.mark.asyncio
 async def test_decide_flag_not_found(http_session, base_url, auth_headers_viewer):
-    """POST /api/v1/decide с существующим UUID, но несуществующим флагом возвращает 404."""
     url = f"{base_url}{DECIDE_URL_SUFFIX}"
     payload = {
         "subject_id": "user-1",
@@ -181,7 +171,6 @@ async def test_decide_flag_not_found(http_session, base_url, auth_headers_viewer
 async def test_decide_response_order_matches_request(
     http_session, base_url, auth_headers_viewer, auth_headers_admin, flag_id
 ):
-    """По спецификации: решения по флагам в том же порядке, что и в запросе."""
     url_flags = f"{base_url}/api/v1/flags"
     url_decide = f"{base_url}{DECIDE_URL_SUFFIX}"
     async with http_session.post(
@@ -223,7 +212,6 @@ async def test_decide_audience_fraction_about_20_percent(
     auth_headers_experimenter,
     auth_headers_approver,
 ):
-    """При audience_fraction=0.2 примерно 20% субъектов попадают в эксперимент (не дефолт)."""
     users_url = f"{base_url}/api/v1/users"
     flags_url = f"{base_url}/api/v1/flags"
     exp_url = f"{base_url}/api/v1/experiments"

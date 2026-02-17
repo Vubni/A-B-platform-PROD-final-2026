@@ -270,7 +270,6 @@ CREATE INDEX IF NOT EXISTS idx_experiment_version_snapshots_experiment ON experi
 CREATE UNIQUE INDEX IF NOT EXISTS idx_experiment_version_snapshots_version
     ON experiment_version_snapshots(experiment_id, version);
 
--- Runtime Decide: решения (показы) — что выдали субъекту по каждому флагу
 CREATE TABLE IF NOT EXISTS decisions (
     id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
     decision_id UUID NOT NULL UNIQUE,
@@ -288,7 +287,6 @@ CREATE INDEX IF NOT EXISTS idx_decisions_flag_id ON decisions(flag_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_experiment_id ON decisions(experiment_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_created_at ON decisions(created_at);
 
--- Каталог типов событий: метаданные, параметры, валидация, участие в отчётах/алертах
 CREATE TABLE IF NOT EXISTS event_types (
     id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
     key VARCHAR NOT NULL UNIQUE,
@@ -298,21 +296,17 @@ CREATE TABLE IF NOT EXISTS event_types (
     validation_rules JSONB,
     report_alert_config JSONB,
     status VARCHAR NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
+    is_critical BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-COMMENT ON COLUMN event_types.key IS 'Уникальный ключ типа (exposure, purchase, click и т.д.)';
-COMMENT ON COLUMN event_types.display_name IS 'Человекочитаемое имя типа';
-COMMENT ON COLUMN event_types.description IS 'Описание типа события';
-COMMENT ON COLUMN event_types.required_params IS 'Обязательные доп. параметры: схема {param: type} или JSON Schema';
-COMMENT ON COLUMN event_types.validation_rules IS 'Правила валидации (формат на усмотрение движка)';
-COMMENT ON COLUMN event_types.report_alert_config IS 'Как событие участвует в отчётах/алертах: metric_key, aggregation, guardrail и т.д.';
-
 CREATE UNIQUE INDEX IF NOT EXISTS idx_event_types_key ON event_types(key);
 CREATE INDEX IF NOT EXISTS idx_event_types_status ON event_types(status);
 
--- Произошедшие события (для decide/атрибуции): привязка к решению и к типу из каталога
+ALTER TABLE event_types ADD COLUMN IF NOT EXISTS requires_show_event_type_id UUID REFERENCES event_types(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_event_types_requires_show ON event_types(requires_show_event_type_id);
+
 CREATE TABLE IF NOT EXISTS event_occurrences (
     id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
     event_id VARCHAR NOT NULL UNIQUE,
