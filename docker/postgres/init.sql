@@ -1,3 +1,5 @@
+BEGIN;
+
 DROP TABLE IF EXISTS event_occurrences CASCADE;
 DROP TABLE IF EXISTS event_types CASCADE;
 DROP TABLE IF EXISTS decisions CASCADE;
@@ -293,7 +295,7 @@ CREATE TABLE IF NOT EXISTS event_types (
     display_name VARCHAR,
     description TEXT,
     required_params JSONB,
-    validation_rules JSONB,
+    validation_type VARCHAR(64),
     report_alert_config JSONB,
     status VARCHAR NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
     is_critical BOOLEAN NOT NULL DEFAULT false,
@@ -323,3 +325,5 @@ CREATE INDEX IF NOT EXISTS idx_event_occurrences_decision_id ON event_occurrence
 CREATE INDEX IF NOT EXISTS idx_event_occurrences_event_type_id ON event_occurrences(event_type_id);
 CREATE INDEX IF NOT EXISTS idx_event_occurrences_subject_id ON event_occurrences(subject_id);
 CREATE INDEX IF NOT EXISTS idx_event_occurrences_timestamp ON event_occurrences("timestamp");
+
+COMMIT;

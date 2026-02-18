@@ -109,7 +109,7 @@ async def test_event_types_create_with_optional_fields(
         "key": key,
         "display_name": "Full Event Type",
         "required_params": {"amount": "number"},
-        "validation_rules": {"max_amount": 1000},
+        "validation_type": "schema",
         "report_alert_config": {"metric_key": "conversion"},
         "is_critical": True,
     }
@@ -122,7 +122,7 @@ async def test_event_types_create_with_optional_fields(
         assert data["key"] == key
         assert data.get("is_critical") is True
         assert data.get("required_params") == {"amount": "number"}
-        assert data.get("validation_rules") == {"max_amount": 1000}
+        assert data.get("validation_type") == "schema"
         assert data.get("report_alert_config") == {"metric_key": "conversion"}
 
 

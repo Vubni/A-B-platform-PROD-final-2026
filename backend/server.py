@@ -12,6 +12,7 @@ from api import auth, health, flags, experiments, decide, events, reports, users
 from database.database import Database
 
 
+
 async def check_readiness(app):
     health.set_ready(False)
     try:

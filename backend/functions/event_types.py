@@ -9,7 +9,7 @@ async def list_event_types(status: Optional[str] = None) -> List[dict]:
     async with Database() as db:
         if status and status in ("active", "archived"):
             rows = await db.execute_all(
-                """SELECT id, key, display_name, description, required_params, validation_rules,
+                """SELECT id, key, display_name, description, required_params, validation_type,
                           report_alert_config, status, requires_show_event_type_id, is_critical,
                           created_at, updated_at
                    FROM event_types WHERE status = $1 ORDER BY key""",
@@ -17,7 +17,7 @@ async def list_event_types(status: Optional[str] = None) -> List[dict]:
             )
         else:
             rows = await db.execute_all(
-                """SELECT id, key, display_name, description, required_params, validation_rules,
+                """SELECT id, key, display_name, description, required_params, validation_type,
                           report_alert_config, status, requires_show_event_type_id, is_critical,
                           created_at, updated_at
                    FROM event_types ORDER BY key"""
@@ -27,17 +27,20 @@ async def list_event_types(status: Optional[str] = None) -> List[dict]:
 
 async def get_event_type_by_id(type_id: str) -> Optional[dict]:
     async with Database() as db:
+        if not db:
+            return None
         row = await db.execute(
-            """SELECT id, key, display_name, description, required_params, validation_rules,
+            """SELECT id, key, display_name, description, required_params, validation_type,
                       report_alert_config, status, requires_show_event_type_id, is_critical,
                       created_at, updated_at
                FROM event_types WHERE id = $1""",
-            (type_id,))
-        return serialize_json(row)
+            (type_id,),
+        )
+        return serialize_json(row) if row else None
 
 
 async def create_event_type(key: str, display_name: Optional[str] = None, description: Optional[str] = None,
-    required_params: Optional[dict] = None, validation_rules: Optional[dict] = None, report_alert_config: Optional[dict] = None,
+    required_params: Optional[dict] = None, validation_type: Optional[str] = None, report_alert_config: Optional[dict] = None,
     requires_show_event_type_id: Optional[str] = None, is_critical: bool = False) -> Tuple[Optional[dict], Optional[str]]:
     async with Database() as db:
         existing = await db.execute("SELECT id FROM event_types WHERE key = $1", (key,))
@@ -51,7 +54,7 @@ async def create_event_type(key: str, display_name: Optional[str] = None, descri
             if not ref:
                 return None, "invalid_requires_show"
         await db.execute(
-            """INSERT INTO event_types (key, display_name, description, required_params, validation_rules,
+            """INSERT INTO event_types (key, display_name, description, required_params, validation_type,
                    report_alert_config, requires_show_event_type_id, is_critical)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
             (
@@ -59,24 +62,26 @@ async def create_event_type(key: str, display_name: Optional[str] = None, descri
                 display_name,
                 description,
                 json.dumps(required_params),
-                json.dumps(validation_rules),
+                validation_type,
                 json.dumps(report_alert_config),
                 requires_show_event_type_id,
                 is_critical,
-            ))
+            ),
+        )
         row = await db.execute(
-            """SELECT id, key, display_name, description, required_params, validation_rules,
+            """SELECT id, key, display_name, description, required_params, validation_type,
                       report_alert_config, status, requires_show_event_type_id, is_critical,
                       created_at, updated_at
                FROM event_types WHERE key = $1""",
-            (key,))
+            (key,),
+        )
         if not row:
             return None, "db_error"
         return serialize_json(row), None
 
 
 async def update_event_type(type_id: str, display_name: Optional[str] = None,
-    description: Optional[str] = None, required_params: Optional[dict] = None, validation_rules: Optional[dict] = None, 
+    description: Optional[str] = None, required_params: Optional[dict] = None, validation_type: Optional[str] = None, 
     report_alert_config: Optional[dict] = None, requires_show_event_type_id: Optional[str] = None, is_critical: Optional[bool] = None) -> Optional[dict]:
     async with Database() as db:
         row = await db.execute("SELECT id FROM event_types WHERE id = $1", (type_id,))
@@ -106,9 +111,9 @@ async def update_event_type(type_id: str, display_name: Optional[str] = None,
             updates.append(f"required_params = ${pos}")
             params.append(required_params)
             pos += 1
-        if validation_rules is not None:
-            updates.append(f"validation_rules = ${pos}")
-            params.append(validation_rules)
+        if validation_type is not None:
+            updates.append(f"validation_type = ${pos}")
+            params.append(validation_type)
             pos += 1
         if report_alert_config is not None:
             updates.append(f"report_alert_config = ${pos}")
@@ -132,7 +137,7 @@ async def update_event_type(type_id: str, display_name: Optional[str] = None,
             tuple(params),
         )
         row = await db.execute(
-            """SELECT id, key, display_name, description, required_params, validation_rules,
+            """SELECT id, key, display_name, description, required_params, validation_type,
                       report_alert_config, status, requires_show_event_type_id, is_critical,
                       created_at, updated_at
                FROM event_types WHERE id = $1""",
@@ -149,9 +154,10 @@ async def archive_event_type(type_id: str) -> Optional[dict]:
             return None
         await db.execute(
             "UPDATE event_types SET status = 'archived', updated_at = NOW() WHERE id = $1",
-            (type_id,))
+            (type_id,),
+        )
         row = await db.execute(
-            """SELECT id, key, display_name, description, required_params, validation_rules,
+            """SELECT id, key, display_name, description, required_params, validation_type,
                       report_alert_config, status, requires_show_event_type_id, is_critical,
                       created_at, updated_at
                FROM event_types WHERE id = $1""",

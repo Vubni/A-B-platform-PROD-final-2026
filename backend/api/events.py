@@ -28,7 +28,7 @@ class EventTypeCreate(BaseModel):
     display_name: Optional[str] = None
     description: Optional[str] = None
     required_params: Optional[dict] = None
-    validation_rules: Optional[dict] = None
+    validation_type: Optional[str] = None
     report_alert_config: Optional[dict] = None
     requires_show_event_type_id: Optional[str] = None
     is_critical: bool = False
@@ -55,7 +55,7 @@ class EventTypeUpdate(BaseModel):
     display_name: Optional[str] = None
     description: Optional[str] = None
     required_params: Optional[dict] = None
-    validation_rules: Optional[dict] = None
+    validation_type: Optional[str] = None
     report_alert_config: Optional[dict] = None
     requires_show_event_type_id: Optional[str] = None
     is_critical: Optional[bool] = None
@@ -144,7 +144,7 @@ async def event_types_create(request: web.Request, parsed: EventTypeCreate) -> w
         display_name=parsed.display_name,
         description=parsed.description,
         required_params=parsed.required_params,
-        validation_rules=parsed.validation_rules,
+        validation_type=parsed.validation_type,
         report_alert_config=parsed.report_alert_config,
         requires_show_event_type_id=parsed.requires_show_event_type_id,
         is_critical=parsed.is_critical)
@@ -221,7 +221,7 @@ async def event_types_update(request: web.Request, parsed: EventTypeUpdate) -> w
         display_name=parsed.display_name,
         description=parsed.description,
         required_params=parsed.required_params,
-        validation_rules=parsed.validation_rules,
+        validation_type=parsed.validation_type,
         report_alert_config=parsed.report_alert_config,
         requires_show_event_type_id=parsed.requires_show_event_type_id,
         is_critical=parsed.is_critical)
