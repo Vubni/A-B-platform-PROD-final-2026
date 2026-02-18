@@ -25,6 +25,29 @@ async def list_event_types(status: Optional[str] = None) -> List[dict]:
         return serialize_json(rows)
 
 
+async def get_event_type_by_key(key: str, active_only: bool = True) -> Optional[dict]:
+    async with Database() as db:
+        if not db:
+            return None
+        if active_only:
+            row = await db.execute(
+                """SELECT id, key, display_name, description, required_params, validation_type,
+                          report_alert_config, status, requires_show_event_type_id, is_critical,
+                          created_at, updated_at
+                   FROM event_types WHERE key = $1 AND status = 'active'""",
+                (key.strip(),),
+            )
+        else:
+            row = await db.execute(
+                """SELECT id, key, display_name, description, required_params, validation_type,
+                          report_alert_config, status, requires_show_event_type_id, is_critical,
+                          created_at, updated_at
+                   FROM event_types WHERE key = $1""",
+                (key.strip(),),
+            )
+        return serialize_json(row)
+
+
 async def get_event_type_by_id(type_id: str) -> Optional[dict]:
     async with Database() as db:
         if not db:
@@ -36,7 +59,7 @@ async def get_event_type_by_id(type_id: str) -> Optional[dict]:
                FROM event_types WHERE id = $1""",
             (type_id,),
         )
-        return serialize_json(row) if row else None
+        return serialize_json(row)
 
 
 async def create_event_type(key: str, display_name: Optional[str] = None, description: Optional[str] = None,
@@ -143,7 +166,7 @@ async def update_event_type(type_id: str, display_name: Optional[str] = None,
                FROM event_types WHERE id = $1""",
             (type_id,),
         )
-        out = serialize_json(row) if row else await get_event_type_by_id(type_id)
+        out = serialize_json(row)
         return out, None
 
 
@@ -163,4 +186,4 @@ async def archive_event_type(type_id: str) -> Optional[dict]:
                FROM event_types WHERE id = $1""",
             (type_id,),
         )
-        return serialize_json(row) if row else None
+        return serialize_json(row)

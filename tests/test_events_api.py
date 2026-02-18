@@ -387,6 +387,119 @@ async def test_event_types_create_requires_show_nonexistent_returns_400(
         assert "requires_show" in (data.get("message") or "").lower() or "BAD_REQUEST" in (data.get("code") or "")
 
 
+@pytest.fixture
+async def events_submit_context(
+    http_session,
+    base_url,
+    auth_headers_admin,
+    auth_headers_viewer,
+    auth_headers_experimenter,
+    auth_headers_approver,
+):
+    et_url = f"{base_url}/api/v1/event-types"
+    key_exposure = "exposure"
+    async with http_session.get(et_url, headers=auth_headers_admin) as r:
+        if r.status != 200:
+            pytest.skip("Need auth to list event types")
+        data = await r.json()
+        exists = any(et.get("key") == key_exposure for et in (data.get("event_types") or []))
+    if not exists:
+        async with http_session.post(
+            et_url,
+            headers=auth_headers_admin,
+            json={"key": key_exposure, "display_name": "Exposure"},
+        ) as r:
+            if r.status not in (200, 201):
+                pytest.skip(f"Could not create event type exposure: {await r.text()}")
+
+    flags_url = f"{base_url}/api/v1/flags"
+    flag_key = f"events_submit_{uuid.uuid4().hex[:8]}"
+    async with http_session.post(
+        flags_url,
+        headers=auth_headers_admin,
+        json={
+            "key": flag_key,
+            "value_type": "string",
+            "default_value": "control",
+        },
+    ) as r:
+        if r.status not in (200, 201):
+            pytest.skip("Could not create flag for events submit")
+        flag_data = await r.json()
+        flag_id = flag_data["id"]
+
+    users_url = f"{base_url}/api/v1/users"
+    async with http_session.get(users_url, headers=auth_headers_admin) as r:
+        if r.status != 200:
+            pytest.skip("Need users")
+        users = (await r.json()).get("users") or []
+    experimenter = next((u for u in users if u.get("email") == "experimenter@test.com"), None)
+    approver_user = next((u for u in users if u.get("email") == "approver@test.com"), None)
+    if not experimenter or not approver_user:
+        pytest.skip("Need experimenter and approver")
+    experimenter_id, approver_id = experimenter["id"], approver_user["id"]
+
+    async with http_session.post(
+        f"{base_url}/api/v1/approver-groups",
+        headers=auth_headers_admin,
+        json={"experimenter_id": experimenter_id, "min_approvals": 1, "approver_ids": [approver_id]},
+    ) as _:
+        pass
+
+    exp_url = f"{base_url}/api/v1/experiments"
+    async with http_session.post(
+        exp_url,
+        headers=auth_headers_experimenter,
+        json={"flag_id": flag_id, "name": "Events submit test", "audience_fraction": 1.0},
+    ) as r:
+        if r.status != 201:
+            pytest.skip(f"Could not create experiment: {await r.text()}")
+        exp = await r.json()
+        exp_id = exp["id"]
+
+    for v in [
+        {"variant_name": "control", "variant_value": "c", "weight": 0.5, "is_control": True},
+        {"variant_name": "treatment", "variant_value": "t", "weight": 0.5, "is_control": False},
+    ]:
+        async with http_session.post(
+            f"{base_url}/api/v1/experiments/{exp_id}/variants",
+            headers=auth_headers_experimenter,
+            json=v,
+        ) as vr:
+            if vr.status != 201:
+                pytest.skip("Could not add variant")
+
+    for status, role in [
+        ("on_review", auth_headers_experimenter),
+        ("approved", auth_headers_approver),
+        ("running", auth_headers_experimenter),
+    ]:
+        async with http_session.patch(
+            f"{base_url}/api/v1/experiments/{exp_id}/status",
+            headers=role,
+            json={"status": status},
+        ) as sr:
+            if sr.status != 200:
+                pytest.skip(f"Could not set status {status}")
+
+    decide_url = f"{base_url}/api/v1/decide"
+    subject_id = f"events-subject-{uuid.uuid4().hex[:8]}"
+    async with http_session.post(
+        decide_url,
+        json={"subject_id": subject_id, "attributes": {}, "flags": [flag_id]},
+        headers=auth_headers_viewer,
+    ) as dr:
+        if dr.status != 200:
+            pytest.skip(f"Decide failed: {await dr.text()}")
+        dec_data = await dr.json()
+        if not dec_data.get("flags"):
+            pytest.skip("No flags in decide response")
+        decision_id = dec_data["flags"][0].get("decision_id")
+    if not decision_id:
+        pytest.skip("Decide returned no decision_id (no running experiment?)")
+    return {"decision_id": decision_id, "subject_id": subject_id, "event_type_key": key_exposure}
+
+
 @pytest.mark.asyncio
 async def test_events_submit_returns_200_and_shape(http_session, base_url):
     url = f"{base_url}/api/v1/events"
@@ -394,12 +507,509 @@ async def test_events_submit_returns_200_and_shape(http_session, base_url):
     async with http_session.post(url, json=payload) as resp:
         assert resp.status == 200
         data = await resp.json()
+        assert data.get("accepted") == 0
+        assert data.get("duplicates") == 0
+        assert data.get("rejected") == 0
+        assert data.get("errors") == []
+        assert data.get("status") == "ok"
         assert "accepted" in data
         assert "duplicates" in data
         assert "rejected" in data
         assert "errors" in data
         assert isinstance(data["errors"], list)
-        assert "status" in data
+
+
+@pytest.mark.asyncio
+async def test_events_submit_invalid_body_no_events_key(http_session, base_url):
+    url = f"{base_url}/api/v1/events"
+    async with http_session.post(url, json={}) as resp:
+        assert resp.status in (400, 422)
+
+
+@pytest.mark.asyncio
+async def test_events_submit_invalid_body_events_not_array(http_session, base_url):
+    url = f"{base_url}/api/v1/events"
+    async with http_session.post(url, json={"events": "not-a-list"}) as resp:
+        assert resp.status in (400, 422)
+
+
+@pytest.mark.asyncio
+async def test_events_submit_single_event_missing_event_id(http_session, base_url):
+    url = f"{base_url}/api/v1/events"
+    payload = {
+        "events": [
+            {
+                "decision_id": str(uuid.uuid4()),
+                "event_type_key": "exposure",
+                "subject_id": "user-1",
+                "timestamp": "2025-01-15T12:00:00Z",
+            }
+        ]
+    }
+    async with http_session.post(url, json=payload) as resp:
+        assert resp.status in (200, 400)
+        if resp.status == 200:
+            data = await resp.json()
+            assert data["rejected"] == 1
+            assert data["accepted"] == 0
+            assert len(data["errors"]) == 1
+            assert data["errors"][0]["index"] == 0
+            assert "event_id" in data["errors"][0]["message"].lower() or "required" in data["errors"][0]["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_events_submit_single_event_empty_event_id(http_session, base_url):
+    url = f"{base_url}/api/v1/events"
+    payload = {
+        "events": [
+            {
+                "event_id": "   ",
+                "decision_id": str(uuid.uuid4()),
+                "event_type_key": "exposure",
+                "subject_id": "user-1",
+                "timestamp": "2025-01-15T12:00:00Z",
+            }
+        ]
+    }
+    async with http_session.post(url, json=payload) as resp:
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["rejected"] == 1
+        assert len(data["errors"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_events_submit_single_event_missing_decision_id(http_session, base_url):
+    url = f"{base_url}/api/v1/events"
+    payload = {
+        "events": [
+            {
+                "event_id": str(uuid.uuid4()),
+                "event_type_key": "exposure",
+                "subject_id": "user-1",
+                "timestamp": "2025-01-15T12:00:00Z",
+            }
+        ]
+    }
+    async with http_session.post(url, json=payload) as resp:
+        assert resp.status in (200, 400)
+        if resp.status == 200:
+            data = await resp.json()
+            assert data["rejected"] == 1
+            err = data["errors"][0]
+            assert "decision_id" in err["message"].lower() or "required" in err["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_events_submit_single_event_invalid_decision_id_uuid(http_session, base_url):
+    url = f"{base_url}/api/v1/events"
+    payload = {
+        "events": [
+            {
+                "event_id": str(uuid.uuid4()),
+                "decision_id": "not-a-uuid",
+                "event_type_key": "exposure",
+                "subject_id": "user-1",
+                "timestamp": "2025-01-15T12:00:00Z",
+            }
+        ]
+    }
+    async with http_session.post(url, json=payload) as resp:
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["rejected"] == 1
+        assert "uuid" in data["errors"][0]["message"].lower() or "decision" in data["errors"][0]["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_events_submit_single_event_missing_event_type_key(http_session, base_url):
+    url = f"{base_url}/api/v1/events"
+    payload = {
+        "events": [
+            {
+                "event_id": str(uuid.uuid4()),
+                "decision_id": str(uuid.uuid4()),
+                "subject_id": "user-1",
+                "timestamp": "2025-01-15T12:00:00Z",
+            }
+        ]
+    }
+    async with http_session.post(url, json=payload) as resp:
+        assert resp.status in (200, 400)
+        if resp.status == 200:
+            data = await resp.json()
+            assert data["rejected"] == 1
+            assert "event_type" in data["errors"][0]["message"].lower() or "required" in data["errors"][0]["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_events_submit_single_event_missing_subject_id(http_session, base_url):
+    url = f"{base_url}/api/v1/events"
+    payload = {
+        "events": [
+            {
+                "event_id": str(uuid.uuid4()),
+                "decision_id": str(uuid.uuid4()),
+                "event_type_key": "exposure",
+                "timestamp": "2025-01-15T12:00:00Z",
+            }
+        ]
+    }
+    async with http_session.post(url, json=payload) as resp:
+        assert resp.status in (200, 400)
+        if resp.status == 200:
+            data = await resp.json()
+            assert data["rejected"] == 1
+            assert "subject_id" in data["errors"][0]["message"].lower() or "required" in data["errors"][0]["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_events_submit_single_event_missing_timestamp(http_session, base_url):
+    url = f"{base_url}/api/v1/events"
+    payload = {
+        "events": [
+            {
+                "event_id": str(uuid.uuid4()),
+                "decision_id": str(uuid.uuid4()),
+                "event_type_key": "exposure",
+                "subject_id": "user-1",
+            }
+        ]
+    }
+    async with http_session.post(url, json=payload) as resp:
+        assert resp.status in (200, 400)
+        if resp.status == 200:
+            data = await resp.json()
+            assert data["rejected"] == 1
+            assert "timestamp" in data["errors"][0]["message"].lower() or "required" in data["errors"][0]["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_events_submit_single_event_invalid_timestamp(http_session, base_url):
+    url = f"{base_url}/api/v1/events"
+    payload = {
+        "events": [
+            {
+                "event_id": str(uuid.uuid4()),
+                "decision_id": str(uuid.uuid4()),
+                "event_type_key": "exposure",
+                "subject_id": "user-1",
+                "timestamp": "not-iso-date",
+            }
+        ]
+    }
+    async with http_session.post(url, json=payload) as resp:
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["rejected"] == 1
+        assert "timestamp" in data["errors"][0]["message"].lower() or "invalid" in data["errors"][0]["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_events_submit_single_event_payload_not_object(http_session, base_url):
+    url = f"{base_url}/api/v1/events"
+    payload = {
+        "events": [
+            {
+                "event_id": str(uuid.uuid4()),
+                "decision_id": str(uuid.uuid4()),
+                "event_type_key": "exposure",
+                "subject_id": "user-1",
+                "timestamp": "2025-01-15T12:00:00Z",
+                "payload": "not-an-object",
+            }
+        ]
+    }
+    async with http_session.post(url, json=payload) as resp:
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["rejected"] == 1
+        assert "payload" in data["errors"][0]["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_events_submit_single_event_not_object(http_session, base_url):
+    url = f"{base_url}/api/v1/events"
+    payload = {"events": ["not an event object"]}
+    async with http_session.post(url, json=payload) as resp:
+        assert resp.status in (200, 400, 422)
+        if resp.status == 200:
+            data = await resp.json()
+            assert data["rejected"] == 1
+            assert "object" in data["errors"][0]["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_events_submit_unknown_event_type(http_session, base_url):
+    url = f"{base_url}/api/v1/events"
+    payload = {
+        "events": [
+            {
+                "event_id": str(uuid.uuid4()),
+                "decision_id": str(uuid.uuid4()),
+                "event_type_key": "nonexistent_type_xyz",
+                "subject_id": "user-1",
+                "timestamp": "2025-01-15T12:00:00Z",
+            }
+        ]
+    }
+    async with http_session.post(url, json=payload) as resp:
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["rejected"] == 1
+        assert "unknown event type" in data["errors"][0]["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_events_submit_decision_id_not_found(http_session, base_url, auth_headers_admin):
+    et_url = f"{base_url}/api/v1/event-types"
+    key = f"ev_decision_not_found_{uuid.uuid4().hex[:8]}"
+    async with http_session.post(
+        et_url, headers=auth_headers_admin, json={"key": key, "display_name": "Test"}
+    ) as r:
+        if r.status not in (200, 201):
+            pytest.skip("Could not create event type")
+    url = f"{base_url}/api/v1/events"
+    payload = {
+        "events": [
+            {
+                "event_id": str(uuid.uuid4()),
+                "decision_id": str(uuid.uuid4()),
+                "event_type_key": key,
+                "subject_id": "user-1",
+                "timestamp": "2025-01-15T12:00:00Z",
+            }
+        ]
+    }
+    async with http_session.post(url, json=payload) as resp:
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["rejected"] == 1
+        assert "not found" in data["errors"][0]["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_events_submit_valid_single_event_accepted(
+    http_session, base_url, events_submit_context
+):
+    url = f"{base_url}/api/v1/events"
+    ctx = events_submit_context
+    payload = {
+        "events": [
+            {
+                "event_id": str(uuid.uuid4()),
+                "decision_id": ctx["decision_id"],
+                "event_type_key": ctx["event_type_key"],
+                "subject_id": ctx["subject_id"],
+                "timestamp": "2025-01-15T12:00:00Z",
+                "payload": {},
+            }
+        ]
+    }
+    async with http_session.post(url, json=payload) as resp:
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["accepted"] == 1
+        assert data["duplicates"] == 0
+        assert data["rejected"] == 0
+        assert data["errors"] == []
+        assert data["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_events_submit_duplicate_event_id(
+    http_session, base_url, events_submit_context
+):
+    url = f"{base_url}/api/v1/events"
+    ctx = events_submit_context
+    ev_id = str(uuid.uuid4())
+    event = {
+        "event_id": ev_id,
+        "decision_id": ctx["decision_id"],
+        "event_type_key": ctx["event_type_key"],
+        "subject_id": ctx["subject_id"],
+        "timestamp": "2025-01-15T12:00:00Z",
+        "payload": {},
+    }
+    async with http_session.post(url, json={"events": [event]}) as resp:
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["accepted"] == 1 and data["duplicates"] == 0 and data["rejected"] == 0
+    async with http_session.post(url, json={"events": [event]}) as resp:
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["accepted"] == 0 and data["duplicates"] == 1 and data["rejected"] == 0
+
+
+@pytest.mark.asyncio
+async def test_events_submit_batch_mixed_accepted_rejected_duplicates(
+    http_session, base_url, events_submit_context
+):
+    url = f"{base_url}/api/v1/events"
+    ctx = events_submit_context
+    ev_ok = str(uuid.uuid4())
+    ev_dup = str(uuid.uuid4())
+    events = [
+        {
+            "event_id": ev_ok,
+            "decision_id": ctx["decision_id"],
+            "event_type_key": ctx["event_type_key"],
+            "subject_id": ctx["subject_id"],
+            "timestamp": "2025-01-15T12:00:00Z",
+            "payload": {},
+        },
+        {
+            "event_id": str(uuid.uuid4()),
+            "decision_id": ctx["decision_id"],
+            "event_type_key": "unknown_type_xyz",
+            "subject_id": ctx["subject_id"],
+            "timestamp": "2025-01-15T12:00:00Z",
+            "payload": {},
+        },
+        {
+            "event_id": ev_dup,
+            "decision_id": ctx["decision_id"],
+            "event_type_key": ctx["event_type_key"],
+            "subject_id": ctx["subject_id"],
+            "timestamp": "2025-01-15T12:00:00Z",
+            "payload": {},
+        },
+    ]
+    async with http_session.post(url, json={"events": events}) as resp:
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["accepted"] == 2
+        assert data["rejected"] == 1
+        assert data["duplicates"] == 0
+        assert len(data["errors"]) == 1
+        assert data["errors"][0]["index"] == 1
+        assert "unknown event type" in data["errors"][0]["message"].lower()
+    async with http_session.post(url, json={"events": events}) as resp:
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["accepted"] == 0
+        assert data["duplicates"] == 2
+        assert data["rejected"] == 1
+        assert len(data["errors"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_events_submit_required_params_rejected(
+    http_session, base_url, auth_headers_admin, events_submit_context
+):
+    et_url = f"{base_url}/api/v1/event-types"
+    key = f"ev_reqparam_{uuid.uuid4().hex[:8]}"
+    async with http_session.post(
+        et_url,
+        headers=auth_headers_admin,
+        json={"key": key, "required_params": {"amount": "number"}, "display_name": "With amount"},
+    ) as r:
+        if r.status not in (200, 201):
+            pytest.skip("Could not create event type")
+    url = f"{base_url}/api/v1/events"
+    ctx = events_submit_context
+    payload = {
+        "events": [
+            {
+                "event_id": str(uuid.uuid4()),
+                "decision_id": ctx["decision_id"],
+                "event_type_key": key,
+                "subject_id": ctx["subject_id"],
+                "timestamp": "2025-01-15T12:00:00Z",
+                "payload": {},
+            }
+        ]
+    }
+    async with http_session.post(url, json=payload) as resp:
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["rejected"] == 1
+        assert "required" in data["errors"][0]["message"].lower() or "amount" in data["errors"][0]["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_events_submit_required_params_accepted(
+    http_session, base_url, auth_headers_admin, events_submit_context
+):
+    et_url = f"{base_url}/api/v1/event-types"
+    key = f"ev_reqparam_ok_{uuid.uuid4().hex[:8]}"
+    async with http_session.post(
+        et_url,
+        headers=auth_headers_admin,
+        json={"key": key, "required_params": {"amount": "number"}, "display_name": "With amount"},
+    ) as r:
+        if r.status not in (200, 201):
+            pytest.skip("Could not create event type")
+    url = f"{base_url}/api/v1/events"
+    ctx = events_submit_context
+    payload = {
+        "events": [
+            {
+                "event_id": str(uuid.uuid4()),
+                "decision_id": ctx["decision_id"],
+                "event_type_key": key,
+                "subject_id": ctx["subject_id"],
+                "timestamp": "2025-01-15T12:00:00Z",
+                "payload": {"amount": 99.5},
+            }
+        ]
+    }
+    async with http_session.post(url, json=payload) as resp:
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["accepted"] == 1
+        assert data["rejected"] == 0
+
+
+@pytest.mark.asyncio
+async def test_events_submit_timestamp_formats(http_session, base_url, events_submit_context):
+    url = f"{base_url}/api/v1/events"
+    ctx = events_submit_context
+    for ts in ("2025-06-01T00:00:00Z", "2025-06-01T12:30:00+00:00"):
+        payload = {
+            "events": [
+                {
+                    "event_id": str(uuid.uuid4()),
+                    "decision_id": ctx["decision_id"],
+                    "event_type_key": ctx["event_type_key"],
+                    "subject_id": ctx["subject_id"],
+                    "timestamp": ts,
+                    "payload": {},
+                }
+            ]
+        }
+        async with http_session.post(url, json=payload) as resp:
+            assert resp.status == 200
+            data = await resp.json()
+            assert data["accepted"] == 1, f"timestamp {ts!r} should be accepted: {data}"
+            assert data["rejected"] == 0
+
+
+@pytest.mark.asyncio
+async def test_events_submit_response_errors_contain_index_and_event_id(
+    http_session, base_url
+):
+    url = f"{base_url}/api/v1/events"
+    payload = {
+        "events": [
+            {
+                "event_id": "custom-ev-123",
+                "decision_id": str(uuid.uuid4()),
+                "event_type_key": "nonexistent_key_xyz",
+                "subject_id": "user-1",
+                "timestamp": "2025-01-15T12:00:00Z",
+            }
+        ]
+    }
+    async with http_session.post(url, json=payload) as resp:
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["rejected"] == 1
+        err = data["errors"][0]
+        assert "index" in err
+        assert err["index"] == 0
+        assert err.get("event_id") == "custom-ev-123"
+        assert "message" in err
 
 
 @pytest.mark.asyncio

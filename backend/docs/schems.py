@@ -292,6 +292,24 @@ class DecideResponseSchema(Schema):
     )
 
 
+class EventSubmitItemSchema(Schema):
+    """Один элемент пакета событий."""
+    event_id = fields.Str(required=True, description="Уникальный идентификатор события (идемпотентность)")
+    decision_id = fields.Str(required=True, description="UUID решения (decision_id из /decide)")
+    event_type_key = fields.Str(required=True, description="Ключ типа события (exposure, click и т.д.)")
+    subject_id = fields.Str(required=True, description="Идентификатор субъекта")
+    timestamp = fields.Str(required=True, description="Время события (ISO 8601)")
+    payload = fields.Dict(load_default=dict, description="Доп. параметры события (по правилам типа)")
+
+
+class EventsSubmitRequestSchema(Schema):
+    events = fields.List(
+        fields.Nested(EventSubmitItemSchema),
+        required=True,
+        description="Массив событий для отправки",
+    )
+
+
 class EventsSubmitResponseSchema(Schema):
     accepted = fields.Int(description="Принято событий")
     duplicates = fields.Int(description="Дубликатов")
@@ -334,6 +352,14 @@ class EventTypeItemSchema(Schema):
     is_critical = fields.Bool()
     created_at = fields.Str(allow_none=True)
     updated_at = fields.Str(allow_none=True)
+
+
+class EventTypesListQuerySchema(Schema):
+    status = fields.Str(
+        required=False,
+        validate=mvalidate.OneOf(("active", "archived")),
+        description="Фильтр: active — только активные, archived — только архивированные",
+    )
 
 
 class EventTypesListResponseSchema(Schema):

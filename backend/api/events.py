@@ -8,7 +8,9 @@ from core import check_authorization, validate_uuid
 from api import validate
 from api.system_metrics import record_events_submitted
 from docs.schems import (
+    EventsSubmitRequestSchema,
     EventsSubmitResponseSchema,
+    EventTypesListQuerySchema,
     EventTypesListResponseSchema,
     EventTypeItemSchema,
     EventTypeCreateSchema,
@@ -21,7 +23,12 @@ from functions.event_types import (
     update_event_type,
     archive_event_type,
 )
+from functions.events_submit import process_events_batch
 
+from typing import List
+
+class EventsSubmitInput(BaseModel):
+    events: List[dict]
 
 class EventTypeCreate(BaseModel):
     key: str
@@ -90,25 +97,33 @@ def _event_type_id_from_request(request: web.Request) -> Optional[str]:
         400: {"description": "Некорректный формат пакета"},
     },
 )
-async def events_submit(request: web.Request) -> web.Response:
-    record_events_submitted(
-        accepted=1)
+@request_schema(EventsSubmitRequestSchema(), location="json", put_into="data")
+@validate.validate(EventsSubmitInput)
+async def events_submit(request: web.Request, parsed: EventsSubmitInput) -> web.Response:
+    result = await process_events_batch(parsed.events)
+    record_events_submitted(accepted=result["accepted"])
     return web.json_response(
         {
-            "accepted": 0,
-            "duplicates": 0,
-            "rejected": 0,
-            "errors": [],
-            "status": "not_implemented",
-        }, status=200)
+            "accepted": result["accepted"],
+            "duplicates": result["duplicates"],
+            "rejected": result["rejected"],
+            "errors": result["errors"],
+            "status": "ok",
+        },
+        status=200,
+    )
 
 
 @docs(
     tags=["Events"],
     summary="Список типов событий (каталог)",
     description="Получить каталог типов событий. Админ создаёт/редактирует типы с метаданными и правилами валидации.",
-    responses={200: {"description": "Список типов событий", "schema": EventTypesListResponseSchema}},
+    responses={
+        200: {"description": "Список типов событий", "schema": EventTypesListResponseSchema},
+        401: {"description": "Требуется авторизация"},
+    },
 )
+@request_schema(EventTypesListQuerySchema(), location="querystring", put_into="querystring")
 async def event_types_list(request: web.Request) -> web.Response:
     auth_payload = await check_authorization(request)
     if not auth_payload:
@@ -179,6 +194,7 @@ async def event_types_create(request: web.Request, parsed: EventTypeCreate) -> w
     description="Получить тип события по id.",
     responses={
         200: {"description": "Данные типа события", "schema": EventTypeItemSchema},
+        401: {"description": "Требуется авторизация"},
         404: {"description": "Не найден"},
     },
 )
@@ -202,6 +218,8 @@ async def event_types_get(request: web.Request) -> web.Response:
     responses={
         200: {"description": "Обновлено", "schema": EventTypeItemSchema},
         400: {"description": "Некорректный запрос (например самозависимость или неверный requires_show)"},
+        401: {"description": "Требуется авторизация"},
+        403: {"description": "Только для админа"},
         404: {"description": "Не найден"},
     },
 )
@@ -256,6 +274,8 @@ async def event_types_update(request: web.Request, parsed: EventTypeUpdate) -> w
     description="Архивировать тип события (мягкое удаление).",
     responses={
         200: {"description": "Архивировано", "schema": EventTypeItemSchema},
+        401: {"description": "Требуется авторизация"},
+        403: {"description": "Только для админа"},
         404: {"description": "Не найден"},
     },
 )

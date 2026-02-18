@@ -1,6 +1,7 @@
 import secrets, time
 import string, asyncio
 import re, threading
+from typing import Any, Optional, Tuple
 from aiohttp import web
 from config import logger
 from functools import wraps
@@ -100,6 +101,26 @@ def is_valid_email(email:str) -> bool:
         return False
 
     return True
+
+
+def parse_iso_timestamp(value: Any) -> Tuple[Optional[datetime], Optional[str]]:
+    if value is None:
+        return None, "timestamp is required"
+    if isinstance(value, datetime):
+        return value, None
+    s = str(value).strip()
+    if not s:
+        return None, "timestamp is required"
+    try:
+        if s.endswith("Z"):
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        else:
+            dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt, None
+    except (ValueError, TypeError) as e:
+        return None, f"invalid timestamp: {s!r}"
 
 
 def serialize_json(obj):

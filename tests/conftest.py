@@ -5,6 +5,38 @@ from aiohttp import ClientSession
 BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:80")
 
 
+def pytest_collection_modifyitems(config, items):
+    for item in items:
+        if "test_events_api" in item.nodeid:
+            if "event_types" in item.nodeid:
+                item.add_marker(pytest.mark.event_types)
+            elif "events_submit" in item.nodeid:
+                item.add_marker(pytest.mark.events_submit)
+
+
+def pytest_report_collectionfinish(config, *args):
+    items = args[-1] if args else []
+    groups = {}
+    for item in items:
+        name = item.nodeid.split("::")[0]
+        if "test_events_api" in name:
+            node = item.nodeid.split("::")[-1]
+            if "event_types" in node:
+                groups.setdefault("Event Types", []).append(node)
+            elif "events_submit" in node:
+                groups.setdefault("Events Submit", []).append(node)
+        else:
+            short = name.replace("tests/", "").replace(".py", "")
+            groups.setdefault(short, []).append(item.nodeid.split("::")[-1])
+
+    lines = []
+    for group, tests in sorted(groups.items()):
+        lines.append(f"  {group}: {len(tests)} tests")
+    if lines:
+        return ["\nTest groups:", "\n".join(lines), ""]
+    return []
+
+
 @pytest.fixture
 def base_url():
     return BASE_URL.rstrip("/")
