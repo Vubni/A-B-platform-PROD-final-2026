@@ -175,19 +175,36 @@ APPROVER_GROUP_UPDATE_REQUEST_EXAMPLE = {
     "approver_ids": ["b2c3d4e5-f6a7-8901-bcde-f12345678901"],
 }
 
+class ExperimentMetricItemSchema(Schema):
+    metric_key = fields.Str(required=True, description="Ключ метрики из каталога")
+    metric_type = fields.Str(
+        required=True,
+        validate=mvalidate.OneOf(("primary", "auxiliary", "guardrail")),
+        description="Тип: primary (ровно один), auxiliary или guardrail",
+    )
+
+
 class ExperimentCreateSchema(Schema):
     flag_id = fields.Str(required=True, description="UUID флага")
     name = fields.Str(required=True, description="Название эксперимента, до 255 символов")
     audience_fraction = fields.Float(required=True, description="Доля аудитории в (0, 1]")
     targeting_rule = fields.Str(allow_none=True, description="Правило таргетинга, опционально")
-    primary_metric_key = fields.Str(allow_none=True, description="Ключ основной метрики, опционально")
+    metrics = fields.List(
+        fields.Nested(ExperimentMetricItemSchema),
+        load_default=list,
+        description="Метрики эксперимента: ровно одна primary, остальные auxiliary/guardrail. Все ключи должны быть в каталоге.",
+    )
 
 
 class ExperimentUpdateSchema(Schema):
     name = fields.Str(required=False, description="Новое название")
     audience_fraction = fields.Float(required=False, description="Новая доля аудитории (0, 1]")
     targeting_rule = fields.Str(required=False, allow_none=True)
-    primary_metric_key = fields.Str(required=False, allow_none=True)
+    metrics = fields.List(
+        fields.Nested(ExperimentMetricItemSchema),
+        required=False,
+        description="Новый список метрик (ровно одна primary). Передаётся только в draft.",
+    )
 
 
 class StatusUpdateSchema(Schema):
@@ -233,13 +250,12 @@ class ExperimentItemSchema(Schema):
     status = fields.Str()
     audience_fraction = fields.Float()
     targeting_rule = fields.Str(allow_none=True)
-    primary_metric_key = fields.Str(allow_none=True)
     version = fields.Int(allow_none=True)
     created_by = fields.Str(allow_none=True)
     created_at = fields.Str(allow_none=True)
     updated_at = fields.Str(allow_none=True)
     variants = fields.List(fields.Nested(ExperimentVariantSchema), allow_none=True)
-    metrics = fields.List(fields.Dict(), allow_none=True)
+    metrics = fields.List(fields.Dict(), allow_none=True, description="Список {metric_key, metric_type, ...} из experiment_metrics")
 
 
 class ExperimentListResponseSchema(Schema):
@@ -293,7 +309,6 @@ class DecideResponseSchema(Schema):
 
 
 class EventSubmitItemSchema(Schema):
-    """Один элемент пакета событий."""
     event_id = fields.Str(required=True, description="Уникальный идентификатор события (идемпотентность)")
     decision_id = fields.Str(required=True, description="UUID решения (decision_id из /decide)")
     event_type_key = fields.Str(required=True, description="Ключ типа события (exposure, click и т.д.)")
@@ -366,13 +381,173 @@ class EventTypesListResponseSchema(Schema):
     event_types = fields.List(fields.Nested(EventTypeItemSchema))
 
 
-class ReportExperimentResponseSchema(Schema):
-    experiment_id = fields.Str()
-    variants = fields.List(fields.Dict())
-    metrics = fields.List(fields.Dict())
-    status = fields.Str(allow_none=True)
+
+class MetricCatalogItemSchema(Schema):
+    id = fields.Str(description="UUID метрики в каталоге")
+    key = fields.Str(description="Уникальный ключ метрики (идентификатор)")
+    name = fields.Str(description="Человекочитаемое название")
+    description = fields.Str(allow_none=True, description="Назначение метрики")
+    aggregation_rule = fields.Dict(
+        description="Правило вычисления по событиям: kind (count_events, ratio, avg, percentile), event_type_key, aggregation_unit (subject|event), value_path и т.д."
+    )
+    attribution_rule = fields.Dict(
+        allow_none=True,
+        description="Условия атрибуции: requires_decision (требовать подтверждённый факт показа) и др.",
+    )
+    event_expectations = fields.Dict(
+        allow_none=True,
+        description="Ключи событий и ожидание: {event_type_key: 'higher'|'lower'}. Какие эвенты метрика смотрит; higher = рост лучше, lower = падение лучше.",
+    )
+    unit = fields.Str(allow_none=True, description="Единица измерения (events, ratio, ms и т.д.)")
+    created_at = fields.Str(allow_none=True)
+    updated_at = fields.Str(allow_none=True)
+
+
+class MetricCatalogCreateSchema(Schema):
+    key = fields.Str(required=True, description="Уникальный идентификатор метрики (латиница, цифры, подчёркивание)")
+    name = fields.Str(required=True, description="Название метрики")
+    description = fields.Str(allow_none=True, description="Назначение метрики")
+    aggregation_rule = fields.Dict(
+        required=True,
+        description="Правило вычисления: какие события и как агрегируются (count_events, ratio, avg, percentile)",
+    )
+    attribution_rule = fields.Dict(
+        allow_none=True,
+        description="Условия атрибуции (например requires_decision для факта показа)",
+    )
+    event_expectations = fields.Dict(
+        allow_none=True,
+        description="Ключи событий и ожидание: {event_type_key: 'higher'|'lower'}. Какие эвенты метрика смотрит.",
+    )
+    unit = fields.Str(allow_none=True, description="Единица агрегации (events, ratio, ms)")
+
+
+class MetricCatalogUpdateSchema(Schema):
+    name = fields.Str(required=False, description="Новое название")
+    description = fields.Str(required=False, allow_none=True)
+    aggregation_rule = fields.Dict(required=False, description="Новое правило вычисления")
+    attribution_rule = fields.Dict(required=False, allow_none=True)
+    event_expectations = fields.Dict(required=False, allow_none=True, description="Ключи событий и ожидание")
+    unit = fields.Str(required=False, allow_none=True)
 
 
 class MetricsListResponseSchema(Schema):
-    metrics = fields.List(fields.Dict())
+    metrics = fields.List(
+        fields.Nested(MetricCatalogItemSchema),
+        description="Массив метрик из каталога",
+    )
     status = fields.Str(allow_none=True)
+
+
+class ReportWindowQuerySchema(Schema):
+    start = fields.Str(required=True, description="Начало окна (ISO 8601), включительно")
+    end = fields.Str(required=True, description="Конец окна (ISO 8601), не включительно")
+
+
+class ReportMetricValueSchema(Schema):
+    metric_key = fields.Str(description="Ключ метрики из каталога")
+    value = fields.Raw(description="Вычисленное значение (число или null)")
+    unit = fields.Str(allow_none=True)
+
+
+class ReportVariantRowSchema(Schema):
+    variant_id = fields.Str(description="UUID варианта")
+    variant_name = fields.Str(description="Имя варианта (control, treatment и т.д.)")
+    is_control = fields.Bool(description="Является ли контрольным")
+    metric_values = fields.List(
+        fields.Nested(ReportMetricValueSchema),
+        description="Значения метрик для этого варианта",
+    )
+    event_counts = fields.Dict(
+        description="Число срабатываний каждого типа событий (event_type_key -> count) у пользователей этого варианта",
+    )
+
+
+class ReportMetricDefinitionSchema(Schema):
+    metric_key = fields.Str()
+    metric_type = fields.Str(description="primary | auxiliary | guardrail")
+    name = fields.Str(allow_none=True)
+    unit = fields.Str(allow_none=True)
+    event_expectations = fields.Dict(allow_none=True, description="Ожидание по ключам событий: higher|lower")
+
+
+class ReportPrimaryMetricResultSchema(Schema):
+    variant_id = fields.Str()
+    variant_name = fields.Str()
+    value = fields.Raw(allow_none=True)
+    vs_control = fields.Str(description="better | worse | same")
+    change_percent = fields.Float(allow_none=True)
+
+
+class ReportPrimaryMetricSummarySchema(Schema):
+    metric_key = fields.Str()
+    metric_name = fields.Str()
+    control_value = fields.Raw(allow_none=True)
+    control_variant_name = fields.Str(allow_none=True)
+    direction = fields.Str(allow_none=True, description="higher | lower — что считается «лучше»")
+    results = fields.List(fields.Nested(ReportPrimaryMetricResultSchema), description="Сравнение вариантов с контролем")
+    summary_lines = fields.List(
+        fields.Str(),
+        description="Краткие строки: «вариант: стало лучше/хуже на X%» по каждому варианту",
+    )
+
+
+class ReportContextSchema(Schema):
+    window_start = fields.Str(description="Начало окна (включительно)")
+    window_end = fields.Str(description="Конец окна (не включительно)")
+    aggregation_unit = fields.Str(allow_none=True, description="Единица агрегации (subject | event) по метрикам")
+
+
+class ReportMetricDynamicsItemSchema(Schema):
+    period_start = fields.Str(description="Начало подпериода (ISO 8601)")
+    period_end = fields.Str(description="Конец подпериода")
+    value = fields.Raw()
+
+
+class ReportExperimentResponseSchema(Schema):
+    experiment_id = fields.Str(description="UUID эксперимента")
+    experiment_name = fields.Str(allow_none=True, description="Название эксперимента")
+    status = fields.Str(allow_none=True, description="Статус эксперимента")
+    context = fields.Nested(
+        ReportContextSchema,
+        allow_none=True,
+        description="Окно отчёта и единица агрегации",
+    )
+    metrics = fields.List(
+        fields.Nested(ReportMetricDefinitionSchema),
+        description="Метрики, выбранные для эксперимента (основная и дополнительные)",
+    )
+    variants = fields.List(
+        fields.Nested(ReportVariantRowSchema),
+        description="Значения метрик и число срабатываний событий по каждому варианту",
+    )
+    primary_metric_summary = fields.Nested(
+        ReportPrimaryMetricSummarySchema,
+        allow_none=True,
+        description="Сводка по главной метрике: лучше/хуже по каждому варианту относительно контроля и на сколько",
+    )
+    dynamics = fields.List(
+        fields.Dict(),
+        allow_none=True,
+        description="Динамика метрик в выбранном диапазоне (если запрошена)",
+    )
+
+
+METRIC_CATALOG_CREATE_REQUEST_EXAMPLE = {
+    "key": "add_to_favorites_rate",
+    "name": "Доля добавивших в избранное",
+    "description": "Доля пользователей, добавивших товар в избранное после показа.",
+    "aggregation_rule": {
+        "kind": "ratio",
+        "numerator_metric_key": "add_to_favorites",
+        "denominator_metric_key": "impressions",
+        "aggregation_unit": "subject",
+    },
+    "attribution_rule": {"requires_decision": True},
+    "unit": "ratio",
+}
+
+REPORT_WINDOW_QUERY_EXAMPLE = {
+    "start": "2025-02-01T00:00:00Z",
+    "end": "2025-02-18T00:00:00Z",
+}

@@ -64,6 +64,85 @@ async def test_experiments_create_success(http_session, base_url, auth_headers_e
 
 
 @pytest.mark.asyncio
+async def test_experiments_create_with_metrics_from_catalog(
+    http_session, base_url, auth_headers_experimenter, linked_event_types_metrics_experiment
+):
+    """Эксперимент создаётся с метриками из каталога (метрики привязаны к существующим типам событий)."""
+    ctx = linked_event_types_metrics_experiment
+    url = f"{base_url}/api/v1/experiments"
+    payload = {
+        "flag_id": ctx["flag_id"],
+        "name": "Experiment with linked metrics",
+        "audience_fraction": 0.5,
+        "metrics": [
+            {"metric_key": ctx["metric_keys"]["conversion_rate"], "metric_type": "primary"},
+            {"metric_key": ctx["metric_keys"]["impressions"], "metric_type": "auxiliary"},
+            {"metric_key": ctx["metric_keys"]["conversions"], "metric_type": "guardrail"},
+        ],
+    }
+    async with http_session.post(
+        url, json=payload, headers=auth_headers_experimenter
+    ) as resp:
+        assert resp.status == 201, await resp.text()
+        data = await resp.json()
+        assert data["name"] == "Experiment with linked metrics"
+        assert data["status"] == "draft"
+        assert "metrics" in data
+        metric_keys = [m["metric_key"] for m in data["metrics"]]
+        assert ctx["metric_keys"]["conversion_rate"] in metric_keys
+        assert ctx["metric_keys"]["impressions"] in metric_keys
+        assert ctx["metric_keys"]["conversions"] in metric_keys
+        primary = next(m for m in data["metrics"] if m.get("metric_type") == "primary")
+        assert primary["metric_key"] == ctx["metric_keys"]["conversion_rate"]
+
+
+@pytest.mark.asyncio
+async def test_experiments_get_includes_metrics_from_catalog(
+    http_session, base_url, auth_headers_experimenter, linked_event_types_metrics_experiment
+):
+    """GET эксперимента возвращает метрики из каталога (связанные с типами событий)."""
+    ctx = linked_event_types_metrics_experiment
+    url = f"{base_url}/api/v1/experiments/{ctx['experiment_id']}"
+    async with http_session.get(url, headers=auth_headers_experimenter) as resp:
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["id"] == ctx["experiment_id"]
+        assert "metrics" in data
+        assert len(data["metrics"]) >= 3
+        keys = {m["metric_key"] for m in data["metrics"]}
+        assert ctx["metric_keys"]["conversion_rate"] in keys
+        assert ctx["metric_keys"]["impressions"] in keys
+        assert ctx["metric_keys"]["conversions"] in keys
+        assert "variants" in data
+        assert len(data["variants"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_experiments_create_metrics_not_in_catalog_returns_400(
+    http_session, base_url, auth_headers_experimenter, flag_id
+):
+    """Создание эксперимента с несуществующими metric_key возвращает 400 и список отсутствующих метрик."""
+    url = f"{base_url}/api/v1/experiments"
+    payload = {
+        "flag_id": flag_id,
+        "name": "Bad metrics",
+        "audience_fraction": 0.5,
+        "metrics": [
+            {"metric_key": "nonexistent_metric_xyz_123", "metric_type": "primary"},
+            {"metric_key": "another_fake_metric", "metric_type": "auxiliary"},
+        ],
+    }
+    async with http_session.post(
+        url, json=payload, headers=auth_headers_experimenter
+    ) as resp:
+        assert resp.status == 400
+        data = await resp.json()
+        assert "unknown_keys" in data or "error" in data
+        if "unknown_keys" in data:
+            assert "nonexistent_metric_xyz_123" in data["unknown_keys"]
+
+
+@pytest.mark.asyncio
 async def test_experiments_create_invalid_flag_returns_404(http_session, base_url, auth_headers_experimenter):
     url = f"{base_url}/api/v1/experiments"
     payload = {

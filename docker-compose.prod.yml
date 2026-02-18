@@ -26,6 +26,9 @@ services:
         condition: service_healthy
     environment:
       DB_PASSWORD: prod_secret
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_FIRST_NAME: ${ADMIN_FIRST_NAME:-Admin}
     ports:
       - "80:80"
     volumes:

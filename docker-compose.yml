@@ -30,6 +30,9 @@ services:
     environment:
       DB_HOST: postgres
       DB_PASSWORD: prod_secret
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      ADMIN_FIRST_NAME: ${ADMIN_FIRST_NAME:-Admin}
     ports:
       - "80:80"
     volumes:
@@ -50,7 +53,7 @@ services:
         condition: service_started
       postgres:
         condition: service_healthy
-    command: ["sh", "-c", "python /app/tests/seed_test_data.py && pytest /app/tests/"]
+    command: ["sh", "-c", "python /app/tests/seed_test_data.py && pytest /app/tests/ -s"]
     profiles: ["test"]
 
 volumes:

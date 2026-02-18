@@ -13,26 +13,71 @@ METRIC_TYPES = ("primary", "auxiliary", "guardrail")
 REVIEW_ACTIONS = ("approved", "requested_changes", "rejected")
 
 
-async def create_experiment(flag_id: str, name: str, audience_fraction: float, created_by: Optional[str] = None, targeting_rule: Optional[str] = None, primary_metric_key: Optional[str] = None) -> Optional[dict]:
+def _validate_metrics_shape(metrics: list[dict]) -> Optional[str]:
+    if not metrics:
+        return None
+    primary_count = sum(1 for m in metrics if (m.get("metric_type") or "").strip() == "primary")
+    if primary_count != 1:
+        return "Должна быть ровно одна метрика с metric_type 'primary'"
+    for m in metrics:
+        key = (m.get("metric_key") or "").strip()
+        if not key or len(key) > 255:
+            return "metric_key обязателен и не более 255 символов"
+        if (m.get("metric_type") or "").strip() not in METRIC_TYPES:
+            return f"metric_type должен быть один из: {METRIC_TYPES}"
+    return None
+
+
+async def _get_missing_metric_keys(db, keys: list[str]) -> list[str]:
+    if not keys:
+        return []
+    unique = list(dict.fromkeys(k for k in keys if k))
+    rows = await db.execute_all(
+        "SELECT key FROM metric_catalog WHERE key = ANY($1::text[])",
+        (unique,),
+    )
+    found = {r["key"] for r in (rows or [])}
+    return [k for k in unique if k not in found]
+
+
+async def create_experiment(flag_id: str, name: str, audience_fraction: float, created_by: Optional[str] = None, 
+        targeting_rule: Optional[str] = None, metrics: Optional[list[dict]] = None) -> tuple[Optional[dict], Optional[str], Optional[list[str]]]:
+    if metrics is not None:
+        err = _validate_metrics_shape(metrics)
+        if err:
+            return (None, "metrics_validation", [err])
     async with Database() as db:
         flag_row = await db.execute("SELECT 1 FROM feature_flags WHERE id = $1", (flag_id,))
         if not flag_row:
-            return None
+            return (None, "flag_not_found", None)
         new_id = await db.fetchval(
-            """INSERT INTO experiments (flag_id, name, audience_fraction, targeting_rule, primary_metric_key, created_by)
-               VALUES ($1, $2, $3, $4, $5, $6) RETURNING id""",
-            (flag_id, name, audience_fraction, targeting_rule, primary_metric_key, created_by),
+            """INSERT INTO experiments (flag_id, name, audience_fraction, targeting_rule, created_by)
+               VALUES ($1, $2, $3, $4, $5) RETURNING id""",
+            (flag_id, name, audience_fraction, targeting_rule, created_by),
         )
         if not new_id:
-            return None
-    return await get_experiment_by_id(str(new_id))
+            return (None, "flag_not_found", None)
+
+        if metrics:
+            metric_keys = [m.get("metric_key", "").strip() for m in metrics]
+            missing = await _get_missing_metric_keys(db, metric_keys)
+            if missing:
+                return (None, "metrics_not_in_catalog", missing)
+            for m in metrics:
+                await db.execute(
+                    """INSERT INTO experiment_metrics (experiment_id, metric_key, metric_type)
+                       VALUES ($1, $2, $3)
+                       ON CONFLICT (experiment_id, metric_key, metric_type) DO NOTHING""",
+                    (new_id, m.get("metric_key", "").strip(), (m.get("metric_type") or "").strip()),
+                )
+    return (await get_experiment_by_id(str(new_id)), None, None)
 
 
 async def get_experiment_by_id(experiment_id: str) -> Optional[dict]:
     async with Database() as db:
         row = await db.execute(
             """SELECT e.id, e.flag_id, e.name, e.status::text, e.version,
-                      e.audience_fraction, e.targeting_rule, e.primary_metric_key,
+                      e.audience_fraction, e.targeting_rule,
                       e.created_by, e.created_at, e.updated_at,
                       f.key AS flag_key
                FROM experiments e
@@ -55,7 +100,7 @@ async def get_experiment_by_id(experiment_id: str) -> Optional[dict]:
 async def get_experiments_list(flag_id: Optional[str] = None, status: Optional[str] = None) -> list[dict]:
     async with Database() as db:
         sql = """SELECT e.id, e.flag_id, e.name, e.status::text, e.version,
-                        e.audience_fraction, e.targeting_rule, e.primary_metric_key,
+                        e.audience_fraction, e.targeting_rule,
                         e.created_by, e.created_at, e.updated_at,
                         f.key AS flag_key
                  FROM experiments e
@@ -76,14 +121,22 @@ async def get_experiments_list(flag_id: Optional[str] = None, status: Optional[s
         return serialize_json(rows)
 
 
-async def update_experiment(experiment_id: str, name: Optional[str] = None, audience_fraction: Optional[float] = None, targeting_rule: Optional[str] = None, primary_metric_key: Optional[str] = None) -> Optional[dict]:
+async def update_experiment(experiment_id: str, name: Optional[str] = None, audience_fraction: Optional[float] = None, 
+        targeting_rule: Optional[str] = None, metrics: Optional[list[dict]] = None) -> tuple[Optional[dict], Optional[str], Optional[list[str]]]:
+    if metrics is not None:
+        err = _validate_metrics_shape(metrics)
+        if err:
+            return (None, "metrics_validation", [err])
     async with Database() as db:
         row = await db.execute(
             "SELECT id, status, version FROM experiments WHERE id = $1",
             (experiment_id,),
         )
-        if not row or row.get("status") != "draft":
-            return None
+        if not row:
+            return (None, "experiment_not_found", None)
+        is_draft = row.get("status") == "draft"
+        if not is_draft and (audience_fraction is not None or targeting_rule is not None or metrics is not None):
+            return (None, "experiment_not_found", None)
         updates = ["updated_at = NOW()"]
         params = []
         idx = 1
@@ -99,12 +152,8 @@ async def update_experiment(experiment_id: str, name: Optional[str] = None, audi
             updates.append(f"targeting_rule = ${idx}")
             params.append(targeting_rule)
             idx += 1
-        if primary_metric_key is not None:
-            updates.append(f"primary_metric_key = ${idx}")
-            params.append(primary_metric_key)
-            idx += 1
-        if len(params) == 0:
-            return await get_experiment_by_id(experiment_id)
+        if len(params) == 0 and metrics is None:
+            return (await get_experiment_by_id(experiment_id), None, None)
         new_version = (row.get("version") or 1) + 1
         updates.append(f"version = ${idx}")
         params.append(new_version)
@@ -114,6 +163,23 @@ async def update_experiment(experiment_id: str, name: Optional[str] = None, audi
             f"UPDATE experiments SET {', '.join(updates)} WHERE id = ${idx}",
             tuple(params),
         )
+
+        if metrics is not None:
+            metric_keys = [m.get("metric_key", "").strip() for m in metrics]
+            missing = await _get_missing_metric_keys(db, metric_keys)
+            if missing:
+                return (None, "metrics_not_in_catalog", missing)
+            await db.execute(
+                "DELETE FROM experiment_metrics WHERE experiment_id = $1",
+                (experiment_id,),
+            )
+            for m in metrics:
+                await db.execute(
+                    """INSERT INTO experiment_metrics (experiment_id, metric_key, metric_type)
+                       VALUES ($1, $2, $3)
+                       ON CONFLICT (experiment_id, metric_key, metric_type) DO NOTHING""",
+                    (experiment_id, m.get("metric_key", "").strip(), (m.get("metric_type") or "").strip()),
+                )
         snapshot = await _build_experiment_snapshot(db, experiment_id)
         if snapshot:
             await db.execute(
@@ -121,13 +187,13 @@ async def update_experiment(experiment_id: str, name: Optional[str] = None, audi
                    VALUES ($1, $2, $3)""",
                 (experiment_id, new_version, json.dumps(snapshot)),
             )
-    return await get_experiment_by_id(experiment_id)
+    return (await get_experiment_by_id(experiment_id), None, None)
 
 
 async def _build_experiment_snapshot(db, experiment_id: str) -> Optional[dict]:
     snapshot = await db.execute(
         """SELECT id, flag_id, name, status::text, version, audience_fraction,
-                  targeting_rule, primary_metric_key, created_by, created_at, updated_at
+                  targeting_rule, created_by, created_at, updated_at
            FROM experiments WHERE id = $1""",
         (experiment_id,))
     if not snapshot:

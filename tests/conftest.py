@@ -1,4 +1,5 @@
 import os
+import uuid
 import pytest
 from aiohttp import ClientSession
 
@@ -130,3 +131,169 @@ async def flag_id(http_session, base_url, auth_headers_admin):
             data = await resp.json()
             return data["id"]
     pytest.skip("Could not get or create test flag")
+
+
+@pytest.fixture
+async def linked_event_types_metrics_experiment(
+    http_session,
+    base_url,
+    auth_headers_admin,
+    auth_headers_experimenter,
+):
+    """
+    Создаёт связанную цепочку для тестов: типы событий → метрики (ссылаются на эти типы) → флаг → эксперимент (с вариантами и этими метриками).
+    Метрики создаются только для существующих event_type_key; эксперимент — только с метриками из каталога.
+    """
+    suffix = uuid.uuid4().hex[:8]
+    # 1) Типы событий (admin)
+    et_url = f"{base_url}/api/v1/event-types"
+    event_keys = {}
+    for key_slug, display in [("exposure", "Exposure"), ("click", "Click"), ("conversion", "Conversion")]:
+        key = f"test_et_{key_slug}_{suffix}"
+        async with http_session.post(
+            et_url,
+            headers=auth_headers_admin,
+            json={"key": key, "display_name": display},
+        ) as r:
+            if r.status not in (200, 201):
+                pytest.skip(f"Could not create event type {key}: {(await r.text())}")
+        event_keys[key_slug] = key
+
+    # 2) Метрики, ссылающиеся на созданные типы событий (experimenter)
+    metrics_url = f"{base_url}/api/v1/metrics"
+    metric_keys = {}
+    # impressions — по exposure
+    key_imp = f"test_impressions_{suffix}"
+    async with http_session.post(
+        metrics_url,
+        headers=auth_headers_experimenter,
+        json={
+            "key": key_imp,
+            "name": "Test impressions",
+            "description": "Count exposure events",
+            "aggregation_rule": {
+                "kind": "count_events",
+                "event_type_key": event_keys["exposure"],
+                "aggregation_unit": "subject",
+            },
+            "attribution_rule": {"requires_decision": True},
+            "event_expectations": {event_keys["exposure"]: "higher"},
+            "unit": "events",
+        },
+    ) as r:
+        if r.status not in (200, 201):
+            pytest.skip(f"Could not create metric {key_imp}: {(await r.text())}")
+    metric_keys["impressions"] = key_imp
+
+    # conversions — по conversion
+    key_conv = f"test_conversions_{suffix}"
+    async with http_session.post(
+        metrics_url,
+        headers=auth_headers_experimenter,
+        json={
+            "key": key_conv,
+            "name": "Test conversions",
+            "description": "Count conversion events",
+            "aggregation_rule": {
+                "kind": "count_events",
+                "event_type_key": event_keys["conversion"],
+                "aggregation_unit": "subject",
+            },
+            "attribution_rule": {"requires_decision": True},
+            "event_expectations": {event_keys["conversion"]: "higher"},
+            "unit": "events",
+        },
+    ) as r:
+        if r.status not in (200, 201):
+            pytest.skip(f"Could not create metric {key_conv}: {(await r.text())}")
+    metric_keys["conversions"] = key_conv
+
+    # conversion_rate — ratio (numerator/denominator — ключи метрик из каталога)
+    key_rate = f"test_conversion_rate_{suffix}"
+    async with http_session.post(
+        metrics_url,
+        headers=auth_headers_experimenter,
+        json={
+            "key": key_rate,
+            "name": "Test conversion rate",
+            "description": "Conversions / impressions",
+            "aggregation_rule": {
+                "kind": "ratio",
+                "numerator_metric_key": key_conv,
+                "denominator_metric_key": key_imp,
+                "aggregation_unit": "subject",
+            },
+            "attribution_rule": {"requires_decision": True},
+            "unit": "ratio",
+        },
+    ) as r:
+        if r.status not in (200, 201):
+            pytest.skip(f"Could not create metric {key_rate}: {(await r.text())}")
+    metric_keys["conversion_rate"] = key_rate
+
+    # 3) Флаг
+    flags_url = f"{base_url}/api/v1/flags"
+    flag_key = f"test_linked_flag_{suffix}"
+    async with http_session.post(
+        flags_url,
+        headers=auth_headers_admin,
+        json={
+            "key": flag_key,
+            "value_type": "string",
+            "default_value": "control",
+        },
+    ) as r:
+        if r.status not in (200, 201):
+            pytest.skip(f"Could not create flag: {(await r.text())}")
+        flag_data = await r.json()
+    flag_id = flag_data["id"]
+
+    # 4) Эксперимент с вариантами и метриками из каталога (ровно одна primary, остальные auxiliary/guardrail)
+    exp_url = f"{base_url}/api/v1/experiments"
+    payload = {
+        "flag_id": flag_id,
+        "name": f"Linked experiment {suffix}",
+        "audience_fraction": 1.0,
+        "metrics": [
+            {"metric_key": key_rate, "metric_type": "primary"},
+            {"metric_key": key_imp, "metric_type": "auxiliary"},
+            {"metric_key": key_conv, "metric_type": "guardrail"},
+        ],
+    }
+    async with http_session.post(
+        exp_url,
+        headers=auth_headers_experimenter,
+        json=payload,
+    ) as r:
+        if r.status != 201:
+            pytest.skip(f"Could not create experiment with metrics: {(await r.text())}")
+        exp_data = await r.json()
+    exp_id = exp_data["id"]
+
+    # Варианты
+    var_url = f"{base_url}/api/v1/experiments/{exp_id}/variants"
+    for name, value, weight, is_control in [
+        ("control", "c", 0.5, True),
+        ("treatment", "t", 0.5, False),
+    ]:
+        async with http_session.post(
+            var_url,
+            headers=auth_headers_experimenter,
+            json={
+                "variant_name": name,
+                "variant_value": value,
+                "weight": weight,
+                "is_control": is_control,
+            },
+        ) as vr:
+            if vr.status != 201:
+                pytest.skip(f"Could not add variant {name}: {vr.status} {(await vr.text())}")
+
+    return {
+        "event_type_keys": event_keys,
+        "metric_keys": metric_keys,
+        "flag_id": flag_id,
+        "flag_key": flag_key,
+        "experiment_id": exp_id,
+        "suffix": suffix,
+    }

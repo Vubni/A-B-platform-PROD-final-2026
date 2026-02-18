@@ -1,4 +1,3 @@
-"""Feature Flags API."""
 from typing import Any, Optional
 
 from aiohttp import web

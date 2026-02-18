@@ -99,7 +99,6 @@ CREATE TABLE IF NOT EXISTS experiments (
     version INTEGER NOT NULL DEFAULT 1,
     audience_fraction NUMERIC(5,4) NOT NULL CHECK (audience_fraction > 0 AND audience_fraction <= 1),
     targeting_rule TEXT,
-    primary_metric_key VARCHAR,
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -229,14 +228,21 @@ CREATE INDEX IF NOT EXISTS idx_experiment_metrics_experiment ON experiment_metri
 CREATE TABLE IF NOT EXISTS metric_catalog (
     id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
     key VARCHAR NOT NULL UNIQUE,
-    name VARCHAR,
+    name VARCHAR NOT NULL,
     description TEXT,
-    aggregation_rule JSONB,
+    aggregation_rule JSONB NOT NULL,
+    attribution_rule JSONB,
+    event_expectations JSONB,
+    unit VARCHAR,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_metric_catalog_key ON metric_catalog(key);
+
+ALTER TABLE metric_catalog ADD COLUMN IF NOT EXISTS attribution_rule JSONB;
+ALTER TABLE metric_catalog ADD COLUMN IF NOT EXISTS event_expectations JSONB;
+COMMENT ON COLUMN metric_catalog.event_expectations IS 'Ключи событий и ожидание: {"event_type_key": "higher"|"lower"}. Какие эвенты метрика смотрит; направление используется для отчёта (лучше = рост или падение).';
 
 CREATE TABLE IF NOT EXISTS experiment_review_history (
     id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),

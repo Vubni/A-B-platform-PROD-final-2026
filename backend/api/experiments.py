@@ -1,4 +1,3 @@
-"""Experiments API: создание, список, обновление, жизненный цикл и ревью."""
 from typing import Optional
 
 from aiohttp import web
@@ -54,12 +53,31 @@ def _variant_id_from_request(request: web.Request) -> Optional[str]:
 
 
 
+class ExperimentMetricItem(BaseModel):
+    metric_key: str
+    metric_type: str
+
+    @field_validator("metric_key")
+    @classmethod
+    def key_nonempty(cls, v: str) -> str:
+        if not v or not v.strip() or len(v) > 255:
+            raise ValueError("metric_key: non-empty, max 255 chars")
+        return v.strip()
+
+    @field_validator("metric_type")
+    @classmethod
+    def type_valid(cls, v: str) -> str:
+        if v not in METRIC_TYPES:
+            raise ValueError(f"metric_type must be one of {METRIC_TYPES}")
+        return v
+
+
 class ExperimentCreate(BaseModel):
     flag_id: str
     name: str
     audience_fraction: float
     targeting_rule: Optional[str] = None
-    primary_metric_key: Optional[str] = None
+    metrics: Optional[list[ExperimentMetricItem]] = None
 
     @field_validator("flag_id")
     @classmethod
@@ -94,11 +112,14 @@ class ExperimentCreate(BaseModel):
             raise ValueError("Invalid targeting rule")
         return v
 
-    @field_validator("primary_metric_key")
+    @field_validator("metrics")
     @classmethod
-    def primary_metric_opt(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None and len(v) > 255:
-            raise ValueError("Primary metric key too long")
+    def metrics_one_primary(cls, v: Optional[list]) -> Optional[list]:
+        if not v:
+            return v
+        primary_count = sum(1 for m in v if getattr(m, "metric_type", None) == "primary")
+        if primary_count != 1:
+            raise ValueError("Должна быть ровно одна метрика с metric_type 'primary'")
         return v
 
 
@@ -106,7 +127,7 @@ class ExperimentUpdate(BaseModel):
     name: Optional[str] = None
     audience_fraction: Optional[float] = None
     targeting_rule: Optional[str] = None
-    primary_metric_key: Optional[str] = None
+    metrics: Optional[list[ExperimentMetricItem]] = None
 
     @field_validator("name")
     @classmethod
@@ -131,11 +152,14 @@ class ExperimentUpdate(BaseModel):
             raise ValueError("Invalid targeting rule")
         return v
 
-    @field_validator("primary_metric_key")
+    @field_validator("metrics")
     @classmethod
-    def primary_metric_opt(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None and len(v) > 255:
-            raise ValueError("Primary metric key too long")
+    def metrics_one_primary(cls, v: Optional[list]) -> Optional[list]:
+        if not v:
+            return v
+        primary_count = sum(1 for m in v if getattr(m, "metric_type", None) == "primary")
+        if primary_count != 1:
+            raise ValueError("Должна быть ровно одна метрика с metric_type 'primary'")
         return v
 
 
@@ -223,16 +247,27 @@ async def experiments_create(request: web.Request, parsed: ExperimentCreate) -> 
         return validate.format_403_error(request, "Not enough permissions to create experiments")
 
     created_by = auth_payload.get("id")
-    experiment = await create_experiment(
+    metrics_payload = [{"metric_key": m.metric_key, "metric_type": m.metric_type} for m in (parsed.metrics or [])]
+    experiment, err_code, err_details = await create_experiment(
         flag_id=parsed.flag_id,
         name=parsed.name,
         audience_fraction=parsed.audience_fraction,
         created_by=created_by,
         targeting_rule=parsed.targeting_rule,
-        primary_metric_key=parsed.primary_metric_key,
+        metrics=metrics_payload if metrics_payload else None,
     )
-    if not experiment:
+    if err_code == "flag_not_found":
         return validate.format_404_error(request, "Flag not found", details={"field": "flag_id"})
+    if err_code == "metrics_validation":
+        return web.json_response(
+            {"error": err_details[0] if err_details else "Invalid metrics"},
+            status=400,
+        )
+    if err_code == "metrics_not_in_catalog":
+        return web.json_response(
+            {"error": "Метрики не найдены в каталоге", "unknown_keys": err_details or []},
+            status=400,
+        )
     return web.json_response(experiment, status=201)
 
 
@@ -320,27 +355,44 @@ async def experiments_update(request: web.Request, parsed: ExperimentUpdate) -> 
 
     status = experiment.get("status")
 
-    if not (parsed.name or parsed.audience_fraction or parsed.targeting_rule or parsed.primary_metric_key):
+    has_update = parsed.name or parsed.audience_fraction or parsed.targeting_rule is not None or parsed.metrics is not None
+    if not has_update:
         return web.json_response(
-            {"error": "No fields to update"}, 
-            status=400)
+            {"error": "No fields to update"},
+            status=400,
+        )
 
     if status == "draft":
-        updated = await update_experiment(
+        metrics_payload = None
+        if parsed.metrics is not None:
+            metrics_payload = [{"metric_key": m.metric_key, "metric_type": m.metric_type} for m in parsed.metrics]
+        updated, err_code, err_details = await update_experiment(
             experiment_id=exp_id,
             name=parsed.name,
             audience_fraction=parsed.audience_fraction,
             targeting_rule=parsed.targeting_rule,
-            primary_metric_key=parsed.primary_metric_key)
+            metrics=metrics_payload,
+        )
+        if err_code == "metrics_validation":
+            return web.json_response(
+                {"error": err_details[0] if err_details else "Invalid metrics"},
+                status=400,
+            )
+        if err_code == "metrics_not_in_catalog":
+            return web.json_response(
+                {"error": "Метрики не найдены в каталоге", "unknown_keys": err_details or []},
+                status=400,
+            )
         return web.json_response(updated)
 
     if status in ("running", "paused", "completed", "archived"):
-        if parsed.audience_fraction or parsed.targeting_rule or parsed.primary_metric_key:
+        if parsed.audience_fraction or parsed.targeting_rule is not None or parsed.metrics is not None:
             return web.json_response(
-                {"error": "Experiment is frozen after start; only 'name' can be updated"}, 
-                status=400)
+                {"error": "Experiment is frozen after start; only 'name' can be updated"},
+                status=400,
+            )
 
-        updated = await update_experiment(exp_id, parsed.name)
+        updated, _err, _details = await update_experiment(experiment_id=exp_id, name=parsed.name)
         return web.json_response(updated)
 
     return web.json_response(

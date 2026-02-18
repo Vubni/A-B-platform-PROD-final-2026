@@ -13,7 +13,7 @@ async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any],
         result = {"flags": []}
         experiments = await db.execute_all(
             """SELECT e.id, e.name, e.status::text, e.version,
-                    e.audience_fraction, e.targeting_rule, e.primary_metric_key,
+                    e.audience_fraction, e.targeting_rule,
                     e.created_by, f.id AS flag_id, f.key AS flag_key
             FROM experiments e
             JOIN feature_flags f ON e.flag_id = f.id
@@ -40,8 +40,8 @@ async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any],
                 decision_id = uuid.uuid4()
                 await db.execute(
                     """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
-                       VALUES ($1, $2, $3, $4, NULL, NULL)""",
-                    (decision_id, subject_id, flag_id, default_value),
+                       VALUES ($1, $2, $3, $4, $5, NULL)""",
+                    (decision_id, subject_id, flag_id, default_value, experiment['id']),
                 )
                 result["flags"].append({
                     "flag_key": experiment['flag_key'],
@@ -67,11 +67,14 @@ async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any],
                     )
                     out_variant = vrow["variant_name"] if vrow else None
 
+                # Новое действие (например, зашёл на следующий день) — пишем новую запись с тем же экспериментом/вариантом.
                 decision_id = uuid.uuid4()
+                exp_id = existing.get("experiment_id") if existing.get("experiment_id") is not None else experiment["id"]
+                var_id = existing.get("variant_id")
                 await db.execute(
                     """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
-                       VALUES ($1, $2, $3, $4, NULL, NULL)""",
-                    (decision_id, subject_id, flag_id, default_value),
+                       VALUES ($1, $2, $3, $4, $5, $6)""",
+                    (decision_id, subject_id, flag_id, out_value, exp_id, var_id),
                 )
                 result["flags"].append({
                     "flag_key": experiment['flag_key'],
@@ -102,8 +105,8 @@ async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any],
             if not assign_to_experiment:
                 await db.execute(
                     """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
-                       VALUES ($1, $2, $3, $4, NULL, NULL)""",
-                    (uuid.UUID(decision_id), subject_id, flag_id, default_value),
+                       VALUES ($1, $2, $3, $4, $5, NULL)""",
+                    (uuid.UUID(decision_id), subject_id, flag_id, default_value, experiment['id']),
                 )
                 result["flags"].append({
                     "flag_key": experiment['flag_key'],

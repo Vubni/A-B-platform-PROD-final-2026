@@ -289,7 +289,7 @@ async def test_decide_audience_fraction_about_20_percent(
                 pytest.skip(f"Could not set status {status}: {await r.text()}")
 
     in_experiment = 0
-    n = 20
+    n = 200
     for i in range(n):
         payload = {
             "subject_id": f"audience-subject-{i}",
@@ -304,6 +304,6 @@ async def test_decide_audience_fraction_about_20_percent(
                 in_experiment += 1
 
     ratio = in_experiment / n
-    assert 0.10 <= ratio <= 0.35, (
+    assert 0.12 <= ratio <= 0.30, (
         f"Ожидалось ~20% в эксперименте (audience_fraction=0.2), получено {ratio:.1%} ({in_experiment}/{n})"
     )

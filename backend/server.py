@@ -10,7 +10,19 @@ import aiohttp_cors
 from config import logger
 from api import auth, health, flags, experiments, decide, events, reports, users, system_metrics
 from database.database import Database
+from database.functions import init_reference_data
+from functions.users import create_user
 
+
+async def init_first_admin():
+    email = os.environ.get("ADMIN_EMAIL")
+    password = os.environ.get("ADMIN_PASSWORD")
+    if not email or not password:
+        return
+    first_name = os.environ.get("ADMIN_FIRST_NAME", "Admin")
+    admin = await create_user(email=email, first_name=first_name, password=password, role="admin")
+    if admin:
+        logger.info(f"Создан первый админ: {email}")
 
 
 async def check_readiness(app):
@@ -18,8 +30,10 @@ async def check_readiness(app):
     try:
         async with Database() as db:
             if db and await db.execute("SELECT 1"):
+                await init_reference_data()
+                await init_first_admin()
                 health.set_ready(True)
-                logger.info("Readiness: все зависимости готовы.")
+                logger.info("Readiness: все зависимости и данные готовы.")
             else:
                 logger.warning("Readiness: БД не отвечает.")
     except Exception as e:
@@ -107,7 +121,9 @@ if __name__ == "__main__":
         web.get(prefix + "/experiments/{id}/report",
                 reports.reports_experiment),
         web.get(prefix + "/metrics", reports.metrics_list),
+        web.get(prefix + "/metrics/{key}", reports.metrics_get),
         web.post(prefix + "/metrics", reports.metrics_create),
+        web.patch(prefix + "/metrics/{key}", reports.metrics_update),
     ]
 
     for route in routes:

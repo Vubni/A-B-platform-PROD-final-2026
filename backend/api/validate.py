@@ -21,25 +21,14 @@ class EmailError(Exception):
 
 
 def generate_trace_id() -> str:
-    """Генерирует UUID для traceId."""
     return str(uuid.uuid4())
 
 
 def get_timestamp() -> str:
-    """Возвращает текущую временную метку в формате ISO 8601."""
     return datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
 
 
 def get_nested_value(data: Dict[str, Any], path: tuple) -> Any:
-    """Извлекает значение из вложенной структуры данных по пути.
-
-    Args:
-        data: Словарь с данными (может быть вложенным).
-        path: Кортеж с путем к значению (например, ('location', 'country')).
-
-    Returns:
-        Значение по указанному пути или None, если путь не существует.
-    """
     if not path:
         return None
 
@@ -63,7 +52,6 @@ def format_error_response(
     details: Optional[Dict[str, Any]] = None,
     field_errors: Optional[list] = None
 ) -> Dict[str, Any]:
-    """Форматирует ответ об ошибке согласно спецификации."""
     response = {
         "code": code,
         "message": message,
@@ -82,7 +70,6 @@ def format_error_response(
 
 
 def format_401_error(request: web.Request, message: str = "Токен отсутствует, невалиден или истёк") -> web.Response:
-    """Форматирует ответ об ошибке 401 - Требуется аутентификация."""
     error_response = format_error_response(
         code="UNAUTHORIZED",
         message=message,
@@ -93,7 +80,6 @@ def format_401_error(request: web.Request, message: str = "Токен отсут
 
 
 def format_403_error(request: web.Request, message: str = "Недостаточно прав для выполнения операции") -> web.Response:
-    """Форматирует ответ об ошибке 403 - Недостаточно прав."""
     error_response = format_error_response(
         code="FORBIDDEN",
         message=message,
@@ -104,7 +90,6 @@ def format_403_error(request: web.Request, message: str = "Недостаточ�
 
 
 def format_404_error(request: web.Request, message: str = "Ресурс не найден", details: Optional[Dict[str, Any]] = None) -> web.Response:
-    """Форматирует ответ об ошибке 404 - Ресурс не найден."""
     error_response = format_error_response(
         code="NOT_FOUND",
         message=message,
@@ -116,7 +101,6 @@ def format_404_error(request: web.Request, message: str = "Ресурс не н�
 
 
 def format_409_error(request: web.Request, value, message: str = "Токен отсутствует или невалиден", field="email") -> web.Response:
-    """Форматирует ответ об ошибке 409 - Ресурс уже существует."""
     error_response = format_error_response(
         code=f"{field.upper()}_ALREADY_EXISTS",
         message=message,
@@ -128,7 +112,6 @@ def format_409_error(request: web.Request, value, message: str = "Токен о�
 
 
 def format_422_error(request: web.Request, code: str = "ERROR") -> web.Response:
-    """Форматирует ответ об ошибке 422 - Некорректные данные."""
     error_response = {
         "code": code,
         "message": "Некоторые поля не прошли валидацию",
@@ -139,7 +122,6 @@ def format_422_error(request: web.Request, code: str = "ERROR") -> web.Response:
 
 
 def format_423_error(request: web.Request, message: str = "Пользователь деактивирован") -> web.Response:
-    """Форматирует ответ об ошибке 423 - Ресурс заблокирован."""
     error_response = {
         "code": "USER_INACTIVE",
         "message": message,
@@ -150,7 +132,6 @@ def format_423_error(request: web.Request, message: str = "Пользовате�
 
 
 def require_auth(handler: Callable[[web.Request, Any], Awaitable[web.Response]]) -> Callable:
-    """Декоратор для проверки JWT токена перед выполнением обработчика."""
     @wraps(handler)
     async def wrapper(request: web.Request, *args, **kwargs) -> web.Response:
         payload = await core.check_authorization(request)

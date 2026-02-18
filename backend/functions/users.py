@@ -1,10 +1,3 @@
-"""
-Функции для работы с пользователями, ролями и аппрувер-группами.
-
-- users: id, email, first_name, password, verified, role (user_role), created_at, updated_at
-- approver_groups: id, experimenter_id (FK users), min_approvals, created_at, updated_at
-- approver_group_members: approver_group_id (FK approver_groups), approver_id (FK users)
-"""
 from typing import Any, Optional
 from core import serialize_json, create_token, check_token
 from database.database import Database
@@ -147,7 +140,6 @@ async def get_approver_group_for_experimenter(experimenter_id: str) -> dict | No
 
 
 async def get_approver_group_by_experimenter(experimenter_id: Optional[str]) -> dict | None:
-    """Группа аппруверов по experimenter_id (None — fallback)."""
     async with Database() as db:
         row = await db.execute(
             """SELECT ag.id, ag.experimenter_id, ag.min_approvals,

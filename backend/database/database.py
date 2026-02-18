@@ -16,7 +16,6 @@ class Database:
         self._retry_count = 0
 
     async def __aenter__(self):
-        """Установка соединения с автоматическим переподключением"""
         self.connection = None
         self.transaction = None
         
@@ -39,7 +38,6 @@ class Database:
         return None
 
     async def __aexit__(self, exc_type, exc_value, traceback):
-        """Безопасное закрытие соединения"""
         try:
             if self.transaction:
                 if exc_type is None:
@@ -64,7 +62,6 @@ class Database:
                     self.transaction = None
 
     async def close_connection(self) -> None:
-        """Явное закрытие соединения с обработкой ошибок"""
         if self.transaction:
             try:
                 await self.transaction.commit()
@@ -80,7 +77,6 @@ class Database:
                 self.transaction = None
 
     def serialize(self, data) -> Union[int, str, float, List, Dict, None]:
-        """Рекурсивная сериализация данных из БД"""
         try:
             if data is None:
                 return None
@@ -122,7 +118,6 @@ class Database:
             return None
 
     async def execute_all(self, sql: str, params: tuple = ()) -> Optional[List[Dict]]:
-        """Выполнение SELECT-запросов с множественным результатом"""
         if not await self._check_connection():
             return None
             
@@ -138,7 +133,6 @@ class Database:
             return None
 
     async def execute(self, sql: str, params: tuple = ()) -> Optional[Dict]:
-        """Выполнение SELECT-запросов с единичным результатом"""
         if not await self._check_connection():
             return None
             
@@ -151,10 +145,9 @@ class Database:
                 return {}
         except Exception as e:
             self._handle_exception(e, sql)
-            return None
+            raise
 
     async def fetchval(self, sql: str, params: tuple = ()) -> Optional[Union[int, str]]:
-        """Получение скалярного значения (может быть int или UUID строкой)"""
         if not await self._check_connection():
             return None
 
@@ -168,10 +161,9 @@ class Database:
             return result
         except Exception as e:
             self._handle_exception(e, sql)
-            return None
+            raise
 
     async def executemany(self, sql: str, params: List[tuple] = []) -> Optional[bool]:
-        """Выполнение массовых операций"""
         if not await self._check_connection():
             return None
             
@@ -186,14 +178,12 @@ class Database:
             return None
 
     async def _check_connection(self) -> bool:
-        """Проверка активности соединения"""
         if not self.connection or self.connection.is_closed():
             logger.error("Соединение с БД не установлено")
             return False
         return True
 
     def _handle_exception(self, exception: Exception, sql: str) -> None:
-        """Единый обработчик ошибок с логированием"""
         error_msg = f"{exception.__class__.__name__}: {exception}\nSQL: {sql}"
         if isinstance(exception, PostgresConnectionError):
             logger.error(f"Ошибка подключения к БД: {error_msg}")

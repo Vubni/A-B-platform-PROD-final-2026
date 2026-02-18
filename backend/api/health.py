@@ -1,4 +1,3 @@
-"""Readiness state: True когда все критичные зависимости готовы."""
 from aiohttp_apispec import docs
 from aiohttp import web
 _ready = False
