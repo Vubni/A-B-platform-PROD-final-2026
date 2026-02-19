@@ -12,6 +12,7 @@ from functions.events_dependency_queue import (
     PendingEvent,
     events_dependency_queue,
 )
+from functions.guardrails import check_guardrails_for_decisions
 
 
 @dataclass
@@ -140,6 +141,7 @@ async def process_events_batch(events: List[Any]) -> Dict[str, Any]:
     duplicates = 0
     rejected = 0
     errors: List[Dict[str, Any]] = []
+    touched_decision_ids: set[str] = set()
 
     await events_dependency_queue.expire_old()
 
@@ -202,6 +204,7 @@ async def process_events_batch(events: List[Any]) -> Dict[str, Any]:
                 )
                 if ok:
                     accepted += 1
+                    touched_decision_ids.add(parsed.decision_id)
                 else:
                     duplicates += 1
             else:
@@ -230,6 +233,7 @@ async def process_events_batch(events: List[Any]) -> Dict[str, Any]:
             )
             if ok:
                 accepted += 1
+                touched_decision_ids.add(parsed.decision_id)
                 ready = await events_dependency_queue.pop_ready(
                     parsed.decision_id,
                     et_id,
@@ -243,8 +247,15 @@ async def process_events_batch(events: List[Any]) -> Dict[str, Any]:
                         pe.timestamp,
                         pe.payload,
                     )
+                    touched_decision_ids.add(pe.decision_id)
             else:
                 duplicates += 1
+
+    if touched_decision_ids:
+        try:
+            await check_guardrails_for_decisions(list(touched_decision_ids))
+        except Exception:
+            pass
 
     return {
         "accepted": accepted,

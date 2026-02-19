@@ -247,6 +247,23 @@ def _primary_metric_summary(
             better_worse = "стало лучше" if r.get("vs_control") == "better" else "стало хуже"
             s = f"{r.get('variant_name', '')}: {better_worse} на {abs(pct):.2f}%"
         summaries.append(s)
+
+    recommendation = "keep_control"
+    winner_variant_id = None
+    winner_variant_name = None
+    if direction and results:
+        better_results = [r for r in results if r.get("vs_control") == "better"]
+        if better_results:
+            if direction == "higher":
+                best = max(better_results, key=lambda r: (r.get("change_percent") is not None, r.get("change_percent") or 0))
+            else:
+                best = min(better_results, key=lambda r: (r.get("change_percent") is not None, -(r.get("change_percent") or 0)))
+            recommendation = "rollout"
+            winner_variant_id = best.get("variant_id")
+            if winner_variant_id is not None:
+                winner_variant_id = str(winner_variant_id)
+            winner_variant_name = best.get("variant_name")
+
     primary_name = primary_metric_name or primary_metric_key
     return {
         "metric_key": primary_metric_key,
@@ -256,6 +273,9 @@ def _primary_metric_summary(
         "direction": direction,
         "results": results,
         "summary_lines": summaries,
+        "recommendation": recommendation,
+        "winner_variant_id": winner_variant_id,
+        "winner_variant_name": winner_variant_name,
     }
 
 

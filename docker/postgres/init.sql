@@ -256,10 +256,23 @@ CREATE TABLE IF NOT EXISTS experiment_review_history (
 CREATE INDEX IF NOT EXISTS idx_experiment_review_history_experiment ON experiment_review_history(experiment_id);
 CREATE INDEX IF NOT EXISTS idx_experiment_review_history_reviewer ON experiment_review_history(reviewer_id);
 
+CREATE TABLE IF NOT EXISTS metric_guardrails (
+    metric_key VARCHAR NOT NULL PRIMARY KEY REFERENCES metric_catalog(key) ON DELETE CASCADE,
+    threshold NUMERIC NOT NULL,
+    window_seconds INTEGER NOT NULL CHECK (window_seconds > 0),
+    action VARCHAR NOT NULL CHECK (action IN ('pause', 'rollback_to_control')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS experiment_guardrail_history (
     id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
     experiment_id UUID NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
     metric_key VARCHAR NOT NULL,
+    threshold NUMERIC,
+    window_seconds INTEGER,
+    action VARCHAR CHECK (action IN ('pause', 'rollback_to_control')),
+    metric_value NUMERIC,
     triggered_at TIMESTAMPTZ DEFAULT NOW(),
     details JSONB
 );

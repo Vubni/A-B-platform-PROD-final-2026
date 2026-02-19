@@ -53,6 +53,9 @@ def _variant_id_from_request(request: web.Request) -> Optional[str]:
 
 
 
+
+
+
 class ExperimentMetricItem(BaseModel):
     metric_key: str
     metric_type: str
@@ -225,6 +228,7 @@ class VariantUpdate(BaseModel):
         if v is not None and v < 0:
             raise ValueError("weight must be >= 0")
         return v
+
 
 
 @docs(
@@ -615,4 +619,9 @@ async def experiments_guardrail_history(request: web.Request) -> web.Response:
         return validate.format_404_error(request, "Experiment not found")
 
     triggers = await get_guardrail_history(exp_id)
-    return web.json_response({"experiment_id": exp_id, "triggers": triggers})
+    return web.json_response(
+        {
+            "experiment_id": exp_id,
+            "triggers": triggers or [],
+        }
+    )

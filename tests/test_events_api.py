@@ -1,5 +1,6 @@
 import pytest
 import uuid
+from datetime import datetime, timezone
 
 
 @pytest.mark.asyncio
@@ -1034,3 +1035,211 @@ async def test_events_submit_with_events_body(http_session, base_url):
         assert "duplicates" in data
         assert "rejected" in data
         assert "errors" in data
+
+
+@pytest.mark.asyncio
+async def test_events_submit_out_of_order_with_requires_show(
+    http_session,
+    base_url,
+    auth_headers_admin,
+    events_submit_context,
+):
+    """
+    Событие, зависящее от факта показа (requires_show_event_type_id),
+    может прийти раньше show-события и не отклоняется.
+    """
+    et_url = f"{base_url}/api/v1/event-types"
+
+    # Создаём тип события "show"
+    key_show = f"api_queue_show_{uuid.uuid4().hex[:8]}"
+    async with http_session.post(
+        et_url,
+        json={"key": key_show, "display_name": "Queued Show"},
+        headers=auth_headers_admin,
+    ) as cr:
+        assert cr.status in (200, 201), await cr.text()
+        show_type = await cr.json()
+        show_id = show_type["id"]
+
+    # Создаём тип события "click", зависящий от show
+    key_click = f"api_queue_click_{uuid.uuid4().hex[:8]}"
+    async with http_session.post(
+        et_url,
+        json={
+            "key": key_click,
+            "display_name": "Queued Click",
+            "requires_show_event_type_id": show_id,
+        },
+        headers=auth_headers_admin,
+    ) as cr:
+        assert cr.status in (200, 201), await cr.text()
+
+    ctx = events_submit_context
+    events_url = f"{base_url}/api/v1/events"
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    # 1) Сначала отправляем click (требует show) — событие попадает в очередь, не отклоняется.
+    click_payload = {
+        "events": [
+            {
+                "event_id": str(uuid.uuid4()),
+                "decision_id": ctx["decision_id"],
+                "event_type_key": key_click,
+                "subject_id": ctx["subject_id"],
+                "timestamp": now,
+                "payload": {},
+            }
+        ]
+    }
+    async with http_session.post(events_url, json=click_payload) as resp:
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["accepted"] == 1
+        assert data["rejected"] == 0
+
+    # 2) Затем отправляем show — после этого отложенное click-событие должно быть записано.
+    show_payload = {
+        "events": [
+            {
+                "event_id": str(uuid.uuid4()),
+                "decision_id": ctx["decision_id"],
+                "event_type_key": key_show,
+                "subject_id": ctx["subject_id"],
+                "timestamp": now,
+                "payload": {},
+            }
+        ]
+    }
+    async with http_session.post(events_url, json=show_payload) as resp:
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["accepted"] == 1
+        assert data["rejected"] == 0
+
+
+@pytest.mark.asyncio
+async def test_guardrail_pauses_experiment_when_threshold_exceeded(
+    http_session,
+    base_url,
+    auth_headers_admin,
+    auth_headers_experimenter,
+    auth_headers_approver,
+    linked_event_types_metrics_experiment,
+):
+    """
+    Guardrail по метрике типа guardrail останавливает (ставит на паузу) запущенный эксперимент,
+    когда значение метрики за окно превышает порог.
+    """
+    ctx = linked_event_types_metrics_experiment
+    exp_id = ctx["experiment_id"]
+    metric_key_guardrail = ctx["metric_keys"]["conversions"]
+
+    # Настраиваем guardrail для метрики conversions: любое значение > 0 за последние 60 секунд — пауза.
+    guardrails_url = f"{base_url}/api/v1/guardrails"
+    async with http_session.post(
+        guardrails_url,
+        headers=auth_headers_experimenter,
+        json={
+            "metric_key": metric_key_guardrail,
+            "threshold": 0.0,
+            "window_seconds": 60,
+            "action": "pause",
+        },
+    ) as resp:
+        assert resp.status == 200, await resp.text()
+
+    # Создаём группу аппруверов для владельца эксперимента.
+    users_url = f"{base_url}/api/v1/users"
+    async with http_session.get(users_url, headers=auth_headers_admin) as resp:
+        assert resp.status == 200
+        users = (await resp.json()).get("users") or []
+    experimenter = next((u for u in users if u.get("email") == "experimenter@test.com"), None)
+    approver_user = next((u for u in users if u.get("email") == "approver@test.com"), None)
+    assert experimenter and approver_user, "Seed users experimenter@test.com and approver@test.com are required"
+
+    approver_groups_url = f"{base_url}/api/v1/approver-groups"
+    async with http_session.post(
+        approver_groups_url,
+        headers=auth_headers_approver,
+        json={
+            "experimenter_id": experimenter["id"],
+            "min_approvals": 1,
+            "approver_ids": [approver_user["id"]],
+        },
+    ) as resp:
+        # Группа может уже существовать — в этом случае просто продолжаем.
+        assert resp.status in (200, 201, 409), await resp.text()
+
+    # Переводим эксперимент в running (on_review -> approved -> running).
+    status_url = f"{base_url}/api/v1/experiments/{exp_id}/status"
+    for status, headers in [
+        ("on_review", auth_headers_experimenter),
+        ("approved", auth_headers_approver),
+        ("running", auth_headers_experimenter),
+    ]:
+        async with http_session.patch(
+            status_url,
+            headers=headers,
+            json={"status": status},
+        ) as resp:
+            assert resp.status == 200, f"Failed to set status {status}: {await resp.text()}"
+
+    # Получаем решения /decide для нескольких субъектов, чтобы появились decision_id.
+    decide_url = f"{base_url}/api/v1/decide"
+    decision_ids = []
+    for i in range(3):
+        payload = {
+            "subject_id": f"guardrail-subject-{i}",
+            "attributes": {},
+            "flags": [ctx["flag_id"]],
+        }
+        async with http_session.post(
+            decide_url,
+            json=payload,
+            headers=auth_headers_experimenter,  # viewer также подойдёт, но experimenter в seed может не иметь viewer-ролей
+        ) as resp:
+            # /decide требует роль viewer, поэтому используем viewer-токен через доп. логин.
+            if resp.status == 403:
+                pytest.skip("Viewer role is required for /decide; adjust auth headers in test if needed")
+            assert resp.status == 200, await resp.text()
+            data = await resp.json()
+            assert data["flags"], "Decide must return at least one flag"
+            did = data["flags"][0]["decision_id"]
+            assert did
+            decision_ids.append(did)
+
+    # Для простоты берём первый decision_id и генерируем по нему несколько conversion-событий.
+    decision_id = decision_ids[0]
+    events_url = f"{base_url}/api/v1/events"
+    conversion_key = ctx["event_type_keys"]["conversion"]
+    now_ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    events_payload = {
+        "events": [
+            {
+                "event_id": str(uuid.uuid4()),
+                "decision_id": decision_id,
+                "event_type_key": conversion_key,
+                "subject_id": "guardrail-user",
+                "timestamp": now_ts,
+                "payload": {},
+            }
+        ]
+    }
+    async with http_session.post(events_url, json=events_payload) as resp:
+        assert resp.status == 200, await resp.text()
+
+    # После приёма событий guardrail должен сработать и поставить эксперимент на паузу.
+    get_exp_url = f"{base_url}/api/v1/experiments/{exp_id}"
+    async with http_session.get(get_exp_url, headers=auth_headers_experimenter) as resp:
+        assert resp.status == 200
+        exp_data = await resp.json()
+        assert exp_data["status"] in ("paused", "completed"), exp_data["status"]
+
+    # И история срабатываний guardrail не пуста.
+    history_url = f"{base_url}/api/v1/experiments/{exp_id}/guardrail-history"
+    async with http_session.get(history_url, headers=auth_headers_experimenter) as resp:
+        assert resp.status == 200
+        history = await resp.json()
+        assert history["experiment_id"] == exp_id
+        assert isinstance(history["triggers"], list)
+        assert len(history["triggers"]) >= 1

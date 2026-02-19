@@ -81,13 +81,13 @@ Fallback настраивается через `PUT /api/v1/approver-groups` с 
 
 ```
 backend/
-├── api/           # Обработчики HTTP (flags, experiments, decide, events, reports, users, health)
-├── functions/     # Логика и работа с БД (users, ...)
-├── database/      # Подключение к PostgreSQL, миграции
-├── docs/          # Схемы и документация
-├── config.py      # Конфигурация БД, логирование
-├── server.py      # Точка входа, маршруты, CORS
-├── Dockerfile     # Сборка образа
+├── api/
+├── functions/
+├── database/
+├── docs/
+├── config.py
+├── server.py
+├── Dockerfile
 └── requirements.txt
 ```
 

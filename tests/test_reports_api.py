@@ -80,10 +80,8 @@ async def test_report_success_structure(
             assert "metric_values" in v
             assert "event_counts" in v
             assert isinstance(v["event_counts"], dict)
-            # В event_counts только типы событий, на которые ссылаются метрики (exposure, conversion; click не используется)
             for slug in ("exposure", "conversion"):
                 assert ctx["event_type_keys"][slug] in v["event_counts"]
-        # Вывод значений для просмотра
         print("\n--- report success structure ---")
         print("experiment_id:", data.get("experiment_id"))
         print("experiment_name:", data.get("experiment_name"))
@@ -117,9 +115,11 @@ async def test_report_primary_metric_summary(
         assert "control_value" in summary
         assert "results" in summary
         assert "summary_lines" in summary
+        assert summary.get("recommendation") in ("keep_control", "rollout")
+        assert "winner_variant_id" in summary
+        assert "winner_variant_name" in summary
         assert isinstance(summary["results"], list)
         assert isinstance(summary["summary_lines"], list)
-        # Вывод значений для просмотра
         print("\n--- primary_metric_summary ---")
         print("metric_key:", summary.get("metric_key"))
         print("control_value:", summary.get("control_value"))
@@ -153,7 +153,6 @@ async def test_report_metric_values_per_variant(
             for m in v["metric_values"]:
                 assert "value" in m
                 assert "metric_key" in m
-        # Вывод значений для просмотра
         print("\n--- metric_values per variant ---")
         for v in data["variants"]:
             print("variant:", v.get("variant_name"), v.get("variant_id"))
@@ -176,7 +175,6 @@ async def test_report_as_viewer(
         assert resp.status == 200
         data = await resp.json()
         assert data.get("experiment_id") == ctx["experiment_id"]
-        # Вывод значений для просмотра (viewer получает тот же отчёт)
         print("\n--- report as viewer ---")
         print("experiment_id:", data.get("experiment_id"))
         print("primary_metric_summary:", data.get("primary_metric_summary"))

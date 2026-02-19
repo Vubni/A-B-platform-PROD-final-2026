@@ -267,6 +267,30 @@ class GuardrailHistoryResponseSchema(Schema):
     triggers = fields.List(fields.Dict(), description="История срабатываний guardrail")
 
 
+class ExperimentGuardrailItemSchema(Schema):
+    metric_key = fields.Str(description="Ключ guardrail-метрики из каталога")
+    threshold = fields.Float(description="Порог, при превышении которого срабатывает guardrail")
+    window_seconds = fields.Int(description="Окно наблюдения в секундах (> 0)")
+    action = fields.Str(description="Действие при срабатывании: pause | rollback_to_control")
+    created_at = fields.Str(allow_none=True)
+    updated_at = fields.Str(allow_none=True)
+
+
+class ExperimentGuardrailUpsertSchema(Schema):
+    metric_key = fields.Str(required=True, description="Ключ guardrail-метрики эксперимента")
+    threshold = fields.Float(required=True, description="Порог метрики для срабатывания guardrail")
+    window_seconds = fields.Int(required=True, description="Окно наблюдения в секундах (> 0)")
+    action = fields.Str(
+        required=True,
+        validate=mvalidate.OneOf(("pause", "rollback_to_control")),
+        description="Действие при срабатывании: pause или rollback_to_control",
+    )
+
+
+class ExperimentGuardrailListResponseSchema(Schema):
+    experiment_id = fields.Str(description="UUID эксперимента")
+    guardrails = fields.List(fields.Nested(ExperimentGuardrailItemSchema), description="Guardrail-правила эксперимента")
+
 class FlagItemSchema(Schema):
     id = fields.Str()
     key = fields.Str()
@@ -490,6 +514,11 @@ class ReportPrimaryMetricSummarySchema(Schema):
         fields.Str(),
         description="Краткие строки: «вариант: стало лучше/хуже на X%» по каждому варианту",
     )
+    recommendation = fields.Str(
+        description="Рекомендация: keep_control — оставить дефолтный вариант; rollout — раскатить победителя",
+    )
+    winner_variant_id = fields.Str(allow_none=True, description="UUID варианта-победителя при recommendation=rollout")
+    winner_variant_name = fields.Str(allow_none=True, description="Название варианта-победителя при recommendation=rollout")
 
 
 class ReportContextSchema(Schema):

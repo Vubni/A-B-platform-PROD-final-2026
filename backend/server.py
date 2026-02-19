@@ -8,7 +8,7 @@ from aiohttp_apispec import (
 import aiohttp_cors
 
 from config import logger
-from api import auth, health, flags, experiments, decide, events, reports, users, system_metrics
+from api import auth, health, flags, experiments, decide, events, reports, users, system_metrics, guardrails
 from database.database import Database
 from database.functions import init_reference_data
 from functions.users import create_user
@@ -108,6 +108,11 @@ if __name__ == "__main__":
                    experiments.experiments_variant_delete),
         web.get(prefix + "/experiments/{id}/guardrail-history",
                 experiments.experiments_guardrail_history),
+
+        web.get(prefix + "/guardrails", guardrails.guardrails_list),
+        web.get(prefix + "/guardrails/{metric_key}", guardrails.guardrails_get),
+        web.post(prefix + "/guardrails", guardrails.guardrails_upsert),
+        web.delete(prefix + "/guardrails/{metric_key}", guardrails.guardrails_delete),
 
         web.post(prefix + "/decide", decide.decide),
 

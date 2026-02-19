@@ -67,7 +67,6 @@ async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any],
                     )
                     out_variant = vrow["variant_name"] if vrow else None
 
-                # Новое действие (например, зашёл на следующий день) — пишем новую запись с тем же экспериментом/вариантом.
                 decision_id = uuid.uuid4()
                 exp_id = existing.get("experiment_id") if existing.get("experiment_id") is not None else experiment["id"]
                 var_id = existing.get("variant_id")
@@ -93,7 +92,7 @@ async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any],
             counts = await db.execute(
                 """SELECT
                     COUNT(*) AS total,
-                    COUNT(experiment_id) FILTER (WHERE experiment_id = $2) AS in_experiment
+                    COUNT(variant_id) FILTER (WHERE experiment_id = $2 AND variant_id IS NOT NULL) AS in_experiment
                    FROM decisions WHERE flag_id = $1""",
                 (flag_id, experiment['id']),
             )
@@ -105,8 +104,8 @@ async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any],
             if not assign_to_experiment:
                 await db.execute(
                     """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
-                       VALUES ($1, $2, $3, $4, $5, NULL)""",
-                    (uuid.UUID(decision_id), subject_id, flag_id, default_value, experiment['id']),
+                       VALUES ($1, $2, $3, $4, NULL, NULL)""",
+                    (uuid.UUID(decision_id), subject_id, flag_id, default_value),
                 )
                 result["flags"].append({
                     "flag_key": experiment['flag_key'],

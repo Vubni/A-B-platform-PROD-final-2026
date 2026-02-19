@@ -145,7 +145,6 @@ async def linked_event_types_metrics_experiment(
     Метрики создаются только для существующих event_type_key; эксперимент — только с метриками из каталога.
     """
     suffix = uuid.uuid4().hex[:8]
-    # 1) Типы событий (admin)
     et_url = f"{base_url}/api/v1/event-types"
     event_keys = {}
     for key_slug, display in [("exposure", "Exposure"), ("click", "Click"), ("conversion", "Conversion")]:
@@ -159,10 +158,8 @@ async def linked_event_types_metrics_experiment(
                 pytest.skip(f"Could not create event type {key}: {(await r.text())}")
         event_keys[key_slug] = key
 
-    # 2) Метрики, ссылающиеся на созданные типы событий (experimenter)
     metrics_url = f"{base_url}/api/v1/metrics"
     metric_keys = {}
-    # impressions — по exposure
     key_imp = f"test_impressions_{suffix}"
     async with http_session.post(
         metrics_url,
@@ -185,7 +182,6 @@ async def linked_event_types_metrics_experiment(
             pytest.skip(f"Could not create metric {key_imp}: {(await r.text())}")
     metric_keys["impressions"] = key_imp
 
-    # conversions — по conversion
     key_conv = f"test_conversions_{suffix}"
     async with http_session.post(
         metrics_url,
@@ -208,7 +204,6 @@ async def linked_event_types_metrics_experiment(
             pytest.skip(f"Could not create metric {key_conv}: {(await r.text())}")
     metric_keys["conversions"] = key_conv
 
-    # conversion_rate — ratio (numerator/denominator — ключи метрик из каталога)
     key_rate = f"test_conversion_rate_{suffix}"
     async with http_session.post(
         metrics_url,
@@ -231,7 +226,6 @@ async def linked_event_types_metrics_experiment(
             pytest.skip(f"Could not create metric {key_rate}: {(await r.text())}")
     metric_keys["conversion_rate"] = key_rate
 
-    # 3) Флаг
     flags_url = f"{base_url}/api/v1/flags"
     flag_key = f"test_linked_flag_{suffix}"
     async with http_session.post(
@@ -248,7 +242,6 @@ async def linked_event_types_metrics_experiment(
         flag_data = await r.json()
     flag_id = flag_data["id"]
 
-    # 4) Эксперимент с вариантами и метриками из каталога (ровно одна primary, остальные auxiliary/guardrail)
     exp_url = f"{base_url}/api/v1/experiments"
     payload = {
         "flag_id": flag_id,
@@ -270,7 +263,6 @@ async def linked_event_types_metrics_experiment(
         exp_data = await r.json()
     exp_id = exp_data["id"]
 
-    # Варианты
     var_url = f"{base_url}/api/v1/experiments/{exp_id}/variants"
     for name, value, weight, is_control in [
         ("control", "c", 0.5, True),

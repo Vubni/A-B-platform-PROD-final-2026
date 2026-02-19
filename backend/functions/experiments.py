@@ -274,6 +274,7 @@ async def delete_experiment_variant(experiment_id: str, variant_id: str) -> bool
         return True
 
 
+
 async def add_experiment_metric(experiment_id: str, metric_key: str, metric_type: str) -> Optional[dict]:
     if metric_type not in METRIC_TYPES:
         return None
@@ -444,6 +445,23 @@ async def pause_experiment(experiment_id: str) -> Optional[dict]:
         return await get_experiment_by_id(experiment_id)
 
 
+async def rollback_experiment_to_control(experiment_id: str) -> Optional[dict]:
+    async with Database() as db:
+        row = await db.execute(
+            "SELECT id, status FROM experiments WHERE id = $1",
+            (experiment_id,))
+        if not row or row["status"] not in ("running", "paused"):
+            return None
+
+        await db.execute(
+            "DELETE FROM decisions WHERE experiment_id = $1",
+            (experiment_id,))
+        await db.execute(
+            "UPDATE experiments SET status = 'completed', updated_at = NOW() WHERE id = $1",
+            (experiment_id,))
+        return await get_experiment_by_id(experiment_id)
+
+
 async def complete_experiment(experiment_id: str) -> Optional[dict]:
     async with Database() as db:
         row = await db.execute(
@@ -473,7 +491,15 @@ async def get_review_history(experiment_id: str) -> list[dict]:
 async def get_guardrail_history(experiment_id: str) -> list[dict]:
     async with Database() as db:
         rows = await db.execute_all(
-            """SELECT id, experiment_id, metric_key, triggered_at, details
+            """SELECT id,
+                      experiment_id,
+                      metric_key,
+                      threshold,
+                      window_seconds,
+                      action,
+                      metric_value,
+                      triggered_at,
+                      details
                FROM experiment_guardrail_history
                WHERE experiment_id = $1
                ORDER BY triggered_at DESC""",
@@ -481,12 +507,34 @@ async def get_guardrail_history(experiment_id: str) -> list[dict]:
         return serialize_json(rows)
 
 
-async def record_guardrail_trigger(experiment_id: str, metric_key: str, details: Optional[dict] = None) -> Optional[dict]:
+async def record_guardrail_trigger(
+    experiment_id: str,
+    metric_key: str,
+    threshold: Optional[float] = None,
+    window_seconds: Optional[int] = None,
+    action: Optional[str] = None,
+    metric_value: Optional[float] = None,
+    details: Optional[dict] = None,
+) -> Optional[dict]:
     async with Database() as db:
         await db.execute(
-            "INSERT INTO experiment_guardrail_history (experiment_id, metric_key, details) VALUES ($1, $2, $3)",
-            (experiment_id, metric_key, details))
+            """INSERT INTO experiment_guardrail_history
+                   (experiment_id, metric_key, threshold, window_seconds, action, metric_value, details)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+            (experiment_id, metric_key, threshold, window_seconds, action, metric_value, details))
         row = await db.execute(
-            "SELECT id, experiment_id, metric_key, triggered_at, details FROM experiment_guardrail_history WHERE experiment_id = $1 ORDER BY triggered_at DESC LIMIT 1",
+            """SELECT id,
+                      experiment_id,
+                      metric_key,
+                      threshold,
+                      window_seconds,
+                      action,
+                      metric_value,
+                      triggered_at,
+                      details
+               FROM experiment_guardrail_history
+               WHERE experiment_id = $1
+               ORDER BY triggered_at DESC
+               LIMIT 1""",
             (experiment_id,))
         return serialize_json(row)
