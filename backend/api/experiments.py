@@ -234,7 +234,6 @@ class VariantUpdate(BaseModel):
 @docs(
     tags=["Experiments"],
     summary="Создать эксперимент",
-    description="Создание нового эксперимента в состоянии черновика. created_by берётся из токена.",
     responses={
         201: {"description": "Эксперимент создан", "schema": ExperimentItemSchema},
         400: {"description": "Некорректный запрос"},
@@ -278,10 +277,7 @@ async def experiments_create(request: web.Request, parsed: ExperimentCreate) -> 
 @docs(
     tags=["Experiments"],
     summary="Список экспериментов",
-    description="Получить список экспериментов. Опционально: flag_id, status (query).",
-    responses={
-        200: {"description": "Список экспериментов", "schema": ExperimentListResponseSchema},
-    },
+    responses={200: {"description": "Список экспериментов", "schema": ExperimentListResponseSchema}},
 )
 async def experiments_list(request: web.Request) -> web.Response:
     auth_payload = await check_authorization(request)
@@ -302,7 +298,6 @@ async def experiments_list(request: web.Request) -> web.Response:
 @docs(
     tags=["Experiments"],
     summary="Получить эксперимент",
-    description="Получить эксперимент по ID с вариантами, метриками и flag_key.",
     responses={
         200: {"description": "Данные эксперимента", "schema": ExperimentItemSchema},
         404: {"description": "Эксперимент не найден"},
@@ -326,14 +321,9 @@ async def experiments_get(request: web.Request) -> web.Response:
 @docs(
     tags=["Experiments"],
     summary="Обновить эксперимент",
-    description=(
-        "Обновить эксперимент. В статусе draft можно менять параметры раздачи/таргетинга/метрики "
-        "(версия увеличивается, создаётся снимок). "
-        "После старта (running/paused/...) эксперимент 'заморожен': разрешено менять только name."
-    ),
     responses={
         200: {"description": "Эксперимент обновлён", "schema": ExperimentItemSchema},
-        400: {"description": "Некорректный запрос или эксперимент не в черновике"},
+        400: {"description": "Некорректный запрос или не в черновике"},
         404: {"description": "Эксперимент не найден"},
     },
 )
@@ -408,13 +398,12 @@ async def experiments_update(request: web.Request, parsed: ExperimentUpdate) -> 
 @docs(
     tags=["Experiments"],
     summary="Обновить статус эксперимента",
-    description="Единый эндпоинт смены статуса. Тело: { \"status\": \"on_review\" } (или approved, running, paused, completed, draft, rejected). Для ревью-действий опционально { \"comment\": \"...\" }.",
     responses={
         200: {"description": "Статус обновлён", "schema": ExperimentItemSchema},
-        400: {"description": "Недопустимый переход или ошибка валидации"},
+        400: {"description": "Недопустимый переход"},
         403: {"description": "Нет прав"},
         404: {"description": "Эксперимент не найден"},
-        409: {"description": "Конфликт (например, уже запущен другой эксперимент на флаг)"},
+        409: {"description": "Конфликт (другой эксперимент на флаг)"},
     },
 )
 @request_schema(StatusUpdateSchema(), location="json", put_into="data")
@@ -466,10 +455,9 @@ async def experiments_update_status(request: web.Request, parsed: StatusUpdate) 
 @docs(
     tags=["Experiments"],
     summary="Добавить вариант к эксперименту",
-    description="Создать вариант. Доступно только в статусе draft.",
     responses={
         201: {"description": "Вариант создан", "schema": ExperimentVariantSchema},
-        400: {"description": "Эксперимент не в черновике или ошибка валидации"},
+        400: {"description": "Эксперимент не в черновике"},
         403: {"description": "Нет прав"},
         404: {"description": "Эксперимент не найден"},
     },
@@ -513,7 +501,6 @@ async def experiments_variant_create(request: web.Request, parsed: VariantCreate
 @docs(
     tags=["Experiments"],
     summary="Обновить вариант эксперимента",
-    description="Изменить variant_value, weight или is_control. Доступно только в draft.",
     responses={
         200: {"description": "Вариант обновлён", "schema": ExperimentVariantSchema},
         400: {"description": "Эксперимент не в черновике"},
@@ -560,7 +547,6 @@ async def experiments_variant_update(request: web.Request, parsed: VariantUpdate
 @docs(
     tags=["Experiments"],
     summary="Удалить вариант эксперимента",
-    description="Удалить вариант. Доступно только в draft.",
     responses={
         204: {"description": "Вариант удалён"},
         400: {"description": "Эксперимент не в черновике"},
@@ -599,9 +585,8 @@ async def experiments_variant_delete(request: web.Request) -> web.Response:
 @docs(
     tags=["Experiments"],
     summary="История срабатываний guardrail",
-    description="Получить историю срабатываний guardrail для эксперимента.",
     responses={
-        200: {"description": "История срабатываний guardrail", "schema": GuardrailHistoryResponseSchema},
+        200: {"description": "История guardrail", "schema": GuardrailHistoryResponseSchema},
         404: {"description": "Эксперимент не найден"},
     },
 )

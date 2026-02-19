@@ -62,14 +62,12 @@ async def _login(session: ClientSession, base_url: str, email: str, password: st
 
 @pytest.fixture
 async def admin_token(http_session, base_url):
-    """Токен пользователя admin@test.com (после seed_test_data.py)."""
     token, _ = await _login(http_session, base_url, "admin@test.com", "admin123")
     return token
 
 
 @pytest.fixture
 async def experimenter_token(http_session, base_url):
-    """Токен пользователя experimenter@test.com."""
     token, _ = await _login(http_session, base_url, "experimenter@test.com", "exp123")
     return token
 
@@ -86,7 +84,6 @@ async def auth_headers_admin(admin_token):
 
 @pytest.fixture
 async def viewer_token(http_session, base_url):
-    """Токен пользователя viewer@test.com (после seed_test_data.py)."""
     token, _ = await _login(http_session, base_url, "viewer@test.com", "view123")
     return token
 
@@ -98,7 +95,6 @@ async def auth_headers_viewer(viewer_token):
 
 @pytest.fixture
 async def approver_token(http_session, base_url):
-    """Токен пользователя approver@test.com (после seed_test_data.py)."""
     token, _ = await _login(http_session, base_url, "approver@test.com", "app123")
     return token
 
@@ -110,7 +106,6 @@ async def auth_headers_approver(approver_token):
 
 @pytest.fixture
 async def flag_id(http_session, base_url, auth_headers_admin):
-    """ID флага test_feature_flag (должен быть создан seed-скриптом)."""
     url = f"{base_url}/api/v1/flags/test_feature_flag"
     async with http_session.get(url, headers=auth_headers_admin) as resp:
         if resp.status == 200:
@@ -140,10 +135,6 @@ async def linked_event_types_metrics_experiment(
     auth_headers_admin,
     auth_headers_experimenter,
 ):
-    """
-    Создаёт связанную цепочку для тестов: типы событий → метрики (ссылаются на эти типы) → флаг → эксперимент (с вариантами и этими метриками).
-    Метрики создаются только для существующих event_type_key; эксперимент — только с метриками из каталога.
-    """
     suffix = uuid.uuid4().hex[:8]
     et_url = f"{base_url}/api/v1/event-types"
     event_keys = {}

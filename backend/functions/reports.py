@@ -45,7 +45,6 @@ async def _decision_ids_by_variant(db, experiment_id: str, variant_id: str) -> l
 async def _event_counts_by_type(
     db, decision_ids: list[str], event_type_keys: list[str], start_ts: datetime, end_ts: datetime
 ) -> dict[str, int]:
-    """По decision_ids и списку ключей типов событий возвращает число срабатываний по каждому ключу."""
     if not decision_ids or not event_type_keys:
         return {k: 0 for k in event_type_keys}
     key_to_id: dict[str, str] = {}

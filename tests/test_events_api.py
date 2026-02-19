@@ -1044,13 +1044,7 @@ async def test_events_submit_out_of_order_with_requires_show(
     auth_headers_admin,
     events_submit_context,
 ):
-    """
-    Событие, зависящее от факта показа (requires_show_event_type_id),
-    может прийти раньше show-события и не отклоняется.
-    """
     et_url = f"{base_url}/api/v1/event-types"
-
-    # Создаём тип события "show"
     key_show = f"api_queue_show_{uuid.uuid4().hex[:8]}"
     async with http_session.post(
         et_url,
@@ -1060,8 +1054,6 @@ async def test_events_submit_out_of_order_with_requires_show(
         assert cr.status in (200, 201), await cr.text()
         show_type = await cr.json()
         show_id = show_type["id"]
-
-    # Создаём тип события "click", зависящий от show
     key_click = f"api_queue_click_{uuid.uuid4().hex[:8]}"
     async with http_session.post(
         et_url,
@@ -1077,8 +1069,6 @@ async def test_events_submit_out_of_order_with_requires_show(
     ctx = events_submit_context
     events_url = f"{base_url}/api/v1/events"
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-    # 1) Сначала отправляем click (требует show) — событие попадает в очередь, не отклоняется.
     click_payload = {
         "events": [
             {
@@ -1096,8 +1086,6 @@ async def test_events_submit_out_of_order_with_requires_show(
         data = await resp.json()
         assert data["accepted"] == 1
         assert data["rejected"] == 0
-
-    # 2) Затем отправляем show — после этого отложенное click-событие должно быть записано.
     show_payload = {
         "events": [
             {
@@ -1126,15 +1114,9 @@ async def test_guardrail_pauses_experiment_when_threshold_exceeded(
     auth_headers_approver,
     linked_event_types_metrics_experiment,
 ):
-    """
-    Guardrail по метрике типа guardrail останавливает (ставит на паузу) запущенный эксперимент,
-    когда значение метрики за окно превышает порог.
-    """
     ctx = linked_event_types_metrics_experiment
     exp_id = ctx["experiment_id"]
     metric_key_guardrail = ctx["metric_keys"]["conversions"]
-
-    # Настраиваем guardrail для метрики conversions: любое значение > 0 за последние 60 секунд — пауза.
     guardrails_url = f"{base_url}/api/v1/guardrails"
     async with http_session.post(
         guardrails_url,
@@ -1147,8 +1129,6 @@ async def test_guardrail_pauses_experiment_when_threshold_exceeded(
         },
     ) as resp:
         assert resp.status == 200, await resp.text()
-
-    # Создаём группу аппруверов для владельца эксперимента.
     users_url = f"{base_url}/api/v1/users"
     async with http_session.get(users_url, headers=auth_headers_admin) as resp:
         assert resp.status == 200
@@ -1167,10 +1147,7 @@ async def test_guardrail_pauses_experiment_when_threshold_exceeded(
             "approver_ids": [approver_user["id"]],
         },
     ) as resp:
-        # Группа может уже существовать — в этом случае просто продолжаем.
         assert resp.status in (200, 201, 409), await resp.text()
-
-    # Переводим эксперимент в running (on_review -> approved -> running).
     status_url = f"{base_url}/api/v1/experiments/{exp_id}/status"
     for status, headers in [
         ("on_review", auth_headers_experimenter),
@@ -1183,8 +1160,6 @@ async def test_guardrail_pauses_experiment_when_threshold_exceeded(
             json={"status": status},
         ) as resp:
             assert resp.status == 200, f"Failed to set status {status}: {await resp.text()}"
-
-    # Получаем решения /decide для нескольких субъектов, чтобы появились decision_id.
     decide_url = f"{base_url}/api/v1/decide"
     decision_ids = []
     for i in range(3):
@@ -1196,9 +1171,8 @@ async def test_guardrail_pauses_experiment_when_threshold_exceeded(
         async with http_session.post(
             decide_url,
             json=payload,
-            headers=auth_headers_experimenter,  # viewer также подойдёт, но experimenter в seed может не иметь viewer-ролей
+            headers=auth_headers_experimenter,
         ) as resp:
-            # /decide требует роль viewer, поэтому используем viewer-токен через доп. логин.
             if resp.status == 403:
                 pytest.skip("Viewer role is required for /decide; adjust auth headers in test if needed")
             assert resp.status == 200, await resp.text()
@@ -1207,8 +1181,6 @@ async def test_guardrail_pauses_experiment_when_threshold_exceeded(
             did = data["flags"][0]["decision_id"]
             assert did
             decision_ids.append(did)
-
-    # Для простоты берём первый decision_id и генерируем по нему несколько conversion-событий.
     decision_id = decision_ids[0]
     events_url = f"{base_url}/api/v1/events"
     conversion_key = ctx["event_type_keys"]["conversion"]
@@ -1227,15 +1199,11 @@ async def test_guardrail_pauses_experiment_when_threshold_exceeded(
     }
     async with http_session.post(events_url, json=events_payload) as resp:
         assert resp.status == 200, await resp.text()
-
-    # После приёма событий guardrail должен сработать и поставить эксперимент на паузу.
     get_exp_url = f"{base_url}/api/v1/experiments/{exp_id}"
     async with http_session.get(get_exp_url, headers=auth_headers_experimenter) as resp:
         assert resp.status == 200
         exp_data = await resp.json()
         assert exp_data["status"] in ("paused", "completed"), exp_data["status"]
-
-    # И история срабатываний guardrail не пуста.
     history_url = f"{base_url}/api/v1/experiments/{exp_id}/guardrail-history"
     async with http_session.get(history_url, headers=auth_headers_experimenter) as resp:
         assert resp.status == 200

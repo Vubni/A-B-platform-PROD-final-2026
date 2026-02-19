@@ -67,7 +67,6 @@ async def test_experiments_create_success(http_session, base_url, auth_headers_e
 async def test_experiments_create_with_metrics_from_catalog(
     http_session, base_url, auth_headers_experimenter, linked_event_types_metrics_experiment
 ):
-    """Эксперимент создаётся с метриками из каталога (метрики привязаны к существующим типам событий)."""
     ctx = linked_event_types_metrics_experiment
     url = f"{base_url}/api/v1/experiments"
     payload = {
@@ -100,7 +99,6 @@ async def test_experiments_create_with_metrics_from_catalog(
 async def test_experiments_get_includes_metrics_from_catalog(
     http_session, base_url, auth_headers_experimenter, linked_event_types_metrics_experiment
 ):
-    """GET эксперимента возвращает метрики из каталога (связанные с типами событий)."""
     ctx = linked_event_types_metrics_experiment
     url = f"{base_url}/api/v1/experiments/{ctx['experiment_id']}"
     async with http_session.get(url, headers=auth_headers_experimenter) as resp:
@@ -121,7 +119,6 @@ async def test_experiments_get_includes_metrics_from_catalog(
 async def test_experiments_create_metrics_not_in_catalog_returns_400(
     http_session, base_url, auth_headers_experimenter, flag_id
 ):
-    """Создание эксперимента с несуществующими metric_key возвращает 400 и список отсутствующих метрик."""
     url = f"{base_url}/api/v1/experiments"
     payload = {
         "flag_id": flag_id,
@@ -160,7 +157,6 @@ async def test_experiments_create_invalid_flag_returns_404(http_session, base_ur
 
 @pytest.mark.asyncio
 async def test_experiments_create_validation_error(http_session, base_url, auth_headers_experimenter, flag_id):
-    """POST /api/v1/experiments с audience_fraction > 1 возвращает 400."""
     url = f"{base_url}/api/v1/experiments"
     payload = {
         "flag_id": flag_id,
@@ -191,7 +187,6 @@ async def test_experiments_get_not_found(http_session, base_url, auth_headers_ex
 async def test_experiments_get_success(
     http_session, base_url, auth_headers_experimenter, flag_id
 ):
-    """Создаём эксперимент и получаем его по ID."""
     create_url = f"{base_url}/api/v1/experiments"
     payload = {
         "flag_id": flag_id,
@@ -220,7 +215,6 @@ async def test_experiments_get_success(
 async def test_experiments_update_success(
     http_session, base_url, auth_headers_experimenter, flag_id
 ):
-    """PATCH /api/v1/experiments/{id} в draft обновляет название и долю аудитории."""
     create_url = f"{base_url}/api/v1/experiments"
     async with http_session.post(
         create_url,
@@ -251,7 +245,6 @@ async def test_experiments_update_success(
 async def test_experiments_update_not_draft_returns_400(
     http_session, base_url, auth_headers_experimenter, flag_id
 ):
-    """После перевода в on_review обновление полей эксперимента возвращает 400."""
     create_url = f"{base_url}/api/v1/experiments"
     async with http_session.post(
         create_url,
@@ -310,7 +303,6 @@ async def test_experiments_update_not_draft_returns_400(
 async def test_experiments_variant_add_and_list(
     http_session, base_url, auth_headers_experimenter, flag_id
 ):
-    """Добавление вариантов к эксперименту в draft и проверка через GET."""
     create_url = f"{base_url}/api/v1/experiments"
     async with http_session.post(
         create_url,
@@ -393,7 +385,6 @@ async def test_experiments_variant_add_and_list(
 async def test_experiments_status_transition_to_on_review(
     http_session, base_url, auth_headers_experimenter, flag_id
 ):
-    """PATCH status на on_review после добавления вариантов возвращает 200."""
     create_url = f"{base_url}/api/v1/experiments"
     async with http_session.post(
         create_url,
@@ -439,7 +430,6 @@ async def test_experiments_status_transition_to_on_review(
 async def test_experiments_guardrail_history(
     http_session, base_url, auth_headers_experimenter, flag_id
 ):
-    """GET /api/v1/experiments/{id}/guardrail-history возвращает 200 и triggers."""
     create_url = f"{base_url}/api/v1/experiments"
     async with http_session.post(
         create_url,
@@ -466,7 +456,6 @@ async def test_experiments_guardrail_history(
 async def test_experiments_guardrail_history_not_found(
     http_session, base_url, auth_headers_experimenter
 ):
-    """GET guardrail-history для несуществующего эксперимента — 404."""
     url = f"{base_url}/api/v1/experiments/00000000-0000-0000-0000-000000000001/guardrail-history"
     async with http_session.get(url, headers=auth_headers_experimenter) as resp:
         assert resp.status == 404

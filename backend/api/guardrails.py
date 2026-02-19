@@ -54,7 +54,6 @@ def _metric_key_from_request(request: web.Request) -> str | None:
 @docs(
     tags=["Guardrails"],
     summary="Список guardrail-правил по метрикам",
-    description="Получить список guardrail-правил, привязанных к метрикам (viewer/experimenter).",
     responses={
         200: {"description": "Список guardrails", "schema": ExperimentGuardrailListResponseSchema},
     },
@@ -64,10 +63,6 @@ async def guardrails_list(request: web.Request) -> web.Response:
     if not auth_payload:
         return validate.format_401_error(request, "Token is required")
 
-    role = auth_payload.get("role")
-    if role not in ("viewer", "experimenter", "approver", "admin"):
-        return validate.format_403_error(request, "Not enough permissions to access this resource")
-
     items = await list_metric_guardrails()
     return web.json_response({"guardrails": items})
 
@@ -75,7 +70,6 @@ async def guardrails_list(request: web.Request) -> web.Response:
 @docs(
     tags=["Guardrails"],
     summary="Получить guardrail по метрике",
-    description="Получить guardrail-правило по metric_key.",
     responses={
         200: {"description": "Guardrail по метрике", "schema": ExperimentGuardrailItemSchema},
         404: {"description": "Guardrail не найден"},
@@ -85,10 +79,6 @@ async def guardrails_get(request: web.Request) -> web.Response:
     auth_payload = await check_authorization(request)
     if not auth_payload:
         return validate.format_401_error(request, "Token is required")
-
-    role = auth_payload.get("role")
-    if role not in ("viewer", "experimenter", "approver", "admin"):
-        return validate.format_403_error(request, "Not enough permissions to access this resource")
 
     metric_key = _metric_key_from_request(request)
     if not metric_key:
@@ -103,7 +93,6 @@ async def guardrails_get(request: web.Request) -> web.Response:
 @docs(
     tags=["Guardrails"],
     summary="Создать или обновить guardrail по метрике",
-    description="Создать или обновить guardrail-правило по metric_key (experimenter/admin). Метрика должна существовать в каталоге.",
     responses={
         200: {"description": "Guardrail сохранён", "schema": ExperimentGuardrailItemSchema},
         400: {"description": "Некорректный запрос"},
@@ -124,8 +113,7 @@ async def guardrails_upsert(request: web.Request, parsed: MetricGuardrailUpsert)
         metric_key=parsed.metric_key,
         threshold=parsed.threshold,
         window_seconds=parsed.window_seconds,
-        action=parsed.action,
-    )
+        action=parsed.action)
     if not item:
         return validate.format_404_error(request, "Metric not found")
     return web.json_response(item, status=200)
@@ -134,7 +122,6 @@ async def guardrails_upsert(request: web.Request, parsed: MetricGuardrailUpsert)
 @docs(
     tags=["Guardrails"],
     summary="Удалить guardrail по метрике",
-    description="Удалить guardrail-правило по metric_key (experimenter/admin).",
     responses={
         204: {"description": "Guardrail удалён"},
         403: {"description": "Нет прав"},
