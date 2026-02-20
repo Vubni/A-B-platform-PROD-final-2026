@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 from aiohttp import ClientSession
 
-# Allow importing backend for unit-style tests (e.g. experiment validation)
 _tests_dir = Path(__file__).resolve().parent
 _project_root = _tests_dir.parent
 _backend_dir = _project_root / "backend"
@@ -14,6 +13,24 @@ if _backend_dir.exists() and str(_backend_dir) not in sys.path:
     sys.path.insert(0, str(_backend_dir))
 
 BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:80")
+
+
+TEST_SECTIONS = {
+    "test_health.py": "Health",
+    "test_users_api.py": "Users",
+    "test_flags_api.py": "Flags",
+    "test_experiments_api.py": "Experiments",
+    "test_experiment_validation.py": "Experiments (validation)",
+    "test_decide_api.py": "Decide",
+    "test_events_api.py": "Events",
+    "test_reports_api.py": "Reports",
+}
+
+
+def _section_for_nodeid(nodeid: str) -> str:
+    part = nodeid.split("::")[0]
+    basename = part.split("/")[-1] if "/" in part else part.replace(".py", "")
+    return TEST_SECTIONS.get(basename, basename)
 
 
 def pytest_collection_modifyitems(config, items):
@@ -25,27 +42,35 @@ def pytest_collection_modifyitems(config, items):
                 item.add_marker(pytest.mark.events_submit)
 
 
-def pytest_report_collectionfinish(config, *args):
-    items = args[-1] if args else []
+def pytest_report_collectionfinish(config, start_path, items):
     groups = {}
     for item in items:
-        name = item.nodeid.split("::")[0]
-        if "test_events_api" in name:
-            node = item.nodeid.split("::")[-1]
-            if "event_types" in node:
-                groups.setdefault("Event Types", []).append(node)
-            elif "events_submit" in node:
-                groups.setdefault("Events Submit", []).append(node)
-        else:
-            short = name.replace("tests/", "").replace(".py", "")
-            groups.setdefault(short, []).append(item.nodeid.split("::")[-1])
-
+        section = _section_for_nodeid(item.nodeid)
+        groups.setdefault(section, []).append(item.nodeid.split("::")[-1])
+    order = list(TEST_SECTIONS.values()) + [s for s in sorted(groups) if s not in TEST_SECTIONS.values()]
     lines = []
-    for group, tests in sorted(groups.items()):
-        lines.append(f"  {group}: {len(tests)} tests")
+    for section in order:
+        if section in groups:
+            lines.append(f"  {section}: {len(groups[section])} tests")
+    for section in sorted(groups):
+        if section not in order:
+            lines.append(f"  {section}: {len(groups[section])} tests")
     if lines:
         return ["\nTest groups:", "\n".join(lines), ""]
     return []
+
+
+_last_section = [None]
+
+
+def pytest_runtest_setup(item):
+    section = _section_for_nodeid(item.nodeid)
+    if _last_section[0] != section:
+        _last_section[0] = section
+        reporter = item.config.pluginmanager.get_plugin("terminalreporter")
+        if reporter is not None:
+            reporter.ensure_newline()
+            reporter.write_line(f"--- {section} ---")
 
 
 @pytest.fixture

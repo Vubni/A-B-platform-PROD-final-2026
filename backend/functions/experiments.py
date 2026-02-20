@@ -375,8 +375,6 @@ async def add_experiment_metric(
 
 
 async def _check_variant_weights_match_audience(db, experiment_id: str) -> str | None:
-    """Проверяет, что сумма весов вариантов равна доле аудитории (покрытию) эксперимента.
-    Возвращает сообщение об ошибке или None если всё ок."""
     row = await db.execute(
         """SELECT e.audience_fraction,
                   (SELECT COALESCE(SUM(ev.weight), 0) FROM experiment_variants ev WHERE ev.experiment_id = e.id) AS total_weight,
@@ -403,8 +401,6 @@ async def _check_variant_weights_match_audience(db, experiment_id: str) -> str |
 
 
 async def submit_review(experiment_id: str) -> tuple[dict | None, str | None]:
-    """Переводит эксперимент в on_review. Возвращает (experiment, None) при успехе,
-    (None, error_message) при ошибке валидации, (None, None) при неверном статусе/нет вариантов."""
     async with Database() as db:
         row = await db.execute(
             "SELECT id, status FROM experiments WHERE id = $1", (experiment_id,)
@@ -506,7 +502,6 @@ async def add_review_record(
     return await get_experiment_by_id(experiment_id)
 
 
-# completed ставится только через отдельный эндпоинт POST .../complete, не через PATCH .../status
 STATUS_TRANSITIONS = {
     "draft": ("on_review",),
     "on_review": ("draft", "rejected", "approved"),
@@ -522,8 +517,6 @@ async def update_experiment_status(
     comment: str | None = None,
     reviewer_id: str | None = None,
 ) -> tuple[dict | None, str | None]:
-    """Возвращает (experiment, None) при успехе, (None, error_message) при ошибке валидации, (None, None) при неверном переходе.
-    completed не выставляется здесь — только через complete_experiment (эндпоинт POST .../complete)."""
     if new_status not in EXPERIMENT_STATUSES:
         return (None, None)
     experiment = await get_experiment_by_id(experiment_id)
@@ -593,8 +586,6 @@ COMPLETION_OUTCOMES = ("rollout_winner", "rollback", "no_effect")
 
 
 async def rollback_experiment_to_control(experiment_id: str) -> dict | None:
-    """Откат к контролю (guardrail): останавливаем раздачу вариантов и очищаем decisions. Статус → paused.
-    completed не ставится автоматически — experimenter завершает эксперимент через POST .../complete с outcome=rollback и комментарием."""
     async with Database() as db:
         row = await db.execute(
             "SELECT id, status FROM experiments WHERE id = $1", (experiment_id,)
@@ -616,7 +607,6 @@ async def complete_experiment(
     comment: str,
     winner_variant_id: str | None = None,
 ) -> dict | None:
-    """Завершение эксперимента с фиксацией решения: rollout_winner / rollback / no_effect и обязательным комментарием."""
     if outcome not in COMPLETION_OUTCOMES:
         return None
     async with Database() as db:

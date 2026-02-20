@@ -1,4 +1,3 @@
-"""Проверки инварианта: сумма долей вариантов = доля аудитории (покрытие) эксперимента."""
 import pytest
 from unittest.mock import AsyncMock
 
