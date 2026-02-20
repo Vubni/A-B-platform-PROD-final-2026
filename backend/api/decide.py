@@ -8,7 +8,6 @@ from api import validate
 from api.system_metrics import record_decide
 from core import validate_uuid
 from docs.schems import DecideRequestSchema, DecideResponseSchema
-
 from functions.decide import get_decisions_for_subject
 from functions.flags import get_flag_by_id
 
@@ -69,7 +68,7 @@ class DecideRequest(BaseModel):
                             "flag_key": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
                             "flag_value": True,
                             "decision_id": "f7e6d5c4-b3a2-1098-7654-3210fedcba98",
-                            "experiment": None
+                            "experiment": None,
                         },
                         {
                             "flag_key": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
@@ -77,14 +76,16 @@ class DecideRequest(BaseModel):
                             "decision_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
                             "experiment": {
                                 "experiment_id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
-                                "variant": "treatment"
-                            }
-                        }
+                                "variant": "treatment",
+                            },
+                        },
                     ]
                 }
             },
         },
-        400: {"description": "Некорректный запрос (пустой subject_id, невалидные UUID флагов, пустой список flags)"},
+        400: {
+            "description": "Некорректный запрос (пустой subject_id, невалидные UUID флагов, пустой список flags)"
+        },
         401: {"description": "Не авторизован (нет или неверный JWT)"},
         403: {"description": "Доступ запрещён (нужна роль viewer)"},
         404: {"description": "Один из переданных флагов не найден"},
@@ -94,10 +95,10 @@ class DecideRequest(BaseModel):
 @validate.validate(DecideRequest, require_auth=True)
 async def decide(request: web.Request, parsed: DecideRequest) -> web.Response:
     record_decide()
-    auth_payload = request['user_payload']
+    auth_payload = request["user_payload"]
     if not auth_payload:
         return validate.format_401_error(request)
-    elif auth_payload['role'] != 'viewer':
+    elif auth_payload["role"] != "viewer":
         return validate.format_403_error(request)
 
     flag_keys = []

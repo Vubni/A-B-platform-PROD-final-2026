@@ -1,6 +1,5 @@
-from decimal import Decimal
 import json
-from typing import Any, Optional
+from decimal import Decimal
 
 import asyncpg
 
@@ -8,14 +7,20 @@ from core import serialize_json
 from database.database import Database
 
 EXPERIMENT_STATUSES = (
-    "draft", "on_review", "approved", "running", "paused",
-    "completed", "archived", "rejected",
+    "draft",
+    "on_review",
+    "approved",
+    "running",
+    "paused",
+    "completed",
+    "archived",
+    "rejected",
 )
 METRIC_TYPES = ("primary", "auxiliary", "guardrail")
 REVIEW_ACTIONS = ("approved", "requested_changes", "rejected")
 
 
-def _validate_metrics_shape(metrics: list[dict]) -> Optional[str]:
+def _validate_metrics_shape(metrics: list[dict]) -> str | None:
     if not metrics:
         return None
     primary_count = sum(1 for m in metrics if (m.get("metric_type") or "").strip() == "primary")
@@ -42,8 +47,14 @@ async def _get_missing_metric_keys(db, keys: list[str]) -> list[str]:
     return [k for k in unique if k not in found]
 
 
-async def create_experiment(flag_id: str, name: str, audience_fraction: float, created_by: Optional[str] = None, 
-        targeting_rule: Optional[str] = None, metrics: Optional[list[dict]] = None) -> tuple[Optional[dict], Optional[str], Optional[list[str]]]:
+async def create_experiment(
+    flag_id: str,
+    name: str,
+    audience_fraction: float,
+    created_by: str | None = None,
+    targeting_rule: str | None = None,
+    metrics: list[dict] | None = None,
+) -> tuple[dict | None, str | None, list[str] | None]:
     if metrics is not None:
         err = _validate_metrics_shape(metrics)
         if err:
@@ -70,12 +81,16 @@ async def create_experiment(flag_id: str, name: str, audience_fraction: float, c
                     """INSERT INTO experiment_metrics (experiment_id, metric_key, metric_type)
                        VALUES ($1, $2, $3)
                        ON CONFLICT (experiment_id, metric_key, metric_type) DO NOTHING""",
-                    (new_id, m.get("metric_key", "").strip(), (m.get("metric_type") or "").strip()),
+                    (
+                        new_id,
+                        m.get("metric_key", "").strip(),
+                        (m.get("metric_type") or "").strip(),
+                    ),
                 )
     return (await get_experiment_by_id(str(new_id)), None, None)
 
 
-async def get_experiment_by_id(experiment_id: str) -> Optional[dict]:
+async def get_experiment_by_id(experiment_id: str) -> dict | None:
     async with Database() as db:
         try:
             row = await db.execute(
@@ -87,7 +102,8 @@ async def get_experiment_by_id(experiment_id: str) -> Optional[dict]:
                    FROM experiments e
                    JOIN feature_flags f ON f.id = e.flag_id
                    WHERE e.id = $1""",
-                (experiment_id,))
+                (experiment_id,),
+            )
         except asyncpg.exceptions.UndefinedColumnError:
             row = await db.execute(
                 """SELECT e.id, e.flag_id, e.name, e.status::text, e.version,
@@ -97,7 +113,8 @@ async def get_experiment_by_id(experiment_id: str) -> Optional[dict]:
                    FROM experiments e
                    JOIN feature_flags f ON f.id = e.flag_id
                    WHERE e.id = $1""",
-                (experiment_id,))
+                (experiment_id,),
+            )
             if row:
                 row["completion_outcome"] = None
                 row["completion_comment"] = None
@@ -107,15 +124,19 @@ async def get_experiment_by_id(experiment_id: str) -> Optional[dict]:
         row["variants"] = await db.execute_all(
             """SELECT id, experiment_id, variant_name, variant_value, weight, is_control, created_at
                FROM experiment_variants WHERE experiment_id = $1 ORDER BY variant_name""",
-            (experiment_id,))
+            (experiment_id,),
+        )
         row["metrics"] = await db.execute_all(
             """SELECT id, experiment_id, metric_key, metric_type, created_at
                FROM experiment_metrics WHERE experiment_id = $1""",
-            (experiment_id,))
+            (experiment_id,),
+        )
         return serialize_json(row)
 
 
-async def get_experiments_list(flag_id: Optional[str] = None, status: Optional[str] = None) -> list[dict]:
+async def get_experiments_list(
+    flag_id: str | None = None, status: str | None = None
+) -> list[dict]:
     async with Database() as db:
         sql = """SELECT e.id, e.flag_id, e.name, e.status::text, e.version,
                         e.audience_fraction, e.targeting_rule,
@@ -139,8 +160,13 @@ async def get_experiments_list(flag_id: Optional[str] = None, status: Optional[s
         return serialize_json(rows)
 
 
-async def update_experiment(experiment_id: str, name: Optional[str] = None, audience_fraction: Optional[float] = None, 
-        targeting_rule: Optional[str] = None, metrics: Optional[list[dict]] = None) -> tuple[Optional[dict], Optional[str], Optional[list[str]]]:
+async def update_experiment(
+    experiment_id: str,
+    name: str | None = None,
+    audience_fraction: float | None = None,
+    targeting_rule: str | None = None,
+    metrics: list[dict] | None = None,
+) -> tuple[dict | None, str | None, list[str] | None]:
     if metrics is not None:
         err = _validate_metrics_shape(metrics)
         if err:
@@ -153,7 +179,9 @@ async def update_experiment(experiment_id: str, name: Optional[str] = None, audi
         if not row:
             return (None, "experiment_not_found", None)
         is_draft = row.get("status") == "draft"
-        if not is_draft and (audience_fraction is not None or targeting_rule is not None or metrics is not None):
+        if not is_draft and (
+            audience_fraction is not None or targeting_rule is not None or metrics is not None
+        ):
             return (None, "experiment_not_found", None)
         updates = ["updated_at = NOW()"]
         params = []
@@ -196,7 +224,11 @@ async def update_experiment(experiment_id: str, name: Optional[str] = None, audi
                     """INSERT INTO experiment_metrics (experiment_id, metric_key, metric_type)
                        VALUES ($1, $2, $3)
                        ON CONFLICT (experiment_id, metric_key, metric_type) DO NOTHING""",
-                    (experiment_id, m.get("metric_key", "").strip(), (m.get("metric_type") or "").strip()),
+                    (
+                        experiment_id,
+                        m.get("metric_key", "").strip(),
+                        (m.get("metric_type") or "").strip(),
+                    ),
                 )
         snapshot = await _build_experiment_snapshot(db, experiment_id)
         if snapshot:
@@ -208,33 +240,54 @@ async def update_experiment(experiment_id: str, name: Optional[str] = None, audi
     return (await get_experiment_by_id(experiment_id), None, None)
 
 
-async def _build_experiment_snapshot(db, experiment_id: str) -> Optional[dict]:
+async def _build_experiment_snapshot(db, experiment_id: str) -> dict | None:
     snapshot = await db.execute(
         """SELECT id, flag_id, name, status::text, version, audience_fraction,
                   targeting_rule, created_by, created_at, updated_at
            FROM experiments WHERE id = $1""",
-        (experiment_id,))
+        (experiment_id,),
+    )
     if not snapshot:
         return None
     snapshot["variants"] = await db.execute_all(
         "SELECT variant_name, variant_value, weight, is_control FROM experiment_variants WHERE experiment_id = $1",
-        (experiment_id,))
+        (experiment_id,),
+    )
     snapshot["metrics"] = await db.execute_all(
         "SELECT metric_key, metric_type FROM experiment_metrics WHERE experiment_id = $1",
-        (experiment_id,))
+        (experiment_id,),
+    )
     return serialize_json(snapshot)
 
 
-async def add_experiment_variant(experiment_id: str, variant_name: str, variant_value: str, weight: float, is_control: bool = False) -> Optional[dict]:
+async def add_experiment_variant(
+    experiment_id: str,
+    variant_name: str,
+    variant_value: str,
+    weight: float,
+    is_control: bool = False,
+) -> dict | None:
     async with Database() as db:
         r = await db.execute("SELECT status FROM experiments WHERE id = $1", (experiment_id,))
         if not r or r.get("status") != "draft":
             return None
-        await db.execute(
-            """INSERT INTO experiment_variants (experiment_id, variant_name, variant_value, weight, is_control)
-               VALUES ($1, $2, $3, $4, $5)""",
-            (experiment_id, variant_name, variant_value, weight, is_control),
-        )
+        try:
+            await db.execute(
+                """INSERT INTO experiment_variants (experiment_id, variant_name, variant_value, weight, is_control)
+                   VALUES ($1, $2, $3, $4, $5)""",
+                (experiment_id, variant_name, variant_value, weight, is_control),
+            )
+        except asyncpg.PostgresError as e:
+            msg = str(e).lower()
+            if (
+                "variant weights" in msg
+                or "audience fraction" in msg
+                or "весов вариантов" in msg
+                or "долю аудитории" in msg
+                or "exactly one control" in msg
+            ):
+                return None
+            raise
         row = await db.execute(
             """SELECT id, experiment_id, variant_name, variant_value, weight, is_control, created_at
                FROM experiment_variants WHERE experiment_id = $1 AND variant_name = $2""",
@@ -243,7 +296,13 @@ async def add_experiment_variant(experiment_id: str, variant_name: str, variant_
         return serialize_json(row)
 
 
-async def update_experiment_variant(experiment_id: str, variant_id: str, variant_value: Optional[str] = None, weight: Optional[float] = None, is_control: Optional[bool] = None) -> Optional[dict]:
+async def update_experiment_variant(
+    experiment_id: str,
+    variant_id: str,
+    variant_value: str | None = None,
+    weight: float | None = None,
+    is_control: bool | None = None,
+) -> dict | None:
     async with Database() as db:
         r = await db.execute("SELECT status FROM experiments WHERE id = $1", (experiment_id,))
         if not r or r.get("status") != "draft":
@@ -288,12 +347,14 @@ async def delete_experiment_variant(experiment_id: str, variant_id: str) -> bool
             return False
         await db.execute(
             "DELETE FROM experiment_variants WHERE id = $1 AND experiment_id = $2",
-            (variant_id, experiment_id))
+            (variant_id, experiment_id),
+        )
         return True
 
 
-
-async def add_experiment_metric(experiment_id: str, metric_key: str, metric_type: str) -> Optional[dict]:
+async def add_experiment_metric(
+    experiment_id: str, metric_key: str, metric_type: str
+) -> dict | None:
     if metric_type not in METRIC_TYPES:
         return None
     async with Database() as db:
@@ -304,14 +365,16 @@ async def add_experiment_metric(experiment_id: str, metric_key: str, metric_type
             """INSERT INTO experiment_metrics (experiment_id, metric_key, metric_type)
                VALUES ($1, $2, $3)
                ON CONFLICT (experiment_id, metric_key, metric_type) DO NOTHING""",
-            (experiment_id, metric_key, metric_type))
+            (experiment_id, metric_key, metric_type),
+        )
         row = await db.execute(
             "SELECT id, experiment_id, metric_key, metric_type, created_at FROM experiment_metrics WHERE experiment_id = $1 AND metric_key = $2 AND metric_type = $3",
-            (experiment_id, metric_key, metric_type))
+            (experiment_id, metric_key, metric_type),
+        )
         return serialize_json(row)
 
 
-async def _check_variant_weights_match_audience(db, experiment_id: str) -> Optional[str]:
+async def _check_variant_weights_match_audience(db, experiment_id: str) -> str | None:
     """Проверяет, что сумма весов вариантов равна доле аудитории (покрытию) эксперимента.
     Возвращает сообщение об ошибке или None если всё ок."""
     row = await db.execute(
@@ -339,18 +402,19 @@ async def _check_variant_weights_match_audience(db, experiment_id: str) -> Optio
     return None
 
 
-async def submit_review(experiment_id: str) -> tuple[Optional[dict], Optional[str]]:
+async def submit_review(experiment_id: str) -> tuple[dict | None, str | None]:
     """Переводит эксперимент в on_review. Возвращает (experiment, None) при успехе,
     (None, error_message) при ошибке валидации, (None, None) при неверном статусе/нет вариантов."""
     async with Database() as db:
         row = await db.execute(
-            "SELECT id, status FROM experiments WHERE id = $1",
-            (experiment_id,))
+            "SELECT id, status FROM experiments WHERE id = $1", (experiment_id,)
+        )
         if not row or row["status"] != "draft":
             return (None, None)
         variant_count_row = await db.execute(
             "SELECT COUNT(*) AS c FROM experiment_variants WHERE experiment_id = $1",
-            (experiment_id,))
+            (experiment_id,),
+        )
         variant_count = int((variant_count_row or {}).get("c") or 0)
         if variant_count < 1:
             return (None, "Добавьте хотя бы один вариант перед отправкой на одобрение.")
@@ -359,7 +423,8 @@ async def submit_review(experiment_id: str) -> tuple[Optional[dict], Optional[st
             return (None, err)
         await db.execute(
             "UPDATE experiments SET status = 'on_review', updated_at = NOW() WHERE id = $1",
-            (experiment_id,))
+            (experiment_id,),
+        )
     return (await get_experiment_by_id(experiment_id), None)
 
 
@@ -367,52 +432,61 @@ async def get_review_approvals_count(experiment_id: str) -> int:
     async with Database() as db:
         count_row = await db.execute(
             "SELECT COUNT(*) AS c FROM experiment_review_history WHERE experiment_id = $1 AND action = 'approved'",
-            (experiment_id,))
+            (experiment_id,),
+        )
         return count_row["c"]
 
 
 async def check_access_to_experiment(experiment_id: str, user_id: str) -> bool:
     async with Database() as db:
         row = await db.execute(
-            "SELECT created_by FROM experiments WHERE id = $1",
-            (experiment_id,))
+            "SELECT created_by FROM experiments WHERE id = $1", (experiment_id,)
+        )
         if not row:
             return False
-            
+
         approver_group = await db.execute(
-            "SELECT id FROM approver_groups WHERE experimenter_id = $1", (row["created_by"],))
+            "SELECT id FROM approver_groups WHERE experimenter_id = $1", (row["created_by"],)
+        )
         if not approver_group:
             return False
         check_member = await db.execute_all(
             "SELECT 1 FROM approver_group_members WHERE approver_group_id = $1 and approver_id = $2",
-            (approver_group["id"], user_id))
+            (approver_group["id"], user_id),
+        )
         return check_member is not None
 
-async def add_review_record(experiment_id: str, reviewer_id: str, action: str, comment: Optional[str] = None) -> Optional[dict]:
+
+async def add_review_record(
+    experiment_id: str, reviewer_id: str, action: str, comment: str | None = None
+) -> dict | None:
     if action not in REVIEW_ACTIONS:
         return None
     async with Database() as db:
         exp = await db.execute(
-            "SELECT id, status, created_by FROM experiments WHERE id = $1",
-            (experiment_id,))
+            "SELECT id, status, created_by FROM experiments WHERE id = $1", (experiment_id,)
+        )
         if not exp or exp["status"] != "on_review":
             return None
-
 
         await db.execute(
             """INSERT INTO experiment_review_history (experiment_id, reviewer_id, action, comment)
                VALUES ($1, $2, $3, $4)""",
-            (experiment_id, reviewer_id, action, comment))
+            (experiment_id, reviewer_id, action, comment),
+        )
         if action == "requested_changes":
             await db.execute(
                 "UPDATE experiments SET status = 'draft', updated_at = NOW() WHERE id = $1",
-                (experiment_id,))
+                (experiment_id,),
+            )
         elif action == "rejected":
             await db.execute(
                 "UPDATE experiments SET status = 'rejected', updated_at = NOW() WHERE id = $1",
-                (experiment_id,))
+                (experiment_id,),
+            )
         elif action == "approved":
             from functions.users import get_approver_group_for_experimenter
+
             created_by = exp["created_by"]
             if created_by:
                 group = await get_approver_group_for_experimenter(str(created_by))
@@ -421,12 +495,14 @@ async def add_review_record(experiment_id: str, reviewer_id: str, action: str, c
                 min_approvals = 1
             count_row = await db.execute(
                 "SELECT COUNT(*) AS c FROM experiment_review_history WHERE experiment_id = $1 AND action = 'approved'",
-                (experiment_id,))
+                (experiment_id,),
+            )
             count = int(count_row["c"])
             if count >= min_approvals:
                 await db.execute(
                     "UPDATE experiments SET status = 'approved', updated_at = NOW() WHERE id = $1",
-                    (experiment_id,))
+                    (experiment_id,),
+                )
     return await get_experiment_by_id(experiment_id)
 
 
@@ -443,9 +519,9 @@ STATUS_TRANSITIONS = {
 async def update_experiment_status(
     experiment_id: str,
     new_status: str,
-    comment: Optional[str] = None,
-    reviewer_id: Optional[str] = None,
-) -> tuple[Optional[dict], Optional[str]]:
+    comment: str | None = None,
+    reviewer_id: str | None = None,
+) -> tuple[dict | None, str | None]:
     """Возвращает (experiment, None) при успехе, (None, error_message) при ошибке валидации, (None, None) при неверном переходе.
     completed не выставляется здесь — только через complete_experiment (эндпоинт POST .../complete)."""
     if new_status not in EXPERIMENT_STATUSES:
@@ -476,57 +552,61 @@ async def update_experiment_status(
     return (None, None)
 
 
-async def start_experiment(experiment_id: str) -> Optional[dict]:
+async def start_experiment(experiment_id: str) -> dict | None:
     async with Database() as db:
         row = await db.execute(
-            "SELECT id, flag_id, status FROM experiments WHERE id = $1",
-            (experiment_id,))
+            "SELECT id, flag_id, status FROM experiments WHERE id = $1", (experiment_id,)
+        )
         if not row or row["status"] not in ("approved", "paused"):
             return None
-        
+
         if row["status"] != "paused":
-            check_status = await db.execute("SELECT 1 FROM experiments WHERE flag_id = $1 AND status in ('running', 'paused')", (row["flag_id"],))
+            check_status = await db.execute(
+                "SELECT 1 FROM experiments WHERE flag_id = $1 AND status in ('running', 'paused')",
+                (row["flag_id"],),
+            )
             if check_status:
                 return None
 
         await db.execute(
             "UPDATE experiments SET status = 'running', updated_at = NOW() WHERE id = $1",
-            (experiment_id,))
+            (experiment_id,),
+        )
         return await get_experiment_by_id(experiment_id)
 
 
-async def pause_experiment(experiment_id: str) -> Optional[dict]:
+async def pause_experiment(experiment_id: str) -> dict | None:
     async with Database() as db:
         row = await db.execute(
-            "SELECT id, status FROM experiments WHERE id = $1",
-            (experiment_id,))
+            "SELECT id, status FROM experiments WHERE id = $1", (experiment_id,)
+        )
         if not row or row["status"] != "running":
             return None
         await db.execute(
             "UPDATE experiments SET status = 'paused', updated_at = NOW() WHERE id = $1",
-            (experiment_id,))
+            (experiment_id,),
+        )
         return await get_experiment_by_id(experiment_id)
 
 
 COMPLETION_OUTCOMES = ("rollout_winner", "rollback", "no_effect")
 
 
-async def rollback_experiment_to_control(experiment_id: str) -> Optional[dict]:
+async def rollback_experiment_to_control(experiment_id: str) -> dict | None:
     """Откат к контролю (guardrail): останавливаем раздачу вариантов и очищаем decisions. Статус → paused.
     completed не ставится автоматически — experimenter завершает эксперимент через POST .../complete с outcome=rollback и комментарием."""
     async with Database() as db:
         row = await db.execute(
-            "SELECT id, status FROM experiments WHERE id = $1",
-            (experiment_id,))
+            "SELECT id, status FROM experiments WHERE id = $1", (experiment_id,)
+        )
         if not row or row["status"] not in ("running", "paused"):
             return None
 
-        await db.execute(
-            "DELETE FROM decisions WHERE experiment_id = $1",
-            (experiment_id,))
+        await db.execute("DELETE FROM decisions WHERE experiment_id = $1", (experiment_id,))
         await db.execute(
             "UPDATE experiments SET status = 'paused', updated_at = NOW() WHERE id = $1",
-            (experiment_id,))
+            (experiment_id,),
+        )
         return await get_experiment_by_id(experiment_id)
 
 
@@ -534,15 +614,15 @@ async def complete_experiment(
     experiment_id: str,
     outcome: str,
     comment: str,
-    winner_variant_id: Optional[str] = None,
-) -> Optional[dict]:
+    winner_variant_id: str | None = None,
+) -> dict | None:
     """Завершение эксперимента с фиксацией решения: rollout_winner / rollback / no_effect и обязательным комментарием."""
     if outcome not in COMPLETION_OUTCOMES:
         return None
     async with Database() as db:
         row = await db.execute(
-            "SELECT id, status FROM experiments WHERE id = $1",
-            (experiment_id,))
+            "SELECT id, status FROM experiments WHERE id = $1", (experiment_id,)
+        )
         if not row or row["status"] not in ("running", "paused"):
             return None
         if outcome == "rollout_winner" and not winner_variant_id:
@@ -551,7 +631,13 @@ async def complete_experiment(
             """UPDATE experiments SET status = 'completed', updated_at = NOW(),
                completion_outcome = $2, completion_comment = $3, completion_winner_variant_id = $4
                WHERE id = $1""",
-            (experiment_id, outcome, comment or "", winner_variant_id if outcome == "rollout_winner" else None))
+            (
+                experiment_id,
+                outcome,
+                comment or "",
+                winner_variant_id if outcome == "rollout_winner" else None,
+            ),
+        )
         return await get_experiment_by_id(experiment_id)
 
 
@@ -564,7 +650,8 @@ async def get_review_history(experiment_id: str) -> list[dict]:
                LEFT JOIN users u ON u.id = h.reviewer_id
                WHERE h.experiment_id = $1
                ORDER BY h.created_at ASC""",
-            (experiment_id,))
+            (experiment_id,),
+        )
         return serialize_json(rows)
 
 
@@ -583,25 +670,27 @@ async def get_guardrail_history(experiment_id: str) -> list[dict]:
                FROM experiment_guardrail_history
                WHERE experiment_id = $1
                ORDER BY triggered_at DESC""",
-            (experiment_id,))
+            (experiment_id,),
+        )
         return serialize_json(rows)
 
 
 async def record_guardrail_trigger(
     experiment_id: str,
     metric_key: str,
-    threshold: Optional[float] = None,
-    window_seconds: Optional[int] = None,
-    action: Optional[str] = None,
-    metric_value: Optional[float] = None,
-    details: Optional[dict] = None,
-) -> Optional[dict]:
+    threshold: float | None = None,
+    window_seconds: int | None = None,
+    action: str | None = None,
+    metric_value: float | None = None,
+    details: dict | None = None,
+) -> dict | None:
     async with Database() as db:
         await db.execute(
             """INSERT INTO experiment_guardrail_history
                    (experiment_id, metric_key, threshold, window_seconds, action, metric_value, details)
                VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-            (experiment_id, metric_key, threshold, window_seconds, action, metric_value, details))
+            (experiment_id, metric_key, threshold, window_seconds, action, metric_value, details),
+        )
         row = await db.execute(
             """SELECT id,
                       experiment_id,
@@ -616,5 +705,6 @@ async def record_guardrail_trigger(
                WHERE experiment_id = $1
                ORDER BY triggered_at DESC
                LIMIT 1""",
-            (experiment_id,))
+            (experiment_id,),
+        )
         return serialize_json(row)

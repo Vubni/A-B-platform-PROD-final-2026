@@ -1,16 +1,15 @@
-from typing import Callable, Optional, TypeVar, Awaitable, Dict, Any, Union
-from functools import wraps
-from pydantic import BaseModel, ValidationError, Field
 import json
-from aiohttp import web
-from pydantic import field_validator, model_validator
-import core
-import uuid
 import re
-import pytz
-from datetime import datetime, timezone, timedelta
+import uuid
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
+from functools import wraps
+from typing import Any
 
-T = TypeVar("T", bound=BaseModel)
+from aiohttp import web
+from pydantic import BaseModel, ValidationError, field_validator
+
+import core
 
 
 class EmailError(Exception):
@@ -25,10 +24,10 @@ def generate_trace_id() -> str:
 
 
 def get_timestamp() -> str:
-    return datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
-def get_nested_value(data: Dict[str, Any], path: tuple) -> Any:
+def get_nested_value(data: dict[str, Any], path: tuple) -> Any:
     if not path:
         return None
 
@@ -49,15 +48,15 @@ def format_error_response(
     message: str,
     path: str,
     status: int,
-    details: Optional[Dict[str, Any]] = None,
-    field_errors: Optional[list] = None
-) -> Dict[str, Any]:
+    details: dict[str, Any] | None = None,
+    field_errors: list | None = None,
+) -> dict[str, Any]:
     response = {
         "code": code,
         "message": message,
         "traceId": generate_trace_id(),
         "timestamp": get_timestamp(),
-        "path": path
+        "path": path,
     }
 
     if details:
@@ -69,44 +68,44 @@ def format_error_response(
     return response
 
 
-def format_401_error(request: web.Request, message: str = "Токен отсутствует, невалиден или истёк") -> web.Response:
+def format_401_error(
+    request: web.Request, message: str = "Токен отсутствует, невалиден или истёк"
+) -> web.Response:
     error_response = format_error_response(
-        code="UNAUTHORIZED",
-        message=message,
-        path=str(request.path_qs),
-        status=401
+        code="UNAUTHORIZED", message=message, path=str(request.path_qs), status=401
     )
     return web.json_response(error_response, status=401)
 
 
-def format_403_error(request: web.Request, message: str = "Недостаточно прав для выполнения операции") -> web.Response:
+def format_403_error(
+    request: web.Request, message: str = "Недостаточно прав для выполнения операции"
+) -> web.Response:
     error_response = format_error_response(
-        code="FORBIDDEN",
-        message=message,
-        path=str(request.path_qs),
-        status=403
+        code="FORBIDDEN", message=message, path=str(request.path_qs), status=403
     )
     return web.json_response(error_response, status=403)
 
 
-def format_404_error(request: web.Request, message: str = "Ресурс не найден", details: Optional[Dict[str, Any]] = None) -> web.Response:
+def format_404_error(
+    request: web.Request,
+    message: str = "Ресурс не найден",
+    details: dict[str, Any] | None = None,
+) -> web.Response:
     error_response = format_error_response(
-        code="NOT_FOUND",
-        message=message,
-        path=str(request.path_qs),
-        status=404,
-        details=details
+        code="NOT_FOUND", message=message, path=str(request.path_qs), status=404, details=details
     )
     return web.json_response(error_response, status=404)
 
 
-def format_409_error(request: web.Request, value, message: str = "Токен отсутствует или невалиден", field="email") -> web.Response:
+def format_409_error(
+    request: web.Request, value, message: str = "Токен отсутствует или невалиден", field="email"
+) -> web.Response:
     error_response = format_error_response(
         code=f"{field.upper()}_ALREADY_EXISTS",
         message=message,
         path=str(request.path_qs),
         status=409,
-        details={"field": field, "value": value}
+        details={"field": field, "value": value},
     )
     return web.json_response(error_response, status=409)
 
@@ -116,17 +115,19 @@ def format_422_error(request: web.Request, code: str = "ERROR") -> web.Response:
         "code": code,
         "message": "Некоторые поля не прошли валидацию",
         "timestamp": get_timestamp(),
-        "path": str(request.path_qs)
+        "path": str(request.path_qs),
     }
     return web.json_response(error_response, status=422)
 
 
-def format_423_error(request: web.Request, message: str = "Пользователь деактивирован") -> web.Response:
+def format_423_error(
+    request: web.Request, message: str = "Пользователь деактивирован"
+) -> web.Response:
     error_response = {
         "code": "USER_INACTIVE",
         "message": message,
         "timestamp": get_timestamp(),
-        "path": str(request.path_qs)
+        "path": str(request.path_qs),
     }
     return web.json_response(error_response, status=423)
 
@@ -139,12 +140,13 @@ def require_auth(handler: Callable[[web.Request, Any], Awaitable[web.Response]])
             if payload is not None and isinstance(payload, web.Response):
                 return payload
             return format_401_error(request)
-        request['user_payload'] = payload
+        request["user_payload"] = payload
         return await handler(request, *args, **kwargs)
+
     return wrapper
 
 
-def validate(model: type[T], require_auth: bool = False) -> Callable:
+def validate[T: BaseModel](model: type[T], require_auth: bool = False) -> Callable:
     def decorator(handler: Callable[[web.Request, Any], Awaitable[web.Response]]):
         @wraps(handler)
         async def wrapper(request: web.Request) -> web.Response:
@@ -158,23 +160,22 @@ def validate(model: type[T], require_auth: bool = False) -> Callable:
                     return format_401_error(request)
                 request["user_payload"] = payload
 
-            if request.method in ('POST', 'PUT', 'PATCH'):
-                content_type = request.headers.get('Content-Type', '')
-                if not content_type.startswith('application/json'):
+            if request.method in ("POST", "PUT", "PATCH"):
+                content_type = request.headers.get("Content-Type", "")
+                if not content_type.startswith("application/json"):
                     error_response = format_error_response(
                         code="BAD_REQUEST",
                         message="Неподдерживаемый Content-Type",
                         path=path,
                         status=400,
-                        details={
-                            "hint": "Используйте Content-Type: application/json"}
+                        details={"hint": "Используйте Content-Type: application/json"},
                     )
                     return web.json_response(error_response, status=400)
 
-            if request.method == 'GET':
+            if request.method == "GET":
                 data = dict(request.query)
             else:
-                content_length = request.headers.get('Content-Length')
+                content_length = request.headers.get("Content-Length")
                 if content_length:
                     try:
                         size = int(content_length)
@@ -184,8 +185,7 @@ def validate(model: type[T], require_auth: bool = False) -> Callable:
                                 message="Слишком большой payload",
                                 path=path,
                                 status=400,
-                                details={
-                                    "hint": "Максимальный размер запроса: 10MB"}
+                                details={"hint": "Максимальный размер запроса: 10MB"},
                             )
                             return web.json_response(error_response, status=400)
                     except ValueError:
@@ -193,13 +193,13 @@ def validate(model: type[T], require_auth: bool = False) -> Callable:
 
                 try:
                     data = await request.json()
-                except json.JSONDecodeError as e:
+                except json.JSONDecodeError:
                     error_response = format_error_response(
                         code="BAD_REQUEST",
                         message="Невалидный JSON",
                         path=path,
                         status=400,
-                        details={"hint": "Проверьте запятые/кавычки"}
+                        details={"hint": "Проверьте запятые/кавычки"},
                     )
                     return web.json_response(error_response, status=400)
                 except Exception:
@@ -208,7 +208,7 @@ def validate(model: type[T], require_auth: bool = False) -> Callable:
                         message="Ошибка обработки запроса",
                         path=path,
                         status=400,
-                        details={"hint": "Проверьте формат и размер запроса"}
+                        details={"hint": "Проверьте формат и размер запроса"},
                     )
                     return web.json_response(error_response, status=400)
 
@@ -217,19 +217,19 @@ def validate(model: type[T], require_auth: bool = False) -> Callable:
 
             for key, value in all_data.items():
                 if isinstance(value, str):
-                    if value.isdigit() or (value.startswith('-') and value[1:].isdigit()):
+                    if value.isdigit() or (value.startswith("-") and value[1:].isdigit()):
                         try:
                             all_data[key] = int(value)
                         except (ValueError, TypeError):
                             pass
-                    elif '.' in value:
+                    elif "." in value:
                         try:
                             all_data[key] = float(value)
                         except (ValueError, TypeError):
                             pass
-                    elif value.lower() == 'true':
+                    elif value.lower() == "true":
                         all_data[key] = True
-                    elif value.lower() == 'false':
+                    elif value.lower() == "false":
                         all_data[key] = False
 
             try:
@@ -237,9 +237,13 @@ def validate(model: type[T], require_auth: bool = False) -> Callable:
             except ValidationError as e:
                 field_errors = [
                     {
-                        "field": ".".join(str(loc) for loc in error["loc"]) if error["loc"] else "general",
+                        "field": ".".join(str(loc) for loc in error["loc"])
+                        if error["loc"]
+                        else "general",
                         "issue": error["msg"],
-                        "rejectedValue": get_nested_value(all_data, tuple(error["loc"])) if error["loc"] else None
+                        "rejectedValue": get_nested_value(all_data, tuple(error["loc"]))
+                        if error["loc"]
+                        else None,
                     }
                     for error in e.errors()
                 ]
@@ -248,28 +252,26 @@ def validate(model: type[T], require_auth: bool = False) -> Callable:
                     message="Некоторые поля не прошли валидацию",
                     path=path,
                     status=422,
-                    field_errors=field_errors
+                    field_errors=field_errors,
                 )
                 return web.json_response(error_response, status=422)
             except EmailError as e:
                 field_errors = [
-                    {
-                        "field": "email",
-                        "issue": e.message,
-                        "rejectedValue": all_data.get("email")
-                    }
+                    {"field": "email", "issue": e.message, "rejectedValue": all_data.get("email")}
                 ]
                 error_response = format_error_response(
                     code="VALIDATION_FAILED",
                     message="Некоторые поля не прошли валидацию",
                     path=path,
                     status=422,
-                    field_errors=field_errors
+                    field_errors=field_errors,
                 )
                 return web.json_response(error_response, status=422)
 
             return await handler(request, parsed)
+
         return wrapper
+
     return decorator
 
 
@@ -277,58 +279,58 @@ class Register(BaseModel):
     email: str
     fullName: str
     password: str
-    region: Optional[str] = None
-    gender: Optional[str] = None
-    age: Optional[int] = None
-    maritalStatus: Optional[str] = None
+    region: str | None = None
+    gender: str | None = None
+    age: int | None = None
+    maritalStatus: str | None = None
 
-    @field_validator('email')
+    @field_validator("email")
     def check_email(cls, v):
         if len(v) > 254:
-            raise ValueError('Email cannot exceed 254 characters')
+            raise ValueError("Email cannot exceed 254 characters")
         if not core.is_valid_email(v):
             raise EmailError(
-                'Email does not comply with email standards or dns mail servers are not found')
+                "Email does not comply with email standards or dns mail servers are not found"
+            )
         return v
 
-    @field_validator('age')
+    @field_validator("age")
     def check_age(cls, v):
         if v is not None and (v < 18 or v > 120):
-            raise ValueError('Age must be between 18 and 120')
+            raise ValueError("Age must be between 18 and 120")
         return v
 
-    @field_validator('fullName')
+    @field_validator("fullName")
     def check_full_name(cls, v):
         if v is not None and (len(v) < 2 or len(v) > 100):
-            raise ValueError('Full name must be between 2 and 100 characters')
+            raise ValueError("Full name must be between 2 and 100 characters")
         return v
 
-    @field_validator('password')
+    @field_validator("password")
     def check_password(cls, v):
         if v is not None:
-            if (len(v) < 8 or len(v) > 72):
-                raise ValueError(
-                    'Password must be between 8 and 72 characters')
-            if re.match(r'^(?=.*[A-Za-z])(?=.*\d).+$', v) is None:
-                raise ValueError(
-                    'Password must contain at least one letter and one number')
+            if len(v) < 8 or len(v) > 72:
+                raise ValueError("Password must be between 8 and 72 characters")
+            if re.match(r"^(?=.*[A-Za-z])(?=.*\d).+$", v) is None:
+                raise ValueError("Password must contain at least one letter and one number")
         return v
 
-    @field_validator('region')
+    @field_validator("region")
     def check_region(cls, v):
         if v is not None and len(v) > 32:
-            raise ValueError('Region cannot exceed 32 characters')
+            raise ValueError("Region cannot exceed 32 characters")
         return v
 
-    @field_validator('gender')
+    @field_validator("gender")
     def check_gender(cls, v):
-        if v not in ['MALE', 'FEMALE', None]:
-            raise ValueError('Gender must be either MALE or FEMALE')
+        if v not in ["MALE", "FEMALE", None]:
+            raise ValueError("Gender must be either MALE or FEMALE")
         return v
 
-    @field_validator('maritalStatus')
+    @field_validator("maritalStatus")
     def check_marital_status(cls, v):
-        if v not in ['SINGLE', 'MARRIED', 'DIVORCED', 'WIDOWED', None]:
+        if v not in ["SINGLE", "MARRIED", "DIVORCED", "WIDOWED", None]:
             raise ValueError(
-                'Marital status must be either SINGLE or MARRIED or DIVORCED or WIDOWED')
+                "Marital status must be either SINGLE or MARRIED or DIVORCED or WIDOWED"
+            )
         return v

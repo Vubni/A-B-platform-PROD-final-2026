@@ -1,24 +1,22 @@
-from typing import Optional
-
 from aiohttp import web
 from aiohttp_apispec import docs, request_schema
 from pydantic import BaseModel, field_validator, model_validator
 
-from dsl import validate_targeting_rule
 from api import validate
-from core import validate_uuid, check_authorization
+from core import check_authorization, validate_uuid
 from docs.schems import (
     CompleteExperimentSchema,
     ExperimentCreateSchema,
-    ExperimentListResponseSchema,
     ExperimentItemSchema,
+    ExperimentListResponseSchema,
     ExperimentUpdateSchema,
+    ExperimentVariantSchema,
+    GuardrailHistoryResponseSchema,
     StatusUpdateSchema,
     VariantCreateSchema,
     VariantUpdateSchema,
-    ExperimentVariantSchema,
-    GuardrailHistoryResponseSchema,
 )
+from dsl import validate_targeting_rule
 from functions.experiments import (
     add_experiment_variant,
     check_access_to_experiment,
@@ -34,28 +32,30 @@ from functions.experiments import (
 )
 
 VALID_STATUSES = (
-    "draft", "on_review", "approved", "running", "paused",
-    "completed", "archived", "rejected",
+    "draft",
+    "on_review",
+    "approved",
+    "running",
+    "paused",
+    "completed",
+    "archived",
+    "rejected",
 )
 METRIC_TYPES = ("primary", "auxiliary", "guardrail")
 
 
-def _experiment_id_from_request(request: web.Request) -> Optional[str]:
+def _experiment_id_from_request(request: web.Request) -> str | None:
     raw = request.match_info.get("id", "").strip()
     if not raw:
         return None
     return validate_uuid(raw) if validate_uuid(raw) else None
 
 
-def _variant_id_from_request(request: web.Request) -> Optional[str]:
+def _variant_id_from_request(request: web.Request) -> str | None:
     raw = request.match_info.get("variant_id", "").strip()
     if not raw:
         return None
     return validate_uuid(raw) if validate_uuid(raw) else None
-
-
-
-
 
 
 class ExperimentMetricItem(BaseModel):
@@ -81,8 +81,8 @@ class ExperimentCreate(BaseModel):
     flag_id: str
     name: str
     audience_fraction: float
-    targeting_rule: Optional[str] = None
-    metrics: Optional[list[ExperimentMetricItem]] = None
+    targeting_rule: str | None = None
+    metrics: list[ExperimentMetricItem] | None = None
 
     @field_validator("flag_id")
     @classmethod
@@ -110,7 +110,7 @@ class ExperimentCreate(BaseModel):
 
     @field_validator("targeting_rule")
     @classmethod
-    def targeting_rule_opt(cls, v: Optional[str]) -> Optional[str]:
+    def targeting_rule_opt(cls, v: str | None) -> str | None:
         if v is not None and len(v) > 2048:
             raise ValueError("Targeting rule too long")
         if v is not None and not validate_targeting_rule(v):
@@ -119,7 +119,7 @@ class ExperimentCreate(BaseModel):
 
     @field_validator("metrics")
     @classmethod
-    def metrics_one_primary(cls, v: Optional[list]) -> Optional[list]:
+    def metrics_one_primary(cls, v: list | None) -> list | None:
         if not v:
             return v
         primary_count = sum(1 for m in v if getattr(m, "metric_type", None) == "primary")
@@ -129,28 +129,28 @@ class ExperimentCreate(BaseModel):
 
 
 class ExperimentUpdate(BaseModel):
-    name: Optional[str] = None
-    audience_fraction: Optional[float] = None
-    targeting_rule: Optional[str] = None
-    metrics: Optional[list[ExperimentMetricItem]] = None
+    name: str | None = None
+    audience_fraction: float | None = None
+    targeting_rule: str | None = None
+    metrics: list[ExperimentMetricItem] | None = None
 
     @field_validator("name")
     @classmethod
-    def name_length(cls, v: Optional[str]) -> Optional[str]:
+    def name_length(cls, v: str | None) -> str | None:
         if v is not None and (not v.strip() or len(v) > 255):
             raise ValueError("Name must be non-empty and at most 255 characters")
         return v.strip() if v else v
 
     @field_validator("audience_fraction")
     @classmethod
-    def audience_fraction_range(cls, v: Optional[float]) -> Optional[float]:
+    def audience_fraction_range(cls, v: float | None) -> float | None:
         if v is not None and (v <= 0 or v > 1):
             raise ValueError("Audience fraction must be in (0, 1]")
         return v
 
     @field_validator("targeting_rule")
     @classmethod
-    def targeting_rule_opt(cls, v: Optional[str]) -> Optional[str]:
+    def targeting_rule_opt(cls, v: str | None) -> str | None:
         if v is not None and len(v) > 2048:
             raise ValueError("Targeting rule too long")
         if v is not None and not validate_targeting_rule(v):
@@ -159,7 +159,7 @@ class ExperimentUpdate(BaseModel):
 
     @field_validator("metrics")
     @classmethod
-    def metrics_one_primary(cls, v: Optional[list]) -> Optional[list]:
+    def metrics_one_primary(cls, v: list | None) -> list | None:
         if not v:
             return v
         primary_count = sum(1 for m in v if getattr(m, "metric_type", None) == "primary")
@@ -169,12 +169,12 @@ class ExperimentUpdate(BaseModel):
 
 
 class ReviewAction(BaseModel):
-    comment: Optional[str] = None
+    comment: str | None = None
 
 
 class StatusUpdate(BaseModel):
     status: str
-    comment: Optional[str] = None
+    comment: str | None = None
 
     @field_validator("status")
     @classmethod
@@ -184,17 +184,18 @@ class StatusUpdate(BaseModel):
         return v
 
 
-# Завершение эксперимента — отдельный эндпоинт POST .../complete (experimenter передаёт решение и комментарий)
 class CompleteExperiment(BaseModel):
-    completion_outcome: str  # rollout_winner | rollback | no_effect
+    completion_outcome: str
     comment: str
-    completion_winner_variant_id: Optional[str] = None  # обязателен при completion_outcome=rollout_winner
+    completion_winner_variant_id: str | None = None
 
     @field_validator("completion_outcome")
     @classmethod
     def outcome_valid(cls, v: str) -> str:
         if v not in ("rollout_winner", "rollback", "no_effect"):
-            raise ValueError("completion_outcome must be one of: rollout_winner, rollback, no_effect")
+            raise ValueError(
+                "completion_outcome must be one of: rollout_winner, rollback, no_effect"
+            )
         return v
 
     @field_validator("comment")
@@ -207,7 +208,9 @@ class CompleteExperiment(BaseModel):
     @model_validator(mode="after")
     def check_rollout_winner(self) -> "CompleteExperiment":
         if self.completion_outcome == "rollout_winner" and not self.completion_winner_variant_id:
-            raise ValueError("completion_winner_variant_id required when completion_outcome=rollout_winner")
+            raise ValueError(
+                "completion_winner_variant_id required when completion_outcome=rollout_winner"
+            )
         return self
 
 
@@ -240,24 +243,23 @@ class VariantCreate(BaseModel):
 
 
 class VariantUpdate(BaseModel):
-    variant_value: Optional[str] = None
-    weight: Optional[float] = None
-    is_control: Optional[bool] = None
+    variant_value: str | None = None
+    weight: float | None = None
+    is_control: bool | None = None
 
     @field_validator("variant_value")
     @classmethod
-    def value_len(cls, v: Optional[str]) -> Optional[str]:
+    def value_len(cls, v: str | None) -> str | None:
         if v is not None and len(v) > 2048:
             raise ValueError("variant_value max 2048 characters")
         return v
 
     @field_validator("weight")
     @classmethod
-    def weight_nonneg(cls, v: Optional[float]) -> Optional[float]:
+    def weight_nonneg(cls, v: float | None) -> float | None:
         if v is not None and v < 0:
             raise ValueError("weight must be >= 0")
         return v
-
 
 
 @docs(
@@ -279,7 +281,9 @@ async def experiments_create(request: web.Request, parsed: ExperimentCreate) -> 
         return validate.format_403_error(request, "Not enough permissions to create experiments")
 
     created_by = auth_payload.get("id")
-    metrics_payload = [{"metric_key": m.metric_key, "metric_type": m.metric_type} for m in (parsed.metrics or [])]
+    metrics_payload = [
+        {"metric_key": m.metric_key, "metric_type": m.metric_type} for m in (parsed.metrics or [])
+    ]
     experiment, err_code, err_details = await create_experiment(
         flag_id=parsed.flag_id,
         name=parsed.name,
@@ -306,7 +310,9 @@ async def experiments_create(request: web.Request, parsed: ExperimentCreate) -> 
 @docs(
     tags=["Experiments"],
     summary="Список экспериментов",
-    responses={200: {"description": "Список экспериментов", "schema": ExperimentListResponseSchema}},
+    responses={
+        200: {"description": "Список экспериментов", "schema": ExperimentListResponseSchema}
+    },
 )
 async def experiments_list(request: web.Request) -> web.Response:
     auth_payload = await check_authorization(request)
@@ -378,7 +384,12 @@ async def experiments_update(request: web.Request, parsed: ExperimentUpdate) -> 
 
     status = experiment.get("status")
 
-    has_update = parsed.name or parsed.audience_fraction or parsed.targeting_rule is not None or parsed.metrics is not None
+    has_update = (
+        parsed.name
+        or parsed.audience_fraction
+        or parsed.targeting_rule is not None
+        or parsed.metrics is not None
+    )
     if not has_update:
         return web.json_response(
             {"error": "No fields to update"},
@@ -388,7 +399,9 @@ async def experiments_update(request: web.Request, parsed: ExperimentUpdate) -> 
     if status == "draft":
         metrics_payload = None
         if parsed.metrics is not None:
-            metrics_payload = [{"metric_key": m.metric_key, "metric_type": m.metric_type} for m in parsed.metrics]
+            metrics_payload = [
+                {"metric_key": m.metric_key, "metric_type": m.metric_type} for m in parsed.metrics
+            ]
         updated, err_code, err_details = await update_experiment(
             experiment_id=exp_id,
             name=parsed.name,
@@ -409,7 +422,11 @@ async def experiments_update(request: web.Request, parsed: ExperimentUpdate) -> 
         return web.json_response(updated)
 
     if status in ("running", "paused", "completed", "archived"):
-        if parsed.audience_fraction or parsed.targeting_rule is not None or parsed.metrics is not None:
+        if (
+            parsed.audience_fraction
+            or parsed.targeting_rule is not None
+            or parsed.metrics is not None
+        ):
             return web.json_response(
                 {"error": "Experiment is frozen after start; only 'name' can be updated"},
                 status=400,
@@ -463,22 +480,34 @@ async def experiments_update_status(request: web.Request, parsed: StatusUpdate) 
         if not await check_access_to_experiment(exp_id, user_id):
             return validate.format_403_error(request, "Not enough permissions for this experiment")
         updated, status_err = await update_experiment_status(
-            exp_id, new_status, comment=parsed.comment, reviewer_id=user_id)
+            exp_id, new_status, comment=parsed.comment, reviewer_id=user_id
+        )
     else:
         if role != "experimenter":
-            return validate.format_403_error(request, "Only experimenters can change status to on_review/running/paused")
+            return validate.format_403_error(
+                request, "Only experimenters can change status to on_review/running/paused"
+            )
         if not is_owner:
-            return validate.format_403_error(request, "Only owner can change this experiment status")
+            return validate.format_403_error(
+                request, "Only owner can change this experiment status"
+            )
         updated, status_err = await update_experiment_status(
             exp_id, new_status, comment=parsed.comment, reviewer_id=user_id
         )
 
     if not updated:
         if new_status == "running":
-            return validate.format_409_error(request, "Another experiment for this flag is already running")
+            return validate.format_409_error(
+                request, "Another experiment for this flag is already running"
+            )
         if new_status == "paused":
-            return validate.format_409_error(request, "Another experiment for this flag is already paused")
-        err = status_err or "Invalid status transition or validation failed (e.g. add variants for on_review)"
+            return validate.format_409_error(
+                request, "Another experiment for this flag is already paused"
+            )
+        err = (
+            status_err
+            or "Invalid status transition or validation failed (e.g. add variants for on_review)"
+        )
         return web.json_response({"error": err, "current_status": current}, status=400)
     return web.json_response(updated)
 
@@ -491,7 +520,15 @@ async def experiments_update_status(request: web.Request, parsed: StatusUpdate) 
         "rollback (откат к контролю) или no_effect (эффект не выявлен). Комментарий обязателен. "
         "Доступно только при статусе running или paused. Viewer затем может просмотреть результат по отчёту (GET report)."
     ),
-    parameters=[{"name": "id", "in": "path", "required": True, "description": "UUID эксперимента", "schema": {"type": "string", "format": "uuid"}}],
+    parameters=[
+        {
+            "name": "id",
+            "in": "path",
+            "required": True,
+            "description": "UUID эксперимента",
+            "schema": {"type": "string", "format": "uuid"},
+        }
+    ],
     responses={
         200: {"description": "Эксперимент завершён", "schema": ExperimentItemSchema},
         400: {"description": "Недопустимое состояние или неверный variant_id"},
@@ -517,7 +554,10 @@ async def experiments_complete(request: web.Request, parsed: CompleteExperiment)
         return validate.format_403_error(request, "Only owner can complete this experiment")
     if experiment["status"] not in ("running", "paused"):
         return web.json_response(
-            {"error": "Experiment can be completed only when status is running or paused", "status": experiment["status"]},
+            {
+                "error": "Experiment can be completed only when status is running or paused",
+                "status": experiment["status"],
+            },
             status=400,
         )
     if parsed.completion_outcome == "rollout_winner":
@@ -531,7 +571,9 @@ async def experiments_complete(request: web.Request, parsed: CompleteExperiment)
         exp_id,
         outcome=parsed.completion_outcome,
         comment=parsed.comment,
-        winner_variant_id=parsed.completion_winner_variant_id if parsed.completion_outcome == "rollout_winner" else None,
+        winner_variant_id=parsed.completion_winner_variant_id
+        if parsed.completion_outcome == "rollout_winner"
+        else None,
     )
     if not updated:
         return web.json_response({"error": "Failed to complete experiment"}, status=400)
@@ -567,7 +609,8 @@ async def experiments_variant_create(request: web.Request, parsed: VariantCreate
     if experiment["status"] != "draft":
         return web.json_response(
             {"error": "Variants can be added only in draft", "status": experiment["status"]},
-            status=400)
+            status=400,
+        )
     if str(experiment["created_by"]) != str(auth_payload.get("id")):
         return validate.format_403_error(request, "Only owner can add variants")
 
@@ -576,11 +619,13 @@ async def experiments_variant_create(request: web.Request, parsed: VariantCreate
         variant_name=parsed.variant_name,
         variant_value=parsed.variant_value,
         weight=parsed.weight,
-        is_control=parsed.is_control)
+        is_control=parsed.is_control,
+    )
     if not variant:
         return web.json_response(
             {"error": "Experiment not in draft or invariant violation (e.g. weights, control)"},
-            status=400)
+            status=400,
+        )
     return web.json_response(variant, status=201)
 
 
@@ -624,7 +669,8 @@ async def experiments_variant_update(request: web.Request, parsed: VariantUpdate
         variant_id=variant_id,
         variant_value=parsed.variant_value,
         weight=parsed.weight,
-        is_control=parsed.is_control)
+        is_control=parsed.is_control,
+    )
     if not variant:
         return validate.format_404_error(request, "Variant not found or experiment not in draft")
     return web.json_response(variant)
@@ -658,7 +704,8 @@ async def experiments_variant_delete(request: web.Request) -> web.Response:
     if experiment.get("status") != "draft":
         return web.json_response(
             {"error": "Variants can be deleted only in draft", "status": experiment.get("status")},
-            status=400)
+            status=400,
+        )
     if str(experiment.get("created_by")) != str(auth_payload.get("id")):
         return validate.format_403_error(request, "Only owner can delete variants")
 

@@ -1,15 +1,15 @@
-from datetime import datetime, timedelta, timezone
-from typing import List
+import uuid
+from datetime import UTC, datetime, timedelta
 
+from core import serialize_json
 from database.database import Database
 from functions.experiments import (
     pause_experiment,
-    rollback_experiment_to_control,
     record_guardrail_trigger,
+    rollback_experiment_to_control,
 )
 from functions.metrics import get_metric_by_key
 from functions.reports import _compute_metric_value, _decision_ids_by_variant
-from core import serialize_json
 
 
 async def list_metric_guardrails() -> list[dict]:
@@ -22,7 +22,8 @@ async def list_metric_guardrails() -> list[dict]:
                       created_at,
                       updated_at
                FROM metric_guardrails
-               ORDER BY metric_key""")
+               ORDER BY metric_key"""
+        )
         return serialize_json(rows)
 
 
@@ -37,15 +38,18 @@ async def get_metric_guardrail(metric_key: str) -> dict | None:
                       updated_at
                FROM metric_guardrails
                WHERE metric_key = $1""",
-            (metric_key.strip(),))
+            (metric_key.strip(),),
+        )
         return serialize_json(row)
 
 
-async def upsert_metric_guardrail(metric_key: str, threshold: float, window_seconds: int, action: str) -> dict | None:
+async def upsert_metric_guardrail(
+    metric_key: str, threshold: float, window_seconds: int, action: str
+) -> dict | None:
     async with Database() as db:
         metric_row = await db.execute(
-            "SELECT key FROM metric_catalog WHERE key = $1",
-            (metric_key.strip(),))
+            "SELECT key FROM metric_catalog WHERE key = $1", (metric_key.strip(),)
+        )
         if not metric_row:
             return None
 
@@ -58,7 +62,8 @@ async def upsert_metric_guardrail(metric_key: str, threshold: float, window_seco
                    window_seconds = EXCLUDED.window_seconds,
                    action = EXCLUDED.action,
                    updated_at = NOW()""",
-            (metric_key.strip(), threshold, window_seconds, action))
+            (metric_key.strip(), threshold, window_seconds, action),
+        )
         row = await db.execute(
             """SELECT metric_key,
                       threshold,
@@ -68,25 +73,26 @@ async def upsert_metric_guardrail(metric_key: str, threshold: float, window_seco
                       updated_at
                FROM metric_guardrails
                WHERE metric_key = $1""",
-            (metric_key.strip(),))
+            (metric_key.strip(),),
+        )
         return serialize_json(row)
 
 
 async def delete_metric_guardrail(metric_key: str) -> bool:
     async with Database() as db:
         res = await db.execute(
-            "DELETE FROM metric_guardrails WHERE metric_key = $1",
-            (metric_key.strip(),))
+            "DELETE FROM metric_guardrails WHERE metric_key = $1", (metric_key.strip(),)
+        )
         return bool(res)
 
 
 async def _evaluate_experiment_guardrails(experiment_id: str) -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     async with Database() as db:
         experiment = await db.execute(
-            "SELECT id, status FROM experiments WHERE id = $1",
-            (experiment_id,))
+            "SELECT id, status FROM experiments WHERE id = $1", (experiment_id,)
+        )
         if not experiment or experiment.get("status") != "running":
             return
 
@@ -98,13 +104,14 @@ async def _evaluate_experiment_guardrails(experiment_id: str) -> None:
                FROM experiment_metrics em
                JOIN metric_guardrails mg ON mg.metric_key = em.metric_key
                WHERE em.experiment_id = $1 AND em.metric_type = 'guardrail'""",
-            (experiment_id,))
+            (experiment_id,),
+        )
         if not guardrails:
             return
 
         variant_rows = await db.execute_all(
-            "SELECT id FROM experiment_variants WHERE experiment_id = $1",
-            (experiment_id,))
+            "SELECT id FROM experiment_variants WHERE experiment_id = $1", (experiment_id,)
+        )
         all_decision_ids = []
         for v in variant_rows or []:
             dids = await _decision_ids_by_variant(db, experiment_id, v["id"])
@@ -139,7 +146,8 @@ async def _evaluate_experiment_guardrails(experiment_id: str) -> None:
                     "threshold": float(threshold),
                     "window_seconds": int(window_seconds),
                     "action": action,
-                    "metric_value": float(value)}
+                    "metric_value": float(value),
+                }
                 await record_guardrail_trigger(
                     experiment_id=str(experiment_id),
                     metric_key=str(metric_key),
@@ -156,8 +164,16 @@ async def _evaluate_experiment_guardrails(experiment_id: str) -> None:
                     await rollback_experiment_to_control(str(experiment_id))
 
 
-async def check_guardrails_for_decisions(decision_ids: List[str]) -> None:
+async def check_guardrails_for_decisions(decision_ids: list[str]) -> None:
     if not decision_ids:
+        return
+    try:
+        decision_ids_uuid = [
+            uuid.UUID(d) if isinstance(d, str) else d for d in decision_ids if d
+        ]
+    except (ValueError, TypeError):
+        return
+    if not decision_ids_uuid:
         return
 
     async with Database() as db:
@@ -166,9 +182,9 @@ async def check_guardrails_for_decisions(decision_ids: List[str]) -> None:
                FROM decisions
                WHERE decision_id = ANY($1::uuid[])
                  AND experiment_id IS NOT NULL""",
-            (decision_ids,))
+            (decision_ids_uuid,),
+        )
 
     experiment_ids = [str(r["experiment_id"]) for r in (rows or []) if r.get("experiment_id")]
     for exp_id in experiment_ids:
         await _evaluate_experiment_guardrails(exp_id)
-

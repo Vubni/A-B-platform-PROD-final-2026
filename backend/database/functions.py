@@ -4,7 +4,6 @@ from typing import Any
 from config import logger
 from database.database import Database
 
-
 DEFAULT_METRICS: list[dict[str, Any]] = [
     {
         "key": "impressions",
@@ -148,4 +147,3 @@ async def init_metric_catalog_defaults():
 
 async def init_reference_data():
     await init_metric_catalog_defaults()
-

@@ -1,38 +1,37 @@
-from typing import Optional
+from datetime import datetime
 
 from aiohttp import web
 from aiohttp_apispec import docs, request_schema
+from pydantic import BaseModel, field_validator, model_validator
 
 from api import validate
 from api.system_metrics import record_report_requested
 from core import check_authorization, validate_uuid
 from docs.schems import (
-    ReportExperimentResponseSchema,
-    MetricsListResponseSchema,
-    MetricCatalogItemSchema,
     MetricCatalogCreateSchema,
+    MetricCatalogItemSchema,
     MetricCatalogUpdateSchema,
+    MetricsListResponseSchema,
+    ReportExperimentResponseSchema,
 )
-from functions.metrics import list_metrics, get_metric_by_key, create_metric, update_metric
-from functions.reports import get_experiment_report
 from functions.experiments import get_experiment_by_id
-from pydantic import BaseModel, field_validator, model_validator
-from datetime import datetime
+from functions.metrics import create_metric, get_metric_by_key, list_metrics, update_metric
+from functions.reports import get_experiment_report
 
 
-
-def _experiment_id_from_request(request: web.Request) -> Optional[str]:
+def _experiment_id_from_request(request: web.Request) -> str | None:
     raw = request.match_info.get("id", "").strip()
     if not raw:
         return None
     return raw if validate_uuid(raw) else None
 
 
-def _metric_key_from_request(request: web.Request) -> Optional[str]:
+def _metric_key_from_request(request: web.Request) -> str | None:
     raw = request.match_info.get("key", "").strip()
     if not raw:
         return None
     return raw
+
 
 def _parse_iso_for_validate(s: str) -> datetime | None:
     if not s or not isinstance(s, str):
@@ -72,14 +71,15 @@ class ReportsExperiment(BaseModel):
             raise ValueError("invalid_window")
         return self
 
+
 class MetricsCreate(BaseModel):
     key: str
     name: str
     aggregation_rule: dict
-    description: Optional[str] = None
-    attribution_rule: Optional[dict] = None
-    event_expectations: Optional[dict] = None
-    unit: Optional[str] = None
+    description: str | None = None
+    attribution_rule: dict | None = None
+    event_expectations: dict | None = None
+    unit: str | None = None
 
     @field_validator("key")
     @classmethod
@@ -92,7 +92,7 @@ class MetricsCreate(BaseModel):
         if not all(c.isalnum() or c == "_" for c in v):
             raise ValueError("key must contain only letters, digits and underscore")
         return v
-    
+
     @field_validator("name")
     @classmethod
     def name_nonempty(cls, v: str) -> str:
@@ -102,39 +102,39 @@ class MetricsCreate(BaseModel):
         if len(v) > 255:
             raise ValueError("name must be at most 255 characters")
         return v
-    
+
     @field_validator("aggregation_rule")
     @classmethod
     def aggregation_rule_valid(cls, v: dict) -> dict:
         if not v or not isinstance(v, dict):
             raise ValueError("aggregation_rule is required and must be an object")
         return v
-    
+
     @field_validator("description")
     @classmethod
-    def description_optional(cls, v: Optional[str]) -> Optional[str]:
+    def description_optional(cls, v: str | None) -> str | None:
         if v is not None:
             if not isinstance(v, str) or len(v) > 2048:
                 raise ValueError("description must be a string and less than 2048 characters")
         return v
-    
+
     @field_validator("attribution_rule")
     @classmethod
-    def attribution_rule_optional(cls, v: Optional[dict]) -> Optional[dict]:
+    def attribution_rule_optional(cls, v: dict | None) -> dict | None:
         if v is not None and not isinstance(v, dict):
             raise ValueError("attribution_rule must be an object")
         return v
-    
+
     @field_validator("event_expectations")
     @classmethod
-    def event_expectations_optional(cls, v: Optional[dict]) -> Optional[dict]:
+    def event_expectations_optional(cls, v: dict | None) -> dict | None:
         if v is not None and not isinstance(v, dict):
             raise ValueError("event_expectations must be an object")
         return v
 
     @field_validator("unit")
     @classmethod
-    def unit_optional(cls, v: Optional[str]) -> Optional[str]:
+    def unit_optional(cls, v: str | None) -> str | None:
         if v is not None and not isinstance(v, str):
             raise ValueError("unit must be a string")
         if v is not None and len(v) > 64:
@@ -143,16 +143,16 @@ class MetricsCreate(BaseModel):
 
 
 class MetricsUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    aggregation_rule: Optional[dict] = None
-    attribution_rule: Optional[dict] = None
-    event_expectations: Optional[dict] = None
-    unit: Optional[str] = None
+    name: str | None = None
+    description: str | None = None
+    aggregation_rule: dict | None = None
+    attribution_rule: dict | None = None
+    event_expectations: dict | None = None
+    unit: str | None = None
 
     @field_validator("name")
     @classmethod
-    def name_valid(cls, v: Optional[str]) -> Optional[str]:
+    def name_valid(cls, v: str | None) -> str | None:
         if v is None:
             return None
         v = v.strip()
@@ -162,35 +162,35 @@ class MetricsUpdate(BaseModel):
 
     @field_validator("description")
     @classmethod
-    def description_valid(cls, v: Optional[str]) -> Optional[str]:
+    def description_valid(cls, v: str | None) -> str | None:
         if v is not None and isinstance(v, str) and len(v) > 2048:
             raise ValueError("description must be at most 2048 characters")
         return v
 
     @field_validator("aggregation_rule")
     @classmethod
-    def aggregation_rule_valid(cls, v: Optional[dict]) -> Optional[dict]:
+    def aggregation_rule_valid(cls, v: dict | None) -> dict | None:
         if v is not None and not isinstance(v, dict):
             raise ValueError("aggregation_rule must be an object")
         return v
 
     @field_validator("attribution_rule")
     @classmethod
-    def attribution_rule_valid(cls, v: Optional[dict]) -> Optional[dict]:
+    def attribution_rule_valid(cls, v: dict | None) -> dict | None:
         if v is not None and not isinstance(v, dict):
             raise ValueError("attribution_rule must be an object")
         return v
 
     @field_validator("event_expectations")
     @classmethod
-    def event_expectations_valid(cls, v: Optional[dict]) -> Optional[dict]:
+    def event_expectations_valid(cls, v: dict | None) -> dict | None:
         if v is not None and not isinstance(v, dict):
             raise ValueError("event_expectations must be an object")
         return v
 
     @field_validator("unit")
     @classmethod
-    def unit_valid(cls, v: Optional[str]) -> Optional[str]:
+    def unit_valid(cls, v: str | None) -> str | None:
         if v is None:
             return None
         if not isinstance(v, str):
@@ -235,7 +235,10 @@ class MetricsUpdate(BaseModel):
         },
     ],
     responses={
-        200: {"description": "Отчёт с метриками по вариантам", "schema": ReportExperimentResponseSchema},
+        200: {
+            "description": "Отчёт с метриками по вариантам",
+            "schema": ReportExperimentResponseSchema,
+        },
         400: {"description": "Некорректное окно (start >= end или невалидный ISO)"},
         404: {"description": "Эксперимент не найден"},
     },
@@ -257,7 +260,6 @@ async def reports_experiment(request: web.Request, parsed: ReportsExperiment) ->
 
     report = await get_experiment_report(experiment, parsed.start, parsed.end)
     return web.json_response(report, status=200)
-
 
 
 @docs(
@@ -367,7 +369,9 @@ async def metrics_create(request: web.Request, parsed: MetricsCreate) -> web.Res
             status=500,
         )
     if err == "duplicate_key":
-        return validate.format_409_error(request, parsed.key, "Metric with this key already exists", field="key")
+        return validate.format_409_error(
+            request, parsed.key, "Metric with this key already exists", field="key"
+        )
     if err in ("invalid_key", "invalid_name", "invalid_aggregation_rule"):
         return web.json_response(
             validate.format_error_response(
@@ -376,15 +380,19 @@ async def metrics_create(request: web.Request, parsed: MetricsCreate) -> web.Res
                 path=str(request.path_qs),
                 status=400,
                 details={"error": err},
-            ), status=400)
+            ),
+            status=400,
+        )
     if err == "db_error" or not created:
         return web.json_response(
             validate.format_error_response(
                 code="INTERNAL_ERROR",
                 message="Failed to create metric",
                 path=str(request.path_qs),
-                status=500
-            ), status=500)
+                status=500,
+            ),
+            status=500,
+        )
     return web.json_response(created, status=201)
 
 

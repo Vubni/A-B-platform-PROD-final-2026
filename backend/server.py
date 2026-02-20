@@ -1,14 +1,25 @@
 import os
-import asyncio
+
+import aiohttp_cors
 from aiohttp import web
 from aiohttp_apispec import (
     setup_aiohttp_apispec,
     validation_middleware,
 )
-import aiohttp_cors
 
+from api import (
+    auth,
+    decide,
+    events,
+    experiments,
+    flags,
+    guardrails,
+    health,
+    reports,
+    system_metrics,
+    users,
+)
 from config import logger
-from api import auth, health, flags, experiments, decide, events, reports, users, system_metrics, guardrails
 from database.database import Database
 from database.functions import init_reference_data
 from functions.users import create_user
@@ -44,14 +55,17 @@ if __name__ == "__main__":
     app = web.Application()
     app.on_startup.append(check_readiness)
 
-    cors = aiohttp_cors.setup(app, defaults={
-        "*": aiohttp_cors.ResourceOptions(
-            allow_credentials=True,
-            expose_headers="*",
-            allow_headers="*",
-            allow_methods=["GET", "POST", "OPTIONS", "PATCH", "DELETE"],
-        )
-    })
+    cors = aiohttp_cors.setup(
+        app,
+        defaults={
+            "*": aiohttp_cors.ResourceOptions(
+                allow_credentials=True,
+                expose_headers="*",
+                allow_headers="*",
+                allow_methods=["GET", "POST", "OPTIONS", "PATCH", "DELETE"],
+            )
+        },
+    )
 
     setup_aiohttp_apispec(
         app,
@@ -76,57 +90,49 @@ if __name__ == "__main__":
         web.get("/health", health.health),
         web.get("/ready", health.ready),
         web.get("/metrics", system_metrics.metrics_export),
-
         web.post(prefix + "/auth", auth.auth_login),
-
         web.get(prefix + "/users", users.users_list),
         web.post(prefix + "/users", users.users_create),
         web.get(prefix + "/users/{id}", users.users_get),
         web.patch(prefix + "/users/{id}", users.users_update),
         web.get(prefix + "/approver-groups", users.approver_groups_list),
         web.post(prefix + "/approver-groups", users.approver_groups_create),
-        web.patch(
-            prefix + "/approver-groups/{id}", users.approver_groups_update),
-
+        web.patch(prefix + "/approver-groups/{id}", users.approver_groups_update),
         web.post(prefix + "/flags", flags.flags_create),
         web.get(prefix + "/flags", flags.flags_list),
         web.get(prefix + "/flags/{key}", flags.flags_get),
         web.patch(prefix + "/flags/{key}", flags.flags_update),
-
         web.post(prefix + "/experiments", experiments.experiments_create),
         web.get(prefix + "/experiments", experiments.experiments_list),
         web.get(prefix + "/experiments/{id}", experiments.experiments_get),
-        web.patch(prefix + "/experiments/{id}",
-                  experiments.experiments_update),
-        web.patch(prefix + "/experiments/{id}/status",
-                  experiments.experiments_update_status),
-        web.post(prefix + "/experiments/{id}/complete",
-                 experiments.experiments_complete),
-        web.post(prefix + "/experiments/{id}/variants",
-                 experiments.experiments_variant_create),
-        web.patch(prefix + "/experiments/{id}/variants/{variant_id}",
-                  experiments.experiments_variant_update),
-        web.delete(prefix + "/experiments/{id}/variants/{variant_id}",
-                   experiments.experiments_variant_delete),
-        web.get(prefix + "/experiments/{id}/guardrail-history",
-                experiments.experiments_guardrail_history),
-
+        web.patch(prefix + "/experiments/{id}", experiments.experiments_update),
+        web.patch(prefix + "/experiments/{id}/status", experiments.experiments_update_status),
+        web.post(prefix + "/experiments/{id}/complete", experiments.experiments_complete),
+        web.post(prefix + "/experiments/{id}/variants", experiments.experiments_variant_create),
+        web.patch(
+            prefix + "/experiments/{id}/variants/{variant_id}",
+            experiments.experiments_variant_update,
+        ),
+        web.delete(
+            prefix + "/experiments/{id}/variants/{variant_id}",
+            experiments.experiments_variant_delete,
+        ),
+        web.get(
+            prefix + "/experiments/{id}/guardrail-history",
+            experiments.experiments_guardrail_history,
+        ),
         web.get(prefix + "/guardrails", guardrails.guardrails_list),
         web.get(prefix + "/guardrails/{metric_key}", guardrails.guardrails_get),
         web.post(prefix + "/guardrails", guardrails.guardrails_upsert),
         web.delete(prefix + "/guardrails/{metric_key}", guardrails.guardrails_delete),
-
         web.post(prefix + "/decide", decide.decide),
-
         web.post(prefix + "/events", events.events_submit),
         web.get(prefix + "/event-types", events.event_types_list),
         web.post(prefix + "/event-types", events.event_types_create),
         web.get(prefix + "/event-types/{id}", events.event_types_get),
         web.patch(prefix + "/event-types/{id}", events.event_types_update),
         web.delete(prefix + "/event-types/{id}", events.event_types_archive),
-
-        web.get(prefix + "/experiments/{id}/report",
-                reports.reports_experiment),
+        web.get(prefix + "/experiments/{id}/report", reports.reports_experiment),
         web.get(prefix + "/metrics", reports.metrics_list),
         web.get(prefix + "/metrics/{key}", reports.metrics_get),
         web.post(prefix + "/metrics", reports.metrics_create),

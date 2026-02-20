@@ -1,43 +1,41 @@
-from typing import Optional, Any
-
 from aiohttp import web
 from aiohttp_apispec import docs, request_schema
 from pydantic import BaseModel, field_validator
 
-from core import check_authorization, validate_uuid
 from api import validate
 from api.system_metrics import record_events_submitted
+from core import check_authorization, validate_uuid
 from docs.schems import (
     EventsSubmitRequestSchema,
     EventsSubmitResponseSchema,
+    EventTypeCreateSchema,
+    EventTypeItemSchema,
     EventTypesListQuerySchema,
     EventTypesListResponseSchema,
-    EventTypeItemSchema,
-    EventTypeCreateSchema,
     EventTypeUpdateSchema,
 )
 from functions.event_types import (
-    list_event_types,
-    get_event_type_by_id,
-    create_event_type,
-    update_event_type,
     archive_event_type,
+    create_event_type,
+    get_event_type_by_id,
+    list_event_types,
+    update_event_type,
 )
 from functions.events_submit import process_events_batch
 
-from typing import List
 
 class EventsSubmitInput(BaseModel):
-    events: List[dict]
+    events: list[dict]
+
 
 class EventTypeCreate(BaseModel):
     key: str
-    display_name: Optional[str] = None
-    description: Optional[str] = None
-    required_params: Optional[dict] = None
-    validation_type: Optional[str] = None
-    report_alert_config: Optional[dict] = None
-    requires_show_event_type_id: Optional[str] = None
+    display_name: str | None = None
+    description: str | None = None
+    required_params: dict | None = None
+    validation_type: str | None = None
+    report_alert_config: dict | None = None
+    requires_show_event_type_id: str | None = None
     is_critical: bool = False
 
     @field_validator("key")
@@ -49,7 +47,7 @@ class EventTypeCreate(BaseModel):
 
     @field_validator("requires_show_event_type_id")
     @classmethod
-    def requires_show_uuid(cls, v: Optional[str]) -> Optional[str]:
+    def requires_show_uuid(cls, v: str | None) -> str | None:
         if v is None or v == "":
             return None
         u = validate_uuid(v)
@@ -59,17 +57,17 @@ class EventTypeCreate(BaseModel):
 
 
 class EventTypeUpdate(BaseModel):
-    display_name: Optional[str] = None
-    description: Optional[str] = None
-    required_params: Optional[dict] = None
-    validation_type: Optional[str] = None
-    report_alert_config: Optional[dict] = None
-    requires_show_event_type_id: Optional[str] = None
-    is_critical: Optional[bool] = None
+    display_name: str | None = None
+    description: str | None = None
+    required_params: dict | None = None
+    validation_type: str | None = None
+    report_alert_config: dict | None = None
+    requires_show_event_type_id: str | None = None
+    is_critical: bool | None = None
 
     @field_validator("requires_show_event_type_id")
     @classmethod
-    def requires_show_uuid(cls, v: Optional[str]) -> Optional[str]:
+    def requires_show_uuid(cls, v: str | None) -> str | None:
         if v is None or v == "":
             return None
         u = validate_uuid(v)
@@ -78,7 +76,7 @@ class EventTypeUpdate(BaseModel):
         return u
 
 
-def _event_type_id_from_request(request: web.Request) -> Optional[str]:
+def _event_type_id_from_request(request: web.Request) -> str | None:
     raw = request.match_info.get("id", "").strip()
     if not raw:
         return None
@@ -93,7 +91,10 @@ def _event_type_id_from_request(request: web.Request) -> Optional[str]:
         "Возвращает: количество принятых, дубликатов, отклонённых и ошибки по отклонённым."
     ),
     responses={
-        200: {"description": "Пакет обработан. См. счётчики accepted/duplicates/rejected.", "schema": EventsSubmitResponseSchema},
+        200: {
+            "description": "Пакет обработан. См. счётчики accepted/duplicates/rejected.",
+            "schema": EventsSubmitResponseSchema,
+        },
         400: {"description": "Некорректный формат пакета"},
     },
 )
@@ -162,9 +163,12 @@ async def event_types_create(request: web.Request, parsed: EventTypeCreate) -> w
         validation_type=parsed.validation_type,
         report_alert_config=parsed.report_alert_config,
         requires_show_event_type_id=parsed.requires_show_event_type_id,
-        is_critical=parsed.is_critical)
+        is_critical=parsed.is_critical,
+    )
     if err == "duplicate_key":
-        return validate.format_409_error(request, parsed.key, "Event type with this key already exists", field="key")
+        return validate.format_409_error(
+            request, parsed.key, "Event type with this key already exists", field="key"
+        )
     if err == "db_error":
         return web.json_response(
             validate.format_error_response(
@@ -184,7 +188,8 @@ async def event_types_create(request: web.Request, parsed: EventTypeCreate) -> w
                 status=400,
                 details={"field": "requires_show_event_type_id"},
             ),
-            status=400)
+            status=400,
+        )
     return web.json_response(data, status=201)
 
 
@@ -217,7 +222,9 @@ async def event_types_get(request: web.Request) -> web.Response:
     description="Обновить тип события (Админ).",
     responses={
         200: {"description": "Обновлено", "schema": EventTypeItemSchema},
-        400: {"description": "Некорректный запрос (например самозависимость или неверный requires_show)"},
+        400: {
+            "description": "Некорректный запрос (например самозависимость или неверный requires_show)"
+        },
         401: {"description": "Требуется авторизация"},
         403: {"description": "Только для админа"},
         404: {"description": "Не найден"},
@@ -242,7 +249,8 @@ async def event_types_update(request: web.Request, parsed: EventTypeUpdate) -> w
         validation_type=parsed.validation_type,
         report_alert_config=parsed.report_alert_config,
         requires_show_event_type_id=parsed.requires_show_event_type_id,
-        is_critical=parsed.is_critical)
+        is_critical=parsed.is_critical,
+    )
     if err == "not_found":
         return validate.format_404_error(request, "Event type not found")
     if err == "self_reference":
@@ -254,7 +262,8 @@ async def event_types_update(request: web.Request, parsed: EventTypeUpdate) -> w
                 status=400,
                 details={"field": "requires_show_event_type_id"},
             ),
-            status=400)
+            status=400,
+        )
     if err == "invalid_requires_show":
         return web.json_response(
             validate.format_error_response(
@@ -264,7 +273,8 @@ async def event_types_update(request: web.Request, parsed: EventTypeUpdate) -> w
                 status=400,
                 details={"field": "requires_show_event_type_id"},
             ),
-            status=400)
+            status=400,
+        )
     return web.json_response(data)
 
 

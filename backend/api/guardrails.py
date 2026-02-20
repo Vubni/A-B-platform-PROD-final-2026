@@ -6,14 +6,14 @@ from api import validate
 from core import check_authorization
 from docs.schems import (
     ExperimentGuardrailItemSchema,
-    ExperimentGuardrailUpsertSchema,
     ExperimentGuardrailListResponseSchema,
+    ExperimentGuardrailUpsertSchema,
 )
 from functions.guardrails import (
-    list_metric_guardrails,
-    get_metric_guardrail,
-    upsert_metric_guardrail,
     delete_metric_guardrail,
+    get_metric_guardrail,
+    list_metric_guardrails,
+    upsert_metric_guardrail,
 )
 
 
@@ -107,13 +107,16 @@ async def guardrails_upsert(request: web.Request, parsed: MetricGuardrailUpsert)
     if not auth_payload:
         return validate.format_401_error(request, "Token is required")
     if auth_payload.get("role") not in ("experimenter", "admin"):
-        return validate.format_403_error(request, "Only experimenter or admin can manage guardrails")
+        return validate.format_403_error(
+            request, "Only experimenter or admin can manage guardrails"
+        )
 
     item = await upsert_metric_guardrail(
         metric_key=parsed.metric_key,
         threshold=parsed.threshold,
         window_seconds=parsed.window_seconds,
-        action=parsed.action)
+        action=parsed.action,
+    )
     if not item:
         return validate.format_404_error(request, "Metric not found")
     return web.json_response(item, status=200)
@@ -133,7 +136,9 @@ async def guardrails_delete(request: web.Request) -> web.Response:
     if not auth_payload:
         return validate.format_401_error(request, "Token is required")
     if auth_payload.get("role") not in ("experimenter", "admin"):
-        return validate.format_403_error(request, "Only experimenter or admin can manage guardrails")
+        return validate.format_403_error(
+            request, "Only experimenter or admin can manage guardrails"
+        )
 
     metric_key = _metric_key_from_request(request)
     if not metric_key:
@@ -143,4 +148,3 @@ async def guardrails_delete(request: web.Request) -> web.Response:
     if not ok:
         return validate.format_404_error(request, "Guardrail not found")
     return web.Response(status=204)
-

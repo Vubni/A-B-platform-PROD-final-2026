@@ -1,11 +1,12 @@
-from typing import Any, Optional
+from typing import Any
 
 from aiohttp import web
 from aiohttp_apispec import docs, request_schema
 from pydantic import BaseModel, field_validator
 
-from core import check_authorization, FLAG_KEY_PATTERN
-from docs.schems import FlagCreateSchema, FlagUpdateSchema, FlagItemSchema, FlagListResponseSchema
+from api import validate
+from core import FLAG_KEY_PATTERN, check_authorization
+from docs.schems import FlagCreateSchema, FlagItemSchema, FlagListResponseSchema, FlagUpdateSchema
 from functions.flags import (
     FLAG_VALUE_TYPES,
     create_flag,
@@ -13,7 +14,6 @@ from functions.flags import (
     get_flags_list,
     update_flag_default_value,
 )
-from api import validate
 
 
 def _validate_default_value_by_type(value_type: str, default_value: str) -> None:
@@ -25,14 +25,14 @@ def _validate_default_value_by_type(value_type: str, default_value: str) -> None
                 float(default_value)
             else:
                 int(default_value)
-        except ValueError:
-            raise ValueError(
-                "default_value must be a valid number for value_type=number")
+        except ValueError as err:
+            raise ValueError("default_value must be a valid number for value_type=number") from err
         return
     if value_type == "bool":
         if default_value.lower() not in ("true", "false", "1", "0", "yes", "no"):
             raise ValueError(
-                "default_value for value_type=bool must be one of: true, false, 1, 0, yes, no")
+                "default_value for value_type=bool must be one of: true, false, 1, 0, yes, no"
+            )
         return
     raise ValueError(f"value_type must be one of {FLAG_VALUE_TYPES}")
 
@@ -41,9 +41,9 @@ class FlagCreate(BaseModel):
     key: str
     value_type: str
     default_value: str
-    description: Optional[str] = None
-    owner: Optional[str] = None
-    metadata: Optional[dict] = None
+    description: str | None = None
+    owner: str | None = None
+    metadata: dict | None = None
 
     @field_validator("key")
     @classmethod
@@ -52,7 +52,8 @@ class FlagCreate(BaseModel):
             raise ValueError("key must be non-empty and up to 255 characters")
         if not FLAG_KEY_PATTERN.match(v):
             raise ValueError(
-                "key must start with a letter and contain only letters, digits and underscore")
+                "key must start with a letter and contain only letters, digits and underscore"
+            )
         return v
 
     @field_validator("value_type")
@@ -79,7 +80,7 @@ class FlagCreate(BaseModel):
 
     @field_validator("metadata", mode="before")
     @classmethod
-    def metadata_dict(cls, v: Any) -> Optional[dict]:
+    def metadata_dict(cls, v: Any) -> dict | None:
         if v is None:
             return None
         if isinstance(v, dict):
@@ -126,7 +127,9 @@ async def flags_create(request: web.Request, parsed: FlagCreate) -> web.Response
         metadata=parsed.metadata,
     )
     if not flag:
-        return validate.format_409_error(request, parsed.key, "Flag with this key already exists", field="key")
+        return validate.format_409_error(
+            request, parsed.key, "Flag with this key already exists", field="key"
+        )
     return web.json_response(flag, status=201)
 
 

@@ -1,5 +1,5 @@
 import json
-from typing import Any, Optional
+from typing import Any
 
 from core import serialize_json
 from database.database import Database
@@ -9,11 +9,12 @@ async def list_metrics() -> list[dict[str, Any]]:
     async with Database() as db:
         rows = await db.execute_all(
             "SELECT id, key, name, description, aggregation_rule, attribution_rule, event_expectations, unit, created_at, updated_at \
-               FROM metric_catalog ORDER BY key")
+               FROM metric_catalog ORDER BY key"
+        )
         return serialize_json(rows)
 
 
-async def get_metric_by_key(key: str) -> Optional[dict[str, Any]]:
+async def get_metric_by_key(key: str) -> dict[str, Any] | None:
     if not key or not str(key).strip():
         return None
     key = str(key).strip()
@@ -21,12 +22,20 @@ async def get_metric_by_key(key: str) -> Optional[dict[str, Any]]:
         row = await db.execute(
             "SELECT id, key, name, description, aggregation_rule, attribution_rule, event_expectations, unit, created_at, updated_at \
                FROM metric_catalog WHERE key = $1",
-            (key,))
+            (key,),
+        )
         return serialize_json(row) if row else None
 
 
-async def create_metric(key: str, name: str, aggregation_rule: dict, description: Optional[str] = None,
-    attribution_rule: Optional[dict] = None, event_expectations: Optional[dict] = None, unit: Optional[str] = None) -> tuple[Optional[dict], Optional[str]]:
+async def create_metric(
+    key: str,
+    name: str,
+    aggregation_rule: dict,
+    description: str | None = None,
+    attribution_rule: dict | None = None,
+    event_expectations: dict | None = None,
+    unit: str | None = None,
+) -> tuple[dict | None, str | None]:
     if not key or not str(key).strip():
         return None, "invalid_key"
     key = str(key).strip()
@@ -50,14 +59,22 @@ async def create_metric(key: str, name: str, aggregation_rule: dict, description
                 json.dumps(aggregation_rule),
                 json.dumps(attribution_rule) if attribution_rule is not None else None,
                 json.dumps(event_expectations) if event_expectations is not None else None,
-                unit))
+                unit,
+            ),
+        )
     created = await get_metric_by_key(key)
     return (created, None) if created else (None, "db_error")
 
 
-async def update_metric(key: str, name: Optional[str] = None, description: Optional[str] = None,
-    aggregation_rule: Optional[dict] = None, attribution_rule: Optional[dict] = None,
-    event_expectations: Optional[dict] = None, unit: Optional[str] = None,) -> tuple[Optional[dict], Optional[str]]:
+async def update_metric(
+    key: str,
+    name: str | None = None,
+    description: str | None = None,
+    aggregation_rule: dict | None = None,
+    attribution_rule: dict | None = None,
+    event_expectations: dict | None = None,
+    unit: str | None = None,
+) -> tuple[dict | None, str | None]:
     if not key or not str(key).strip():
         return None, "not_found"
     key = str(key).strip()
@@ -96,7 +113,7 @@ async def update_metric(key: str, name: Optional[str] = None, description: Optio
     params.append(key)
     async with Database() as db:
         await db.execute(
-            f"UPDATE metric_catalog SET {', '.join(updates)} WHERE key = ${idx}",
-            tuple(params))
+            f"UPDATE metric_catalog SET {', '.join(updates)} WHERE key = ${idx}", tuple(params)
+        )
     updated = await get_metric_by_key(key)
     return (updated, None) if updated else (None, "not_found")

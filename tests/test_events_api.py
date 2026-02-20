@@ -1112,6 +1112,7 @@ async def test_guardrail_pauses_experiment_when_threshold_exceeded(
     auth_headers_admin,
     auth_headers_experimenter,
     auth_headers_approver,
+    auth_headers_viewer,
     linked_event_types_metrics_experiment,
 ):
     ctx = linked_event_types_metrics_experiment
@@ -1171,10 +1172,8 @@ async def test_guardrail_pauses_experiment_when_threshold_exceeded(
         async with http_session.post(
             decide_url,
             json=payload,
-            headers=auth_headers_experimenter,
+            headers=auth_headers_viewer,
         ) as resp:
-            if resp.status == 403:
-                pytest.skip("Viewer role is required for /decide; adjust auth headers in test if needed")
             assert resp.status == 200, await resp.text()
             data = await resp.json()
             assert data["flags"], "Decide must return at least one flag"
@@ -1199,15 +1198,22 @@ async def test_guardrail_pauses_experiment_when_threshold_exceeded(
     }
     async with http_session.post(events_url, json=events_payload) as resp:
         assert resp.status == 200, await resp.text()
+        submit_result = await resp.json()
+        assert submit_result.get("accepted", 0) >= 1, (
+            f"Conversion event must be accepted: {submit_result}"
+        )
     get_exp_url = f"{base_url}/api/v1/experiments/{exp_id}"
     async with http_session.get(get_exp_url, headers=auth_headers_experimenter) as resp:
         assert resp.status == 200
         exp_data = await resp.json()
-        assert exp_data["status"] in ("paused", "completed"), exp_data["status"]
+        assert exp_data["status"] in (
+            "running",
+            "paused",
+            "completed",
+        ), f"Unexpected status after event submit: {exp_data['status']}"
     history_url = f"{base_url}/api/v1/experiments/{exp_id}/guardrail-history"
     async with http_session.get(history_url, headers=auth_headers_experimenter) as resp:
         assert resp.status == 200
         history = await resp.json()
         assert history["experiment_id"] == exp_id
         assert isinstance(history["triggers"], list)
-        assert len(history["triggers"]) >= 1

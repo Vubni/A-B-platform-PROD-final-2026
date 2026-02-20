@@ -1,10 +1,10 @@
+import re
+from collections import defaultdict
+
 from aiohttp import web
 from aiohttp_apispec import docs
-from collections import defaultdict
-import re
 
-_counters: dict[str, dict[tuple, float]] = defaultdict(
-    lambda: defaultdict(float))
+_counters: dict[str, dict[tuple, float]] = defaultdict(lambda: defaultdict(float))
 
 
 def _inc(name: str, labels: dict[str, str] | None = None, value: float = 1.0) -> None:
@@ -13,10 +13,8 @@ def _inc(name: str, labels: dict[str, str] | None = None, value: float = 1.0) ->
 
 
 def _seed_demo_values() -> None:
-    _inc("http_requests_total", {"method": "GET",
-         "path": "/health", "status": "200"}, 15)
-    _inc("http_requests_total", {"method": "GET",
-         "path": "/ready", "status": "200"}, 12)
+    _inc("http_requests_total", {"method": "GET", "path": "/health", "status": "200"}, 15)
+    _inc("http_requests_total", {"method": "GET", "path": "/ready", "status": "200"}, 12)
     _inc("decide_requests_total")
     _inc("decide_requests_total")
     _inc("events_accepted_total", value=7)
@@ -28,11 +26,9 @@ _seed_demo_values()
 
 def record_request(method: str, path: str, status: int) -> None:
     normalized = re.sub(r"/\d+([/?]|$)", r"/{id}\1", path)
-    _inc("http_requests_total", {"method": method,
-         "path": normalized, "status": str(status)})
+    _inc("http_requests_total", {"method": method, "path": normalized, "status": str(status)})
     if status >= 400:
-        _inc("http_errors_total", {"method": method,
-             "path": normalized, "status": str(status)})
+        _inc("http_errors_total", {"method": method, "path": normalized, "status": str(status)})
 
 
 def record_decide() -> None:

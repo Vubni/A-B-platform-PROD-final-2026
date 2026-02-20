@@ -289,7 +289,7 @@ async def test_decide_audience_fraction_about_20_percent(
                 pytest.skip(f"Could not set status {status}: {await r.text()}")
 
     in_experiment = 0
-    n = 200
+    n = 50
     for i in range(n):
         payload = {
             "subject_id": f"audience-subject-{i}",

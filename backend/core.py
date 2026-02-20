@@ -1,27 +1,31 @@
-import secrets, time
-import string, asyncio
-import re, threading
-from typing import Any, Optional, Tuple
-from aiohttp import web
-from config import logger
-from functools import wraps
-from datetime import datetime, date, time as time_type, timezone
-from decimal import Decimal
+import asyncio
+import re
+import secrets
+import string
+import threading
+import time
 import uuid
+from datetime import UTC, date, datetime
+from datetime import time as time_type
+from decimal import Decimal
+from functools import wraps
+from typing import Any
+
 import jwt
-from config import SECRET
-from api import validate
+from aiohttp import web
+
+from config import SECRET, logger
 
 FLAG_KEY_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
 
+
 async def check_authorization(request: web.Request):
     try:
-
-        auth_header = request.headers.get('Authorization')
+        auth_header = request.headers.get("Authorization")
 
         if auth_header:
             parts = auth_header.split()
-            if len(parts) == 2 and parts[0].lower() == 'bearer':
+            if len(parts) == 2 and parts[0].lower() == "bearer":
                 result = check_token(parts[1])
                 return result
         return None
@@ -29,20 +33,19 @@ async def check_authorization(request: web.Request):
         logger.error("check_authorization error: ", e)
         return None
 
+
 def validate_uuid(v: str) -> str:
     try:
         return str(uuid.UUID(v))
     except (ValueError, TypeError):
         return None
 
+
 def create_token(payload) -> str:
-    token = jwt.encode(
-        payload,
-        SECRET,
-        algorithm="HS256"
-    )
+    token = jwt.encode(payload, SECRET, algorithm="HS256")
 
     return token
+
 
 def parse_uuid(value: str) -> str | None:
     try:
@@ -53,46 +56,43 @@ def parse_uuid(value: str) -> str | None:
 
 def check_token(token):
     try:
-        decoded = jwt.decode(
-            token,
-            SECRET,
-            algorithms=["HS256"]
-        )
+        decoded = jwt.decode(token, SECRET, algorithms=["HS256"])
         return decoded
     except jwt.ExpiredSignatureError:
         return None
     except jwt.InvalidTokenError:
         return None
-    
 
-def generate_unique_code(length:int=32):
-    characters = string.ascii_letters + string.digits + '_'
-    return ''.join(secrets.choice(characters) for _ in range(length))
+
+def generate_unique_code(length: int = 32):
+    characters = string.ascii_letters + string.digits + "_"
+    return "".join(secrets.choice(characters) for _ in range(length))
 
 
 def is_domain_valid(domain):
-    segments = domain.split('.')
+    segments = domain.split(".")
     for segment in segments:
         if not segment:
             return False
-        if segment[0] == '-' or segment[-1] == '-':
+        if segment[0] == "-" or segment[-1] == "-":
             return False
-        if not re.match(r'^[a-zA-Z0-9-]+$', segment):
+        if not re.match(r"^[a-zA-Z0-9-]+$", segment):
             return False
     return True
 
-def is_valid_email(email:str) -> bool:
-    regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+
+def is_valid_email(email: str) -> bool:
+    regex = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
     if not re.match(regex, email):
         return False
 
-    local_part, domain_part = email.split('@')
+    local_part, domain_part = email.split("@")
 
     if len(local_part) > 64:
         return False
-    if local_part.startswith('.') or local_part.endswith('.'):
+    if local_part.startswith(".") or local_part.endswith("."):
         return False
-    if '..' in local_part:
+    if ".." in local_part:
         return False
 
     if not is_domain_valid(domain_part):
@@ -103,7 +103,7 @@ def is_valid_email(email:str) -> bool:
     return True
 
 
-def parse_iso_timestamp(value: Any) -> Tuple[Optional[datetime], Optional[str]]:
+def parse_iso_timestamp(value: Any) -> tuple[datetime | None, str | None]:
     if value is None:
         return None, "timestamp is required"
     if isinstance(value, datetime):
@@ -117,27 +117,27 @@ def parse_iso_timestamp(value: Any) -> Tuple[Optional[datetime], Optional[str]]:
         else:
             dt = datetime.fromisoformat(s)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         return dt, None
-    except (ValueError, TypeError) as e:
+    except (ValueError, TypeError):
         return None, f"invalid timestamp: {s!r}"
 
 
 def serialize_json(obj):
-    if hasattr(obj, 'model_dump'):
+    if hasattr(obj, "model_dump"):
         obj = obj.model_dump()
-    elif hasattr(obj, 'dict'):
+    elif hasattr(obj, "dict"):
         obj = obj.dict()
 
     if isinstance(obj, datetime):
         if obj.tzinfo is None:
-            return obj.strftime('%Y-%m-%dT%H:%M:%SZ')
+            return obj.strftime("%Y-%m-%dT%H:%M:%SZ")
         else:
-            return obj.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+            return obj.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     elif isinstance(obj, date) and not isinstance(obj, datetime):
-        return obj.strftime('%Y-%m-%dT00:00:00Z')
+        return obj.strftime("%Y-%m-%dT00:00:00Z")
     elif isinstance(obj, time_type):
-        return datetime.combine(date(1970, 1, 1), obj).strftime('%Y-%m-%dT%H:%M:%SZ')
+        return datetime.combine(date(1970, 1, 1), obj).strftime("%Y-%m-%dT%H:%M:%SZ")
     elif isinstance(obj, dict):
         return {key: serialize_json(value) for key, value in obj.items()}
     elif isinstance(obj, (list, tuple)):
@@ -149,7 +149,7 @@ def serialize_json(obj):
         return float(obj)
     else:
         return obj
-    
+
 
 def is_hashable(obj):
     try:
@@ -157,6 +157,7 @@ def is_hashable(obj):
         return True
     except TypeError:
         return False
+
 
 def cache_with_expiration(expiration_seconds: int):
     def decorator(func):

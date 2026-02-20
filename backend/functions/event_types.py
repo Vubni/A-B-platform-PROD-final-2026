@@ -1,11 +1,10 @@
-from typing import Optional, List, Tuple
-
-from database.database import Database
-from core import serialize_json
 import json
 
+from core import serialize_json
+from database.database import Database
 
-async def list_event_types(status: Optional[str] = None) -> List[dict]:
+
+async def list_event_types(status: str | None = None) -> list[dict]:
     async with Database() as db:
         if status and status in ("active", "archived"):
             rows = await db.execute_all(
@@ -25,7 +24,7 @@ async def list_event_types(status: Optional[str] = None) -> List[dict]:
         return serialize_json(rows)
 
 
-async def get_event_type_by_key(key: str, active_only: bool = True) -> Optional[dict]:
+async def get_event_type_by_key(key: str, active_only: bool = True) -> dict | None:
     async with Database() as db:
         if not db:
             return None
@@ -48,7 +47,7 @@ async def get_event_type_by_key(key: str, active_only: bool = True) -> Optional[
         return serialize_json(row)
 
 
-async def get_event_type_by_id(type_id: str) -> Optional[dict]:
+async def get_event_type_by_id(type_id: str) -> dict | None:
     async with Database() as db:
         if not db:
             return None
@@ -62,9 +61,16 @@ async def get_event_type_by_id(type_id: str) -> Optional[dict]:
         return serialize_json(row)
 
 
-async def create_event_type(key: str, display_name: Optional[str] = None, description: Optional[str] = None,
-    required_params: Optional[dict] = None, validation_type: Optional[str] = None, report_alert_config: Optional[dict] = None,
-    requires_show_event_type_id: Optional[str] = None, is_critical: bool = False) -> Tuple[Optional[dict], Optional[str]]:
+async def create_event_type(
+    key: str,
+    display_name: str | None = None,
+    description: str | None = None,
+    required_params: dict | None = None,
+    validation_type: str | None = None,
+    report_alert_config: dict | None = None,
+    requires_show_event_type_id: str | None = None,
+    is_critical: bool = False,
+) -> tuple[dict | None, str | None]:
     async with Database() as db:
         existing = await db.execute("SELECT id FROM event_types WHERE key = $1", (key,))
         if existing:
@@ -103,9 +109,16 @@ async def create_event_type(key: str, display_name: Optional[str] = None, descri
         return serialize_json(row), None
 
 
-async def update_event_type(type_id: str, display_name: Optional[str] = None,
-    description: Optional[str] = None, required_params: Optional[dict] = None, validation_type: Optional[str] = None, 
-    report_alert_config: Optional[dict] = None, requires_show_event_type_id: Optional[str] = None, is_critical: Optional[bool] = None) -> Optional[dict]:
+async def update_event_type(
+    type_id: str,
+    display_name: str | None = None,
+    description: str | None = None,
+    required_params: dict | None = None,
+    validation_type: str | None = None,
+    report_alert_config: dict | None = None,
+    requires_show_event_type_id: str | None = None,
+    is_critical: bool | None = None,
+) -> dict | None:
     async with Database() as db:
         row = await db.execute("SELECT id FROM event_types WHERE id = $1", (type_id,))
         if not row:
@@ -170,7 +183,7 @@ async def update_event_type(type_id: str, display_name: Optional[str] = None,
         return out, None
 
 
-async def archive_event_type(type_id: str) -> Optional[dict]:
+async def archive_event_type(type_id: str) -> dict | None:
     async with Database() as db:
         row = await db.execute("SELECT id FROM event_types WHERE id = $1", (type_id,))
         if not row:

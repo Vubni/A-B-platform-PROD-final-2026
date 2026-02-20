@@ -1,5 +1,6 @@
-from aiohttp_apispec import docs
 from aiohttp import web
+from aiohttp_apispec import docs
+
 _ready = False
 
 

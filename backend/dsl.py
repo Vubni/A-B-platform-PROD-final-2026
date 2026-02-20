@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 LOGICAL_OPS = ("and", "or", "not")
 COMPARISON_OPS = ("==", "!=", "in", "not in", ">", ">=", "<", "<=")
@@ -13,7 +13,7 @@ class Token:
     value: Any = None
 
 
-def _tokenize(s: str) -> tuple[list[Token], Optional[str]]:
+def _tokenize(s: str) -> tuple[list[Token], str | None]:
     s = s.strip()
     if not s:
         return [], "Empty rule"
@@ -26,7 +26,7 @@ def _tokenize(s: str) -> tuple[list[Token], Optional[str]]:
         while i < n and s[i] in " \t\n\r":
             i += 1
 
-    def read_string(quote: str) -> Optional[str]:
+    def read_string(quote: str) -> str | None:
         nonlocal i
         i += 1
         start = i
@@ -35,7 +35,11 @@ def _tokenize(s: str) -> tuple[list[Token], Optional[str]]:
                 i += 2
                 continue
             if s[i] == quote:
-                val = s[start:i].encode().decode("unicode_escape") if "\\" in s[start:i] else s[start:i]
+                val = (
+                    s[start:i].encode().decode("unicode_escape")
+                    if "\\" in s[start:i]
+                    else s[start:i]
+                )
                 i += 1
                 return val
             i += 1
@@ -58,7 +62,7 @@ def _tokenize(s: str) -> tuple[list[Token], Optional[str]]:
             tokens.append(Token("COMMA"))
             i += 1
             continue
-        if c in "\"\'":
+        if c in "\"'":
             val = read_string(c)
             if val is None:
                 return [], "Unclosed string"
@@ -140,7 +144,7 @@ def _tokenize(s: str) -> tuple[list[Token], Optional[str]]:
     return tokens, None
 
 
-def _parse(tokens: list[Token]) -> tuple[Any, Optional[str]]:
+def _parse(tokens: list[Token]) -> tuple[Any, str | None]:
     pos = [0]
 
     def cur() -> Token:
@@ -152,7 +156,7 @@ def _parse(tokens: list[Token]) -> tuple[Any, Optional[str]]:
             pos[0] += 1
         return t
 
-    def parse_or() -> tuple[Any, Optional[str]]:
+    def parse_or() -> tuple[Any, str | None]:
         left, err = parse_and()
         if err:
             return None, err
@@ -164,7 +168,7 @@ def _parse(tokens: list[Token]) -> tuple[Any, Optional[str]]:
             left = {"or": [left, right]}
         return left, None
 
-    def parse_and() -> tuple[Any, Optional[str]]:
+    def parse_and() -> tuple[Any, str | None]:
         left, err = parse_not()
         if err:
             return None, err
@@ -176,7 +180,7 @@ def _parse(tokens: list[Token]) -> tuple[Any, Optional[str]]:
             left = {"and": [left, right]}
         return left, None
 
-    def parse_not() -> tuple[Any, Optional[str]]:
+    def parse_not() -> tuple[Any, str | None]:
         if cur().kind == "NOT":
             advance()
             inner, err = parse_not()
@@ -185,7 +189,7 @@ def _parse(tokens: list[Token]) -> tuple[Any, Optional[str]]:
             return {"not": inner}, None
         return parse_primary()
 
-    def parse_primary() -> tuple[Any, Optional[str]]:
+    def parse_primary() -> tuple[Any, str | None]:
         if cur().kind == "LPAREN":
             advance()
             node, err = parse_or()
@@ -197,7 +201,7 @@ def _parse(tokens: list[Token]) -> tuple[Any, Optional[str]]:
             return node, None
         return parse_comparison()
 
-    def parse_value() -> tuple[Any, Optional[str]]:
+    def parse_value() -> tuple[Any, str | None]:
         t = cur()
         if t.kind == "STRING":
             advance()
@@ -229,7 +233,7 @@ def _parse(tokens: list[Token]) -> tuple[Any, Optional[str]]:
             return items, None
         return None, f"Expected value, got: {t.kind}"
 
-    def parse_comparison() -> tuple[Any, Optional[str]]:
+    def parse_comparison() -> tuple[Any, str | None]:
         if cur().kind != "IDENT":
             return None, f"Expected attribute name, got: {cur().kind}"
         attr = advance().value
@@ -250,7 +254,7 @@ def _parse(tokens: list[Token]) -> tuple[Any, Optional[str]]:
     return node, None
 
 
-def _parse_dsl_string(rule: str) -> tuple[Any, Optional[str]]:
+def _parse_dsl_string(rule: str) -> tuple[Any, str | None]:
     tokens, err = _tokenize(rule)
     if err:
         return None, err
@@ -273,7 +277,7 @@ def _is_date_value(v: Any) -> bool:
     return isinstance(v, str) and bool(DATE_PATTERN.match(v))
 
 
-def _infer_value_type(value: Any) -> Optional[str]:
+def _infer_value_type(value: Any) -> str | None:
     if _is_bool(value):
         return "bool"
     if _is_number(value):
@@ -285,13 +289,13 @@ def _infer_value_type(value: Any) -> Optional[str]:
     return None
 
 
-def _validate_value_type(value: Any) -> Optional[str]:
+def _validate_value_type(value: Any) -> str | None:
     if _infer_value_type(value) is not None:
         return None
     return f"Invalid value type: {type(value).__name__}"
 
 
-def _validate_comparison_value(op: str, value: Any) -> Optional[str]:
+def _validate_comparison_value(op: str, value: Any) -> str | None:
     if op in ("in", "not in"):
         if not isinstance(value, list):
             return "in/not in require a list"
@@ -310,7 +314,7 @@ def _validate_comparison_value(op: str, value: Any) -> Optional[str]:
     return _validate_value_type(value)
 
 
-def _validate_dsl_node(node: Any) -> Optional[str]:
+def _validate_dsl_node(node: Any) -> str | None:
     if not isinstance(node, dict):
         return "Expected condition or comparison"
     keys = set(node.keys())
@@ -350,7 +354,7 @@ def _validate_dsl_node(node: Any) -> Optional[str]:
     return "Empty object not allowed"
 
 
-def validate_targeting_rule(rule: Optional[str]) -> bool:
+def validate_targeting_rule(rule: str | None) -> bool:
     if rule is None or (isinstance(rule, str) and not rule.strip()):
         return True
     ast, parse_err = _parse_dsl_string(rule)
@@ -429,13 +433,23 @@ def evaluate_targeting_rule(dsl: str, data: dict[str, Any]) -> bool:
 if __name__ == "__main__":
     assert not validate_targeting_rule("test")
     assert validate_targeting_rule('number > 10 and rule == "ds"')
-    assert validate_targeting_rule('страна in ["RU", "KZ"] and версия >= "1.6.0" and платформа == "ios"')
-    assert validate_targeting_rule('(segment == "beta") and (country in ["RU", "KZ", "BY"] or tier >= 2) and not (blocked == true)')
-    assert validate_targeting_rule('event_date >= "2024-01-01" and event_date <= "2024-12-31" and premium == true and score > 0.5')
-    assert validate_targeting_rule('region not in ["EXCLUDED", "TEST"] and (version != "0.0.0" or build > 1000)')
-    assert validate_targeting_rule('(a == "x" or b in [1, 2, 3]) and (not (disabled == false) and created >= "2023-06-01")')
+    assert validate_targeting_rule(
+        'страна in ["RU", "KZ"] and версия >= "1.6.0" and платформа == "ios"'
+    )
+    assert validate_targeting_rule(
+        '(segment == "beta") and (country in ["RU", "KZ", "BY"] or tier >= 2) and not (blocked == true)'
+    )
+    assert validate_targeting_rule(
+        'event_date >= "2024-01-01" and event_date <= "2024-12-31" and premium == true and score > 0.5'
+    )
+    assert validate_targeting_rule(
+        'region not in ["EXCLUDED", "TEST"] and (version != "0.0.0" or build > 1000)'
+    )
+    assert validate_targeting_rule(
+        '(a == "x" or b in [1, 2, 3]) and (not (disabled == false) and created >= "2023-06-01")'
+    )
     assert not validate_targeting_rule('x like "%test%"')
-    assert not validate_targeting_rule('country in []')
+    assert not validate_targeting_rule("country in []")
     assert not validate_targeting_rule('name == "foo')
     assert validate_targeting_rule("")
     assert validate_targeting_rule(None)
@@ -445,8 +459,14 @@ if __name__ == "__main__":
     assert evaluate_targeting_rule("year >= 18", {"year": 17}) is False
     assert evaluate_targeting_rule('country in ["RU", "KZ"]', {"country": "RU"}) is True
     assert evaluate_targeting_rule('country in ["RU", "KZ"]', {"country": "BY"}) is False
-    assert evaluate_targeting_rule('year >= 18 and country == "RU"', {"year": 20, "country": "RU"}) is True
-    assert evaluate_targeting_rule('year >= 18 and country == "RU"', {"year": 20, "country": "KZ"}) is False
+    assert (
+        evaluate_targeting_rule('year >= 18 and country == "RU"', {"year": 20, "country": "RU"})
+        is True
+    )
+    assert (
+        evaluate_targeting_rule('year >= 18 and country == "RU"', {"year": 20, "country": "KZ"})
+        is False
+    )
 
     assert evaluate_targeting_rule("year >= 18", {}) is False
     assert evaluate_targeting_rule("year >= 18", {"country": "RU"}) is False

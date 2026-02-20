@@ -1,16 +1,15 @@
-import json
 import time
 
 from aiohttp import web
 from aiohttp_apispec import docs, request_schema
-
-from docs.schems import AuthLoginSchema, AuthLoginResponseSchema
 from pydantic import BaseModel
 
-from core import check_token, create_token
-from functions.users import get_user_by_email
 from api import validate
 from config import AUTH_TOKEN_EXPIRATION
+from core import check_token, create_token
+from docs.schems import AuthLoginResponseSchema, AuthLoginSchema
+from functions.users import get_user_by_email
+
 
 class AuthLogin(BaseModel):
     email: str
@@ -20,11 +19,12 @@ class AuthLogin(BaseModel):
 @docs(
     tags=["Auth"],
     summary="Авторизация",
-    description=(
-        "Авторизация, возвращает токен и данные пользователя"
-    ),
+    description=("Авторизация, возвращает токен и данные пользователя"),
     responses={
-        200: {"description": "Успешный вход (token, user без пароля)", "schema": AuthLoginResponseSchema},
+        200: {
+            "description": "Успешный вход (token, user без пароля)",
+            "schema": AuthLoginResponseSchema,
+        },
         400: {"description": "Некорректный запрос (email или пароль)"},
         401: {"description": "Неверный email или пароль"},
     },
@@ -50,7 +50,9 @@ async def auth_login(request: web.Request, parsed: AuthLogin) -> web.Response:
     }
     token = create_token(token_payload)
 
-    return web.json_response({
-        "token": token,
-        "user": user,
-    })
+    return web.json_response(
+        {
+            "token": token,
+            "user": user,
+        }
+    )

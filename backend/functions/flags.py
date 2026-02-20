@@ -1,5 +1,5 @@
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from core import serialize_json
 from database.database import Database
@@ -22,7 +22,7 @@ def _cast_default_value(value_type: str, default_value: str) -> Any:
     return default_value
 
 
-async def get_flag_by_key(key: str) -> Optional[dict]:
+async def get_flag_by_key(key: str) -> dict | None:
     async with Database() as db:
         row = await db.execute(
             """SELECT id, key, value_type::text, default_value, description, owner, metadata, created_at, updated_at
@@ -34,7 +34,7 @@ async def get_flag_by_key(key: str) -> Optional[dict]:
         return serialize_json(row)
 
 
-async def get_flag_by_id(flag_id: str) -> Optional[dict]:
+async def get_flag_by_id(flag_id: str) -> dict | None:
     async with Database() as db:
         row = await db.execute(
             """SELECT id, key, value_type::text, default_value, description, owner, metadata, created_at, updated_at
@@ -55,7 +55,14 @@ async def get_flags_list() -> list[dict]:
         return [serialize_json(r) for r in (rows or [])]
 
 
-async def create_flag(key: str, value_type: str, default_value: str, description: Optional[str] = None, owner: Optional[str] = None, metadata: Optional[dict] = None) -> Optional[dict]:
+async def create_flag(
+    key: str,
+    value_type: str,
+    default_value: str,
+    description: str | None = None,
+    owner: str | None = None,
+    metadata: dict | None = None,
+) -> dict | None:
     async with Database() as db:
         existing = await db.execute("SELECT id FROM feature_flags WHERE key = $1", (key,))
         if existing:
@@ -73,7 +80,7 @@ async def create_flag(key: str, value_type: str, default_value: str, description
         return serialize_json(row)
 
 
-async def update_flag_default_value(key: str, default_value: str) -> Optional[dict]:
+async def update_flag_default_value(key: str, default_value: str) -> dict | None:
     async with Database() as db:
         exists = await db.execute("SELECT id FROM feature_flags WHERE key = $1", (key,))
         if not exists:
@@ -90,7 +97,9 @@ async def update_flag_default_value(key: str, default_value: str) -> Optional[di
         return serialize_json(row)
 
 
-async def resolve_flag_value(flag_key: str, subject_id: str, attributes: Optional[dict] = None) -> Optional[dict]:
+async def resolve_flag_value(
+    flag_key: str, subject_id: str, attributes: dict | None = None
+) -> dict | None:
     flag = await get_flag_by_key(flag_key)
     if not flag:
         return None

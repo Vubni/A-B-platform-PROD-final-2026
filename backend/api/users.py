@@ -1,23 +1,19 @@
-import json
-import uuid
-from typing import Optional
-
 from aiohttp import web
 from aiohttp_apispec import docs, request_schema
 from pydantic import BaseModel, field_validator
 
-from core import parse_uuid, validate_uuid
-from core import check_authorization
+from api import validate
+from core import check_authorization, parse_uuid, validate_uuid
 from docs.schems import (
+    ApproverGroupItemSchema,
+    ApproverGroupListResponseSchema,
+    ApproverGroupSetSchema,
+    ApproverGroupUpdateSchema,
     UserCreateSchema,
-    UserUpdateSchema,
     UserListQuerySchema,
     UserListResponseSchema,
     UserProfileSchema,
-    ApproverGroupSetSchema,
-    ApproverGroupUpdateSchema,
-    ApproverGroupItemSchema,
-    ApproverGroupListResponseSchema,
+    UserUpdateSchema,
 )
 from functions.users import (
     ROLES,
@@ -30,7 +26,6 @@ from functions.users import (
     update_approver_group,
     update_user,
 )
-from api import validate
 
 
 class UserCreate(BaseModel):
@@ -48,27 +43,27 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    email: Optional[str] = None
-    first_name: Optional[str] = None
-    password: Optional[str] = None
-    role: Optional[str] = None
+    email: str | None = None
+    first_name: str | None = None
+    password: str | None = None
+    role: str | None = None
 
     @field_validator("role")
     @classmethod
-    def role_valid(cls, v: Optional[str]) -> Optional[str]:
+    def role_valid(cls, v: str | None) -> str | None:
         if v is not None and v not in ROLES:
             raise ValueError(f"role must be one of {ROLES}")
         return v
 
 
 class ApproverGroupSet(BaseModel):
-    experimenter_id: Optional[str] = None
+    experimenter_id: str | None = None
     min_approvals: int = 1
     approver_ids: list[str] = []
 
     @field_validator("experimenter_id")
     @classmethod
-    def experimenter_id_uuid(cls, v: Optional[str]) -> Optional[str]:
+    def experimenter_id_uuid(cls, v: str | None) -> str | None:
         if v is None:
             return v
         return validate_uuid(v)
@@ -82,8 +77,8 @@ class ApproverGroupSet(BaseModel):
 
 
 class ApproverGroupUpdate(BaseModel):
-    min_approvals: Optional[int] = None
-    approver_ids: Optional[list[str]] = None
+    min_approvals: int | None = None
+    approver_ids: list[str] | None = None
 
     @field_validator("approver_ids", mode="before")
     @classmethod
@@ -96,18 +91,21 @@ class ApproverGroupUpdate(BaseModel):
 
 
 class UserList(BaseModel):
-    role: Optional[str] = None
-
+    role: str | None = None
 
 
 @docs(
     tags=["Users"],
     summary="Список пользователей",
     description=(
-        "Список пользователей с опциональным фильтром по роли. "
-        "Доступ: Admin — все пользователи."
+        "Список пользователей с опциональным фильтром по роли. Доступ: Admin — все пользователи."
     ),
-    responses={200: {"description": "Список пользователей (массив в поле users)", "schema": UserListResponseSchema}},
+    responses={
+        200: {
+            "description": "Список пользователей (массив в поле users)",
+            "schema": UserListResponseSchema,
+        }
+    },
 )
 @request_schema(UserListQuerySchema(), location="querystring", put_into="querystring")
 @validate.validate(UserList)
@@ -127,7 +125,10 @@ async def users_list(request: web.Request, parsed: UserList) -> web.Response:
     summary="Создать пользователя",
     description="Создать пользователя и назначить роль. Доступ: Admin.",
     responses={
-        201: {"description": "Пользователь создан (объект пользователя без пароля)", "schema": UserProfileSchema},
+        201: {
+            "description": "Пользователь создан (объект пользователя без пароля)",
+            "schema": UserProfileSchema,
+        },
         400: {"description": "Некорректный запрос"},
         409: {"description": "Email или first_name уже заняты"},
     },
@@ -148,7 +149,9 @@ async def users_create(request: web.Request, parsed: UserCreate) -> web.Response
         role=parsed.role,
     )
     if not user:
-        return validate.format_409_error(request, "User with such email or first_name already exists")
+        return validate.format_409_error(
+            request, "User with such email or first_name already exists"
+        )
     return web.json_response(user, status=201)
 
 
@@ -157,7 +160,10 @@ async def users_create(request: web.Request, parsed: UserCreate) -> web.Response
     summary="Получить пользователя",
     description="Получить пользователя по ID. Path: id — UUID пользователя.",
     responses={
-        200: {"description": "Данные пользователя (id, email, first_name, role, verified, created_at, updated_at)", "schema": UserProfileSchema},
+        200: {
+            "description": "Данные пользователя (id, email, first_name, role, verified, created_at, updated_at)",
+            "schema": UserProfileSchema,
+        },
         404: {"description": "Пользователь не найден"},
     },
 )
@@ -183,7 +189,10 @@ async def users_get(request: web.Request) -> web.Response:
     summary="Обновить пользователя",
     description="Обновить пользователя и/или назначить роль. Доступ: Admin. Path: id — UUID пользователя.",
     responses={
-        200: {"description": "Пользователь обновлён (объект пользователя без пароля)", "schema": UserProfileSchema},
+        200: {
+            "description": "Пользователь обновлён (объект пользователя без пароля)",
+            "schema": UserProfileSchema,
+        },
         400: {"description": "Некорректный запрос"},
         404: {"description": "Пользователь не найден"},
     },
@@ -203,7 +212,9 @@ async def users_update(request: web.Request, parsed: UserUpdate) -> web.Response
 
     if not (parsed.email or parsed.first_name or parsed.password or parsed.role):
         return web.json_response({"error": "No fields to update"}, status=400)
-    user = await update_user(user_id, parsed.email, parsed.first_name, parsed.password, parsed.role)
+    user = await update_user(
+        user_id, parsed.email, parsed.first_name, parsed.password, parsed.role
+    )
     if not user:
         return validate.format_404_error(request, "User not found")
     return web.json_response(user)
@@ -217,7 +228,12 @@ async def users_update(request: web.Request, parsed: UserUpdate) -> web.Response
         "Для Experimenter без персональной группы используется fallback, "
         "а при её отсутствии — min_approvals=1, approver_ids=все admin."
     ),
-    responses={200: {"description": "Список групп аппруверов (поле approver_groups)", "schema": ApproverGroupListResponseSchema}},
+    responses={
+        200: {
+            "description": "Список групп аппруверов (поле approver_groups)",
+            "schema": ApproverGroupListResponseSchema,
+        }
+    },
 )
 async def approver_groups_list(request: web.Request) -> web.Response:
     auth_payload = await check_authorization(request)
@@ -239,7 +255,10 @@ async def approver_groups_list(request: web.Request) -> web.Response:
         "Доступ: Admin. В группу попадают только пользователи с role admin/approver."
     ),
     responses={
-        201: {"description": "Группа создана (объект группы с id, experimenter_id, min_approvals, created_at, updated_at)", "schema": ApproverGroupItemSchema},
+        201: {
+            "description": "Группа создана (объект группы с id, experimenter_id, min_approvals, created_at, updated_at)",
+            "schema": ApproverGroupItemSchema,
+        },
         400: {"description": "Некорректный запрос"},
         404: {"description": "Experimenter не найден"},
         409: {"description": "Группа для experimenter_id уже существует"},
@@ -264,7 +283,9 @@ async def approver_groups_create(request: web.Request, parsed: ApproverGroupSet)
     if not result:
         existing = await get_approver_group_by_experimenter(parsed.experimenter_id)
         if existing:
-            return validate.format_409_error(request, "Approver group for this experimenter_id already exists")
+            return validate.format_409_error(
+                request, "Approver group for this experimenter_id already exists"
+            )
         return validate.format_404_error(request, "Experimenter not found or database error")
     return web.json_response(result, status=201)
 
@@ -277,14 +298,19 @@ async def approver_groups_create(request: web.Request, parsed: ApproverGroupSet)
         "Доступ: Admin. Path: id — UUID группы."
     ),
     responses={
-        200: {"description": "Группа обновлена (объект группы)", "schema": ApproverGroupItemSchema},
+        200: {
+            "description": "Группа обновлена (объект группы)",
+            "schema": ApproverGroupItemSchema,
+        },
         400: {"description": "Некорректный запрос"},
         404: {"description": "Группа не найдена"},
     },
 )
 @request_schema(ApproverGroupUpdateSchema(), location="json", put_into="data")
 @validate.validate(ApproverGroupUpdate)
-async def approver_groups_update(request: web.Request, parsed: ApproverGroupUpdate) -> web.Response:
+async def approver_groups_update(
+    request: web.Request, parsed: ApproverGroupUpdate
+) -> web.Response:
     auth_payload = await check_authorization(request)
     if not auth_payload:
         return validate.format_401_error(request, "Token is required")

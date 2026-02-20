@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from config import EVENTS_DEPENDENCY_MAX_DELAY_DAYS
 
@@ -15,10 +15,10 @@ class PendingEvent:
     event_type_id: str
     subject_id: str
     timestamp: datetime
-    payload: Optional[Dict[str, Any]]
-    queued_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    payload: dict[str, Any] | None
+    queued_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
-    def to_insert_dict(self) -> Dict[str, Any]:
+    def to_insert_dict(self) -> dict[str, Any]:
         return {
             "event_id": self.event_id,
             "decision_id": self.decision_id,
@@ -30,14 +30,15 @@ class PendingEvent:
 
 
 class EventsDependencyQueue:
-
-    def __init__(self, max_delay_days: Optional[int] = None) -> None:
-        self._max_delay_days = max_delay_days if max_delay_days is not None else EVENTS_DEPENDENCY_MAX_DELAY_DAYS
-        self._pending: Dict[Tuple[str, str], List[PendingEvent]] = {}
+    def __init__(self, max_delay_days: int | None = None) -> None:
+        self._max_delay_days = (
+            max_delay_days if max_delay_days is not None else EVENTS_DEPENDENCY_MAX_DELAY_DAYS
+        )
+        self._pending: dict[tuple[str, str], list[PendingEvent]] = {}
         self._lock = asyncio.Lock()
 
     def _cutoff(self) -> datetime:
-        return datetime.now(timezone.utc) - timedelta(days=self._max_delay_days)
+        return datetime.now(UTC) - timedelta(days=self._max_delay_days)
 
     async def add(
         self,
@@ -55,7 +56,7 @@ class EventsDependencyQueue:
         self,
         decision_id: str,
         show_event_type_id: str,
-    ) -> List[PendingEvent]:
+    ) -> list[PendingEvent]:
         async with self._lock:
             key = (decision_id, show_event_type_id)
             events = self._pending.pop(key, [])
@@ -65,9 +66,9 @@ class EventsDependencyQueue:
         cutoff = self._cutoff()
         removed = 0
         async with self._lock:
-            keys_to_drop: List[Tuple[str, str]] = []
+            keys_to_drop: list[tuple[str, str]] = []
             for key, events in self._pending.items():
-                kept: List[PendingEvent] = []
+                kept: list[PendingEvent] = []
                 for e in events:
                     if e.queued_at >= cutoff:
                         kept.append(e)

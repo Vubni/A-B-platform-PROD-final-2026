@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime
+from typing import Any
 
 from core import parse_iso_timestamp, validate_uuid
 from database.database import Database
@@ -22,10 +22,10 @@ class EventSubmitInput:
     event_type_key: str
     subject_id: str
     timestamp: datetime
-    payload: Optional[Dict[str, Any]]
+    payload: dict[str, Any] | None
 
 
-def _validate_required_params(required_params: Optional[dict], payload: Optional[dict]) -> Optional[str]:
+def _validate_required_params(required_params: dict | None, payload: dict | None) -> str | None:
     if not required_params or not isinstance(required_params, dict):
         return None
     pl = payload if isinstance(payload, dict) else {}
@@ -46,7 +46,9 @@ def _validate_required_params(required_params: Optional[dict], payload: Optional
     return None
 
 
-def _validate_single_event(raw: Any, index: int) -> Tuple[Optional[EventSubmitInput], Optional[str], Optional[str]]:
+def _validate_single_event(
+    raw: Any, index: int
+) -> tuple[EventSubmitInput | None, str | None, str | None]:
     if not isinstance(raw, dict):
         return None, None, "event must be an object"
     ev_id = raw.get("event_id")
@@ -80,28 +82,29 @@ def _validate_single_event(raw: Any, index: int) -> Tuple[Optional[EventSubmitIn
     if payload is None:
         payload = {}
 
-    return EventSubmitInput(
-        event_id=ev_id,
-        decision_id=dec_uuid,
-        event_type_key=str(et_key).strip(),
-        subject_id=subj,
-        timestamp=ts,
-        payload=payload or None), ev_id, None
+    return (
+        EventSubmitInput(
+            event_id=ev_id,
+            decision_id=dec_uuid,
+            event_type_key=str(et_key).strip(),
+            subject_id=subj,
+            timestamp=ts,
+            payload=payload or None,
+        ),
+        ev_id,
+        None,
+    )
 
 
 async def _decision_exists(decision_id: str) -> bool:
     async with Database() as db:
-        row = await db.execute(
-            "SELECT 1 FROM decisions WHERE decision_id = $1",
-            (decision_id,))
+        row = await db.execute("SELECT 1 FROM decisions WHERE decision_id = $1", (decision_id,))
         return bool(row)
 
 
 async def _event_exists(event_id: str) -> bool:
     async with Database() as db:
-        row = await db.execute(
-            "SELECT 1 FROM event_occurrences WHERE event_id = $1",
-            (event_id,))
+        row = await db.execute("SELECT 1 FROM event_occurrences WHERE event_id = $1", (event_id,))
         return bool(row)
 
 
@@ -110,12 +113,20 @@ async def _show_event_exists(decision_id: str, show_event_type_id: str) -> bool:
         row = await db.execute(
             """SELECT 1 FROM event_occurrences
                WHERE decision_id = $1 AND event_type_id = $2
-               LIMIT 1""", (decision_id, show_event_type_id))
+               LIMIT 1""",
+            (decision_id, show_event_type_id),
+        )
         return bool(row)
 
 
-async def _insert_event(event_id: str, decision_id: str, event_type_id: str, subject_id: str, 
-        timestamp: datetime, payload: Optional[dict]) -> bool:
+async def _insert_event(
+    event_id: str,
+    decision_id: str,
+    event_type_id: str,
+    subject_id: str,
+    timestamp: datetime,
+    payload: dict | None,
+) -> bool:
     async with Database() as db:
         try:
             await db.execute(
@@ -136,11 +147,11 @@ async def _insert_event(event_id: str, decision_id: str, event_type_id: str, sub
             return False
 
 
-async def process_events_batch(events: List[Any]) -> Dict[str, Any]:
+async def process_events_batch(events: list[Any]) -> dict[str, Any]:
     accepted = 0
     duplicates = 0
     rejected = 0
-    errors: List[Dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
     touched_decision_ids: set[str] = set()
 
     await events_dependency_queue.expire_old()
@@ -149,40 +160,48 @@ async def process_events_batch(events: List[Any]) -> Dict[str, Any]:
         parsed, ev_id, err = _validate_single_event(raw, index)
         if err:
             rejected += 1
-            errors.append({
-                "index": index,
-                "event_id": ev_id,
-                "message": err,
-            })
+            errors.append(
+                {
+                    "index": index,
+                    "event_id": ev_id,
+                    "message": err,
+                }
+            )
             continue
 
         event_type = await get_event_type_by_key(parsed.event_type_key)
         if not event_type:
             rejected += 1
-            errors.append({
-                "index": index,
-                "event_id": parsed.event_id,
-                "message": f"unknown event type: {parsed.event_type_key}",
-            })
+            errors.append(
+                {
+                    "index": index,
+                    "event_id": parsed.event_id,
+                    "message": f"unknown event type: {parsed.event_type_key}",
+                }
+            )
             continue
 
         if not await _decision_exists(parsed.decision_id):
             rejected += 1
-            errors.append({
-                "index": index,
-                "event_id": parsed.event_id,
-                "message": "decision_id not found",
-            })
+            errors.append(
+                {
+                    "index": index,
+                    "event_id": parsed.event_id,
+                    "message": "decision_id not found",
+                }
+            )
             continue
 
         rp_err = _validate_required_params(event_type.get("required_params"), parsed.payload)
         if rp_err:
             rejected += 1
-            errors.append({
-                "index": index,
-                "event_id": parsed.event_id,
-                "message": rp_err,
-            })
+            errors.append(
+                {
+                    "index": index,
+                    "event_id": parsed.event_id,
+                    "message": rp_err,
+                }
+            )
             continue
 
         if await _event_exists(parsed.event_id):

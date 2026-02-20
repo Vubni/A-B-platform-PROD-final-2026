@@ -1,8 +1,9 @@
-from logging.handlers import RotatingFileHandler
-import logging
 import json
-from dotenv import load_dotenv
+import logging
 import os
+from logging.handlers import RotatingFileHandler
+
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -12,10 +13,12 @@ LOG_BACKUP_COUNT = 3
 
 os.makedirs(LOG_DIR, exist_ok=True)
 
-DATE_BASE_CONNECT = {"host": os.getenv("DB_HOST", "0.0.0.0"),
-                     "user": os.getenv("DB_USER", "user"),
-                     "password": os.getenv("DB_PASSWORD"),
-                     "database": os.getenv("DB_NAME", "prod")}
+DATE_BASE_CONNECT = {
+    "host": os.getenv("DB_HOST", "0.0.0.0"),
+    "user": os.getenv("DB_USER", "user"),
+    "password": os.getenv("DB_PASSWORD"),
+    "database": os.getenv("DB_NAME", "prod"),
+}
 
 SECRET = os.getenv("RANDOM_SECRET", "AJd27GqoS#gvxp@V")
 
@@ -29,6 +32,7 @@ EVENTS_DEPENDENCY_MAX_DELAY_DAYS = int(os.getenv("EVENTS_DEPENDENCY_MAX_DELAY_DA
 
 def _utc_iso_timestamp(record: logging.LogRecord) -> str:
     from time import gmtime
+
     t = gmtime(record.created)
     ms = int((record.created % 1) * 1000)
     return f"{t.tm_year:04d}-{t.tm_mon:02d}-{t.tm_mday:02d}T{t.tm_hour:02d}:{t.tm_min:02d}:{t.tm_sec:02d}.{ms:03d}Z"

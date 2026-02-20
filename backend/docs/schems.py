@@ -1,4 +1,6 @@
-from marshmallow import Schema, fields, validate as mvalidate
+from marshmallow import Schema, fields
+from marshmallow import validate as mvalidate
+
 
 class UserAuthSchema(Schema):
     identifier = fields.Str(required=True)
@@ -73,14 +75,18 @@ class UserListResponseSchema(Schema):
 
 
 class ApproverGroupSetSchema(Schema):
-    experimenter_id = fields.Str(required=False, allow_none=True, description="UUID экспериментатора или null")
+    experimenter_id = fields.Str(
+        required=False, allow_none=True, description="UUID экспериментатора или null"
+    )
     min_approvals = fields.Int(load_default=1, description="Минимум одобрений")
     approver_ids = fields.List(fields.Str(), load_default=list, description="UUID аппруверов")
 
 
 class ApproverGroupUpdateSchema(Schema):
     min_approvals = fields.Int(required=False, description="Минимум одобрений")
-    approver_ids = fields.List(fields.Str(), required=False, description="Новый список UUID аппруверов")
+    approver_ids = fields.List(
+        fields.Str(), required=False, description="Новый список UUID аппруверов"
+    )
 
 
 class ApproverGroupItemSchema(Schema):
@@ -96,20 +102,26 @@ class ApproverGroupListResponseSchema(Schema):
 
 
 class FlagCreateSchema(Schema):
-    key = fields.Str(required=True, description="Уникальный ключ флага (буква, цифры, подчёркивание)")
+    key = fields.Str(
+        required=True, description="Уникальный ключ флага (буква, цифры, подчёркивание)"
+    )
     value_type = fields.Str(
         required=True,
         validate=mvalidate.OneOf(("string", "number", "bool")),
         description="Тип значения: string, number, bool",
     )
-    default_value = fields.Str(required=True, description="Значение по умолчанию при отсутствии эксперимента")
+    default_value = fields.Str(
+        required=True, description="Значение по умолчанию при отсутствии эксперимента"
+    )
     description = fields.Str(allow_none=True, description="Описание флага")
     owner = fields.Str(allow_none=True, description="Владелец/команда")
     metadata = fields.Dict(allow_none=True, description="Произвольные метаданные")
 
 
 class FlagUpdateSchema(Schema):
-    default_value = fields.Str(required=True, description="Новое значение по умолчанию (только это поле можно обновить)")
+    default_value = fields.Str(
+        required=True, description="Новое значение по умолчанию (только это поле можно обновить)"
+    )
 
 
 class ErrorDetailSchema(Schema):
@@ -167,13 +179,17 @@ USER_LIST_QUERY_EXAMPLE = {"role": "viewer"}
 APPROVER_GROUP_CREATE_REQUEST_EXAMPLE = {
     "experimenter_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     "min_approvals": 2,
-    "approver_ids": ["b2c3d4e5-f6a7-8901-bcde-f12345678901", "c3d4e5f6-a7b8-9012-cdef-123456789012"],
+    "approver_ids": [
+        "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+        "c3d4e5f6-a7b8-9012-cdef-123456789012",
+    ],
 }
 
 APPROVER_GROUP_UPDATE_REQUEST_EXAMPLE = {
     "min_approvals": 3,
     "approver_ids": ["b2c3d4e5-f6a7-8901-bcde-f12345678901"],
 }
+
 
 class ExperimentMetricItemSchema(Schema):
     metric_key = fields.Str(required=True, description="Ключ метрики из каталога")
@@ -210,10 +226,17 @@ class ExperimentUpdateSchema(Schema):
 class StatusUpdateSchema(Schema):
     status = fields.Str(
         required=True,
-        validate=mvalidate.OneOf((
-            "draft", "on_review", "approved", "running", "paused",
-            "archived", "rejected",
-        )),
+        validate=mvalidate.OneOf(
+            (
+                "draft",
+                "on_review",
+                "approved",
+                "running",
+                "paused",
+                "archived",
+                "rejected",
+            )
+        ),
         description="Новый статус (completed задаётся отдельным эндпоинтом POST .../complete)",
     )
     comment = fields.Str(allow_none=True, description="Комментарий (для ревью)")
@@ -269,11 +292,17 @@ class ExperimentItemSchema(Schema):
     created_at = fields.Str(allow_none=True)
     updated_at = fields.Str(allow_none=True)
     variants = fields.List(fields.Nested(ExperimentVariantSchema), allow_none=True)
-    metrics = fields.List(fields.Dict(), allow_none=True, description="Список {metric_key, metric_type, ...} из experiment_metrics")
+    metrics = fields.List(
+        fields.Dict(),
+        allow_none=True,
+        description="Список {metric_key, metric_type, ...} из experiment_metrics",
+    )
 
 
 class ExperimentListResponseSchema(Schema):
-    experiments = fields.List(fields.Nested(ExperimentItemSchema), description="Массив экспериментов")
+    experiments = fields.List(
+        fields.Nested(ExperimentItemSchema), description="Массив экспериментов"
+    )
 
 
 class GuardrailHistoryResponseSchema(Schema):
@@ -303,7 +332,10 @@ class ExperimentGuardrailUpsertSchema(Schema):
 
 class ExperimentGuardrailListResponseSchema(Schema):
     experiment_id = fields.Str(description="UUID эксперимента")
-    guardrails = fields.List(fields.Nested(ExperimentGuardrailItemSchema), description="Guardrail-правила эксперимента")
+    guardrails = fields.List(
+        fields.Nested(ExperimentGuardrailItemSchema), description="Guardrail-правила эксперимента"
+    )
+
 
 class FlagItemSchema(Schema):
     id = fields.Str()
@@ -322,9 +354,16 @@ class FlagListResponseSchema(Schema):
 
 
 class DecideRequestSchema(Schema):
-    subject_id = fields.Str(required=True, description="Идентификатор субъекта (пользователя, устройства, сессии)")
-    attributes = fields.Dict(allow_none=True, description="Атрибуты субъекта для таргетинга (произвольные ключ-значение)")
-    flags = fields.List(fields.Str(), required=True, description="Список UUID флагов (минимум один)")
+    subject_id = fields.Str(
+        required=True, description="Идентификатор субъекта (пользователя, устройства, сессии)"
+    )
+    attributes = fields.Dict(
+        allow_none=True,
+        description="Атрибуты субъекта для таргетинга (произвольные ключ-значение)",
+    )
+    flags = fields.List(
+        fields.Str(), required=True, description="Список UUID флагов (минимум один)"
+    )
 
 
 class DecideExperimentSchema(Schema):
@@ -334,25 +373,40 @@ class DecideExperimentSchema(Schema):
 
 class DecideFlagItemSchema(Schema):
     flag_key = fields.Str(description="Ключ (UUID) флага")
-    flag_value = fields.Raw(description="Значение флага для этого субъекта (bool, число, строка — по типу флага)")
-    decision_id = fields.Str(allow_none=True, description="UUID решения для атрибуции событий (если решение записывалось)")
-    experiment = fields.Nested(DecideExperimentSchema, allow_none=True, description="Данные эксперимента, если субъект в эксперименте; иначе null")
+    flag_value = fields.Raw(
+        description="Значение флага для этого субъекта (bool, число, строка — по типу флага)"
+    )
+    decision_id = fields.Str(
+        allow_none=True,
+        description="UUID решения для атрибуции событий (если решение записывалось)",
+    )
+    experiment = fields.Nested(
+        DecideExperimentSchema,
+        allow_none=True,
+        description="Данные эксперимента, если субъект в эксперименте; иначе null",
+    )
 
 
 class DecideResponseSchema(Schema):
     flags = fields.List(
         fields.Nested(DecideFlagItemSchema),
-        description="Решения по флагам в том же порядке, что и в запросе"
+        description="Решения по флагам в том же порядке, что и в запросе",
     )
 
 
 class EventSubmitItemSchema(Schema):
-    event_id = fields.Str(required=True, description="Уникальный идентификатор события (идемпотентность)")
+    event_id = fields.Str(
+        required=True, description="Уникальный идентификатор события (идемпотентность)"
+    )
     decision_id = fields.Str(required=True, description="UUID решения (decision_id из /decide)")
-    event_type_key = fields.Str(required=True, description="Ключ типа события (exposure, click и т.д.)")
+    event_type_key = fields.Str(
+        required=True, description="Ключ типа события (exposure, click и т.д.)"
+    )
     subject_id = fields.Str(required=True, description="Идентификатор субъекта")
     timestamp = fields.Str(required=True, description="Время события (ISO 8601)")
-    payload = fields.Dict(load_default=dict, description="Доп. параметры события (по правилам типа)")
+    payload = fields.Dict(
+        load_default=dict, description="Доп. параметры события (по правилам типа)"
+    )
 
 
 class EventsSubmitRequestSchema(Schema):
@@ -372,13 +426,24 @@ class EventsSubmitResponseSchema(Schema):
 
 
 class EventTypeCreateSchema(Schema):
-    key = fields.Str(required=True, description="Уникальный ключ типа (exposure, click, purchase и т.д.)")
+    key = fields.Str(
+        required=True, description="Уникальный ключ типа (exposure, click, purchase и т.д.)"
+    )
     display_name = fields.Str(allow_none=True, description="Человекочитаемое имя")
     description = fields.Str(allow_none=True)
-    required_params = fields.Raw(allow_none=True, description="Обязательные доп. параметры (JSON объект/схема)")
-    validation_type = fields.Str(allow_none=True, description="Тип валидации (например: none, schema, payload_schema)")
-    report_alert_config = fields.Raw(allow_none=True, description="Участие в отчётах/алертах: включение в отчёты, метрики, алерты, маршрутизация в стрим")
-    requires_show_event_type_id = fields.Str(allow_none=True, description="UUID типа «факт показа» для атрибуции")
+    required_params = fields.Raw(
+        allow_none=True, description="Обязательные доп. параметры (JSON объект/схема)"
+    )
+    validation_type = fields.Str(
+        allow_none=True, description="Тип валидации (например: none, schema, payload_schema)"
+    )
+    report_alert_config = fields.Raw(
+        allow_none=True,
+        description="Участие в отчётах/алертах: включение в отчёты, метрики, алерты, маршрутизация в стрим",
+    )
+    requires_show_event_type_id = fields.Str(
+        allow_none=True, description="UUID типа «факт показа» для атрибуции"
+    )
     is_critical = fields.Bool(load_default=False, description="Критичность события")
 
 
@@ -401,7 +466,9 @@ class EventTypeItemSchema(Schema):
     validation_type = fields.Str(allow_none=True)
     report_alert_config = fields.Raw(allow_none=True)
     status = fields.Str()
-    requires_show_event_type_id = fields.Str(allow_none=True, description="Тип события «факт показа» для атрибуции")
+    requires_show_event_type_id = fields.Str(
+        allow_none=True, description="Тип события «факт показа» для атрибуции"
+    )
     is_critical = fields.Bool()
     created_at = fields.Str(allow_none=True)
     updated_at = fields.Str(allow_none=True)
@@ -417,7 +484,6 @@ class EventTypesListQuerySchema(Schema):
 
 class EventTypesListResponseSchema(Schema):
     event_types = fields.List(fields.Nested(EventTypeItemSchema))
-
 
 
 class MetricCatalogItemSchema(Schema):
@@ -442,7 +508,10 @@ class MetricCatalogItemSchema(Schema):
 
 
 class MetricCatalogCreateSchema(Schema):
-    key = fields.Str(required=True, description="Уникальный идентификатор метрики (латиница, цифры, подчёркивание)")
+    key = fields.Str(
+        required=True,
+        description="Уникальный идентификатор метрики (латиница, цифры, подчёркивание)",
+    )
     name = fields.Str(required=True, description="Название метрики")
     description = fields.Str(allow_none=True, description="Назначение метрики")
     aggregation_rule = fields.Dict(
@@ -465,7 +534,9 @@ class MetricCatalogUpdateSchema(Schema):
     description = fields.Str(required=False, allow_none=True)
     aggregation_rule = fields.Dict(required=False, description="Новое правило вычисления")
     attribution_rule = fields.Dict(required=False, allow_none=True)
-    event_expectations = fields.Dict(required=False, allow_none=True, description="Ключи событий и ожидание")
+    event_expectations = fields.Dict(
+        required=False, allow_none=True, description="Ключи событий и ожидание"
+    )
     unit = fields.Str(required=False, allow_none=True)
 
 
@@ -506,7 +577,9 @@ class ReportMetricDefinitionSchema(Schema):
     metric_type = fields.Str(description="primary | auxiliary | guardrail")
     name = fields.Str(allow_none=True)
     unit = fields.Str(allow_none=True)
-    event_expectations = fields.Dict(allow_none=True, description="Ожидание по ключам событий: higher|lower")
+    event_expectations = fields.Dict(
+        allow_none=True, description="Ожидание по ключам событий: higher|lower"
+    )
 
 
 class ReportPrimaryMetricResultSchema(Schema):
@@ -523,7 +596,10 @@ class ReportPrimaryMetricSummarySchema(Schema):
     control_value = fields.Raw(allow_none=True)
     control_variant_name = fields.Str(allow_none=True)
     direction = fields.Str(allow_none=True, description="higher | lower — что считается «лучше»")
-    results = fields.List(fields.Nested(ReportPrimaryMetricResultSchema), description="Сравнение вариантов с контролем")
+    results = fields.List(
+        fields.Nested(ReportPrimaryMetricResultSchema),
+        description="Сравнение вариантов с контролем",
+    )
     summary_lines = fields.List(
         fields.Str(),
         description="Краткие строки: «вариант: стало лучше/хуже на X%» по каждому варианту",
@@ -531,14 +607,20 @@ class ReportPrimaryMetricSummarySchema(Schema):
     recommendation = fields.Str(
         description="Рекомендация: keep_control — оставить дефолтный вариант; rollout — раскатить победителя",
     )
-    winner_variant_id = fields.Str(allow_none=True, description="UUID варианта-победителя при recommendation=rollout")
-    winner_variant_name = fields.Str(allow_none=True, description="Название варианта-победителя при recommendation=rollout")
+    winner_variant_id = fields.Str(
+        allow_none=True, description="UUID варианта-победителя при recommendation=rollout"
+    )
+    winner_variant_name = fields.Str(
+        allow_none=True, description="Название варианта-победителя при recommendation=rollout"
+    )
 
 
 class ReportContextSchema(Schema):
     window_start = fields.Str(description="Начало окна (включительно)")
     window_end = fields.Str(description="Конец окна (не включительно)")
-    aggregation_unit = fields.Str(allow_none=True, description="Единица агрегации (subject | event) по метрикам")
+    aggregation_unit = fields.Str(
+        allow_none=True, description="Единица агрегации (subject | event) по метрикам"
+    )
 
 
 class ReportMetricDynamicsItemSchema(Schema):
@@ -549,12 +631,19 @@ class ReportMetricDynamicsItemSchema(Schema):
 
 class ReportCompletionSchema(Schema):
     """Финальное решение по завершённому эксперименту (ТЗ 2.6)."""
+
     outcome = fields.Str(
         description="Режим завершения: rollout_winner — раскатить победителя; rollback — откат к контролю; no_effect — эффект не выявлен",
     )
-    comment = fields.Str(allow_none=True, description="Обоснование решения и что делать с гипотезой")
-    winner_variant_id = fields.Str(allow_none=True, description="UUID варианта-победителя при outcome=rollout_winner")
-    winner_variant_name = fields.Str(allow_none=True, description="Название варианта-победителя при outcome=rollout_winner")
+    comment = fields.Str(
+        allow_none=True, description="Обоснование решения и что делать с гипотезой"
+    )
+    winner_variant_id = fields.Str(
+        allow_none=True, description="UUID варианта-победителя при outcome=rollout_winner"
+    )
+    winner_variant_name = fields.Str(
+        allow_none=True, description="Название варианта-победителя при outcome=rollout_winner"
+    )
 
 
 class ReportExperimentResponseSchema(Schema):

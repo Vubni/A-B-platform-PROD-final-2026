@@ -1,9 +1,8 @@
 import uuid
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 from config import (
-    EXPERIMENT_COOLDOWN_SECONDS,
     MAX_ACTIVE_EXPERIMENTS_PER_SUBJECT,
 )
 from core import serialize_json
@@ -12,7 +11,9 @@ from dsl import evaluate_targeting_rule
 from functions.flags import get_flag_by_key
 
 
-async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any], flags: list[str]) -> list[dict[str, Any]]:
+async def get_decisions_for_subject(
+    subject_id: str, attributes: dict[str, Any], flags: list[str]
+) -> list[dict[str, Any]]:
     async with Database() as db:
         result = {"flags": []}
         experiments = await db.execute_all(
@@ -27,39 +28,44 @@ async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any],
         if not experiments:
             for flag_id in flags:
                 flag = await get_flag_by_key(flag_id)
-                result["flags"].append({
-                    "flag_key": flag['key'],
-                    "flag_value": flag['default_value'],
-                    "decision_id": None,
-                    "experiment": None
-                })
+                result["flags"].append(
+                    {
+                        "flag_key": flag["key"],
+                        "flag_value": flag["default_value"],
+                        "decision_id": None,
+                        "experiment": None,
+                    }
+                )
             return serialize_json(result)
 
         for experiment in experiments:
-            flag = await get_flag_by_key(experiment['flag_key'])
-            flag_id = experiment['flag_id']
-            default_value = flag['default_value']
+            flag = await get_flag_by_key(experiment["flag_key"])
+            flag_id = experiment["flag_id"]
+            default_value = flag["default_value"]
 
-            if not evaluate_targeting_rule(experiment['targeting_rule'], attributes):
+            if not evaluate_targeting_rule(experiment["targeting_rule"], attributes):
                 decision_id = uuid.uuid4()
                 await db.execute(
                     """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
                        VALUES ($1, $2, $3, $4, $5, NULL)""",
-                    (decision_id, subject_id, flag_id, default_value, experiment['id']),
+                    (decision_id, subject_id, flag_id, default_value, experiment["id"]),
                 )
-                result["flags"].append({
-                    "flag_key": experiment['flag_key'],
-                    "flag_value": default_value,
-                    "decision_id": str(decision_id),
-                    "experiment": None
-                })
+                result["flags"].append(
+                    {
+                        "flag_key": experiment["flag_key"],
+                        "flag_value": default_value,
+                        "decision_id": str(decision_id),
+                        "experiment": None,
+                    }
+                )
                 continue
 
             existing = await db.execute(
                 """SELECT decision_id, value, experiment_id, variant_id
                    FROM decisions WHERE subject_id = $1 AND flag_id = $2
                    ORDER BY created_at DESC LIMIT 1""",
-                (subject_id, flag_id))
+                (subject_id, flag_id),
+            )
 
             active_count_row = await db.execute(
                 """SELECT COUNT(DISTINCT d.experiment_id) AS cnt
@@ -76,17 +82,21 @@ async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any],
                        VALUES ($1, $2, $3, $4, NULL, NULL)""",
                     (decision_id, subject_id, flag_id, default_value),
                 )
-                result["flags"].append({
-                    "flag_key": experiment['flag_key'],
-                    "flag_value": default_value,
-                    "decision_id": str(decision_id),
-                    "experiment": None
-                })
+                result["flags"].append(
+                    {
+                        "flag_key": experiment["flag_key"],
+                        "flag_value": default_value,
+                        "decision_id": str(decision_id),
+                        "experiment": None,
+                    }
+                )
                 continue
 
             if existing:
                 out_value = existing["value"]
-                out_experiment_id = str(existing["experiment_id"]) if existing.get("experiment_id") else None
+                out_experiment_id = (
+                    str(existing["experiment_id"]) if existing.get("experiment_id") else None
+                )
                 out_variant = None
                 if existing.get("variant_id"):
                     vrow = await db.execute(
@@ -96,33 +106,34 @@ async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any],
                     out_variant = vrow["variant_name"] if vrow else None
 
                 decision_id = uuid.uuid4()
-                exp_id = existing.get("experiment_id") if existing.get("experiment_id") is not None else experiment["id"]
+                exp_id = (
+                    existing.get("experiment_id")
+                    if existing.get("experiment_id") is not None
+                    else experiment["id"]
+                )
                 var_id = existing.get("variant_id")
                 await db.execute(
                     """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
                        VALUES ($1, $2, $3, $4, $5, $6)""",
                     (decision_id, subject_id, flag_id, out_value, exp_id, var_id),
                 )
-                result["flags"].append({
-                    "flag_key": experiment['flag_key'],
-                    "flag_value": out_value,
-                    "decision_id": str(decision_id),
-                    "experiment": {
-                        "experiment_id": out_experiment_id,
-                        "variant": out_variant
+                result["flags"].append(
+                    {
+                        "flag_key": experiment["flag_key"],
+                        "flag_value": out_value,
+                        "decision_id": str(decision_id),
+                        "experiment": {"experiment_id": out_experiment_id, "variant": out_variant},
                     }
-                })
+                )
                 continue
 
-
-
-            audience_fraction = experiment['audience_fraction']
+            audience_fraction = experiment["audience_fraction"]
             counts = await db.execute(
                 """SELECT
                     COUNT(*) AS total,
                     COUNT(variant_id) FILTER (WHERE experiment_id = $2 AND variant_id IS NOT NULL) AS in_experiment
                    FROM decisions WHERE flag_id = $1""",
-                (flag_id, experiment['id']),
+                (flag_id, experiment["id"]),
             )
             total = counts["total"] or 0
             in_experiment = counts["in_experiment"] or 0
@@ -142,27 +153,31 @@ async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any],
                        VALUES ($1, $2, $3, $4, NULL, NULL)""",
                     (uuid.UUID(decision_id), subject_id, flag_id, default_value),
                 )
-                result["flags"].append({
-                    "flag_key": experiment['flag_key'],
-                    "flag_value": default_value,
-                    "decision_id": decision_id,
-                    "experiment": None
-                })
+                result["flags"].append(
+                    {
+                        "flag_key": experiment["flag_key"],
+                        "flag_value": default_value,
+                        "decision_id": decision_id,
+                        "experiment": None,
+                    }
+                )
                 continue
 
             variants = await db.execute_all(
                 """SELECT id, variant_name, variant_value, weight
                    FROM experiment_variants WHERE experiment_id = $1 ORDER BY variant_name""",
-                (experiment['id'],),
+                (experiment["id"],),
             )
 
             variant_counts = await db.execute_all(
                 """SELECT variant_id, COUNT(*) AS cnt
                    FROM decisions WHERE experiment_id = $1 AND variant_id IS NOT NULL
                    GROUP BY variant_id""",
-                (experiment['id'],),
+                (experiment["id"],),
             )
-            count_by_variant: dict[str, int] = {str(r["variant_id"]): r["cnt"] for r in (variant_counts or [])}
+            count_by_variant: dict[str, int] = {
+                str(r["variant_id"]): r["cnt"] for r in (variant_counts or [])
+            }
             total_in_exp = in_experiment
             af = audience_fraction
 
@@ -172,7 +187,9 @@ async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any],
                 vid = str(v["id"])
                 weight = Decimal(str(serialize_json(v["weight"])))
                 target_ratio = weight / af if af else Decimal("0")
-                current_ratio = Decimal(count_by_variant.get(vid, 0)) / max(Decimal(total_in_exp), 1)
+                current_ratio = Decimal(count_by_variant.get(vid, 0)) / max(
+                    Decimal(total_in_exp), 1
+                )
                 deficit = target_ratio - current_ratio
                 if deficit > best_deficit:
                     best_deficit = deficit
@@ -184,7 +201,14 @@ async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any],
             await db.execute(
                 """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
                    VALUES ($1, $2, $3, $4, $5, $6)""",
-                (uuid.UUID(decision_id), subject_id, flag_id, variant_value, experiment['id'], variant_id),
+                (
+                    uuid.UUID(decision_id),
+                    subject_id,
+                    flag_id,
+                    variant_value,
+                    experiment["id"],
+                    variant_id,
+                ),
             )
             after_count_row = await db.execute(
                 """SELECT COUNT(DISTINCT d.experiment_id) AS cnt
@@ -199,26 +223,30 @@ async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any],
                        VALUES ($1, NOW()) ON CONFLICT (subject_id) DO UPDATE SET entered_at = NOW()""",
                     (subject_id,),
                 )
-            result["flags"].append({
-                "flag_key": experiment['flag_key'],
-                "flag_value": variant_value,
-                "decision_id": decision_id,
-                "experiment": {
-                    "experiment_id": str(experiment['id']),
-                    "variant": best_variant["variant_name"]
+            result["flags"].append(
+                {
+                    "flag_key": experiment["flag_key"],
+                    "flag_value": variant_value,
+                    "decision_id": decision_id,
+                    "experiment": {
+                        "experiment_id": str(experiment["id"]),
+                        "variant": best_variant["variant_name"],
+                    },
                 }
-            })
+            )
 
         added_keys = {r["flag_key"] for r in result["flags"]}
         for flag_id in flags:
             flag = await get_flag_by_key(flag_id)
             if not flag or flag["key"] in added_keys:
                 continue
-            result["flags"].append({
-                "flag_key": flag["key"],
-                "flag_value": flag["default_value"],
-                "decision_id": None,
-                "experiment": None,
-            })
+            result["flags"].append(
+                {
+                    "flag_key": flag["key"],
+                    "flag_value": flag["default_value"],
+                    "decision_id": None,
+                    "experiment": None,
+                }
+            )
 
         return serialize_json(result)

@@ -1,8 +1,7 @@
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from database.database import Database
-from functions.experiments import get_experiment_by_id
 from functions.event_types import get_event_type_by_key
 from functions.metrics import get_metric_by_key
 
@@ -22,7 +21,7 @@ def _metric_event_type_keys(metric_catalog_row: dict, catalog_by_key: dict[str, 
     return keys
 
 
-def _parse_iso(s: str) -> Optional[datetime]:
+def _parse_iso(s: str) -> datetime | None:
     if not s or not isinstance(s, str):
         return None
     s = s.strip()
@@ -38,7 +37,8 @@ async def _decision_ids_by_variant(db, experiment_id: str, variant_id: str) -> l
     rows = await db.execute_all(
         """SELECT decision_id FROM decisions
            WHERE experiment_id = $1 AND variant_id = $2""",
-        (experiment_id, variant_id))
+        (experiment_id, variant_id),
+    )
     return [r["decision_id"] for r in rows]
 
 
@@ -46,14 +46,14 @@ async def _event_counts_by_type(
     db, decision_ids: list[str], event_type_keys: list[str], start_ts: datetime, end_ts: datetime
 ) -> dict[str, int]:
     if not decision_ids or not event_type_keys:
-        return {k: 0 for k in event_type_keys}
+        return dict.fromkeys(event_type_keys, 0)
     key_to_id: dict[str, str] = {}
     for k in event_type_keys:
         et = await get_event_type_by_key(k, active_only=False)
         if et and et.get("id"):
             key_to_id[k] = et["id"]
     if not key_to_id:
-        return {k: 0 for k in event_type_keys}
+        return dict.fromkeys(event_type_keys, 0)
     ids = list(key_to_id.values())
     rows = await db.execute_all(
         """SELECT e.event_type_id, COUNT(*) AS cnt
@@ -64,7 +64,7 @@ async def _event_counts_by_type(
         (decision_ids, ids, start_ts, end_ts),
     )
     id_to_key = {v: k for k, v in key_to_id.items()}
-    result = {k: 0 for k in event_type_keys}
+    result = dict.fromkeys(event_type_keys, 0)
     for r in rows:
         eid = r.get("event_type_id")
         if eid and eid in id_to_key:
@@ -72,8 +72,14 @@ async def _event_counts_by_type(
     return result
 
 
-async def _compute_count_events(db, decision_ids: list[str], event_type_id: str, start_ts: datetime,
-    end_ts: datetime, aggregation_unit: str) -> Optional[float]:
+async def _compute_count_events(
+    db,
+    decision_ids: list[str],
+    event_type_id: str,
+    start_ts: datetime,
+    end_ts: datetime,
+    aggregation_unit: str,
+) -> float | None:
     if not decision_ids:
         return 0.0
     if aggregation_unit == "subject":
@@ -101,8 +107,14 @@ def _payload_key_from_value_path(value_path: str) -> str:
     return s or "duration_ms"
 
 
-async def _compute_avg(db, decision_ids: list[str], event_type_id: str, start_ts: datetime,
-    end_ts: datetime, value_path: str) -> Optional[float]:
+async def _compute_avg(
+    db,
+    decision_ids: list[str],
+    event_type_id: str,
+    start_ts: datetime,
+    end_ts: datetime,
+    value_path: str,
+) -> float | None:
     if not decision_ids:
         return None
     payload_key = _payload_key_from_value_path(value_path)
@@ -112,14 +124,22 @@ async def _compute_avg(db, decision_ids: list[str], event_type_id: str, start_ts
            WHERE e.decision_id = ANY($1::uuid[]) AND e.event_type_id = $2
              AND e.timestamp >= $3 AND e.timestamp < $4
              AND e.payload ? $5""",
-        (decision_ids, event_type_id, start_ts, end_ts, payload_key))
+        (decision_ids, event_type_id, start_ts, end_ts, payload_key),
+    )
     if not row or row.get("val") is None:
         return None
     return float(row["val"])
 
 
-async def _compute_percentile(db, decision_ids: list[str], event_type_id: str, start_ts: datetime,
-    end_ts: datetime, value_path: str, percentile: int) -> Optional[float]:
+async def _compute_percentile(
+    db,
+    decision_ids: list[str],
+    event_type_id: str,
+    start_ts: datetime,
+    end_ts: datetime,
+    value_path: str,
+    percentile: int,
+) -> float | None:
     if not decision_ids:
         return None
     payload_key = _payload_key_from_value_path(value_path)
@@ -129,13 +149,20 @@ async def _compute_percentile(db, decision_ids: list[str], event_type_id: str, s
            WHERE e.decision_id = ANY($1::uuid[]) AND e.event_type_id = $2
              AND e.timestamp >= $3 AND e.timestamp < $4
              AND e.payload ? $5""",
-        (decision_ids, event_type_id, start_ts, end_ts, payload_key, percentile))
+        (decision_ids, event_type_id, start_ts, end_ts, payload_key, percentile),
+    )
     if not row or row.get("val") is None:
         return None
     return float(row["val"])
 
 
-async def _compute_metric_value(db, decision_ids: list[str], start_ts: datetime, end_ts: datetime, metric_catalog_row: dict,) -> Optional[float]:
+async def _compute_metric_value(
+    db,
+    decision_ids: list[str],
+    start_ts: datetime,
+    end_ts: datetime,
+    metric_catalog_row: dict,
+) -> float | None:
     rule = metric_catalog_row.get("aggregation_rule") or {}
     kind = (rule.get("kind") or "").strip()
     event_type_key = rule.get("event_type_key")
@@ -153,13 +180,17 @@ async def _compute_metric_value(db, decision_ids: list[str], start_ts: datetime,
         )
     if kind == "avg":
         value_path = rule.get("value_path") or "payload.duration_ms"
-        return await _compute_avg(
-            db, decision_ids, event_type_id, start_ts, end_ts, value_path
-        )
+        return await _compute_avg(db, decision_ids, event_type_id, start_ts, end_ts, value_path)
     if kind == "percentile":
         value_path = rule.get("value_path") or "payload.duration_ms"
         return await _compute_percentile(
-            db, decision_ids, event_type_id, start_ts, end_ts, value_path, int(rule.get("percentile") or 95)
+            db,
+            decision_ids,
+            event_type_id,
+            start_ts,
+            end_ts,
+            value_path,
+            int(rule.get("percentile") or 95),
         )
     if kind == "ratio":
         num_key = rule.get("numerator_metric_key")
@@ -182,9 +213,9 @@ def _primary_metric_summary(
     variants: list[dict],
     report_variants: list[dict],
     primary_metric_key: str,
-    primary_metric_name: Optional[str],
-    event_expectations: Optional[dict],
-) -> Optional[dict]:
+    primary_metric_name: str | None,
+    event_expectations: dict | None,
+) -> dict | None:
     """Сводка по главной метрике: лучше/хуже по каждому варианту относительно контроля."""
     if not event_expectations or not isinstance(event_expectations, dict):
         direction = None
@@ -197,7 +228,7 @@ def _primary_metric_summary(
             direction = None
     control_value = None
     control_variant_name = None
-    for v, rv in zip(variants, report_variants):
+    for v, rv in zip(variants, report_variants, strict=True):
         if v.get("is_control"):
             for mv in rv.get("metric_values") or []:
                 if mv.get("metric_key") == primary_metric_key:
@@ -208,7 +239,7 @@ def _primary_metric_summary(
     if control_value is None and direction is not None:
         direction = None
     results = []
-    for v, rv in zip(variants, report_variants):
+    for v, rv in zip(variants, report_variants, strict=True):
         if v.get("is_control"):
             continue
         var_name = v.get("variant_name") or ""
@@ -221,22 +252,34 @@ def _primary_metric_summary(
         change_percent = None
         if value is not None and control_value is not None and direction:
             if isinstance(control_value, (int, float)) and control_value != 0:
-                change_percent = ((float(value) - float(control_value)) / float(control_value)) * 100.0
+                change_percent = (
+                    (float(value) - float(control_value)) / float(control_value)
+                ) * 100.0
             elif isinstance(control_value, (int, float)) and control_value == 0:
                 change_percent = 100.0 if value else 0.0
             if change_percent is not None:
                 if direction == "higher":
-                    vs_control = "better" if change_percent > 0 else ("worse" if change_percent < 0 else "same")
+                    vs_control = (
+                        "better"
+                        if change_percent > 0
+                        else ("worse" if change_percent < 0 else "same")
+                    )
                 else:
-                    vs_control = "better" if change_percent < 0 else ("worse" if change_percent > 0 else "same")
+                    vs_control = (
+                        "better"
+                        if change_percent < 0
+                        else ("worse" if change_percent > 0 else "same")
+                    )
         change_rounded = round(change_percent, 2) if change_percent is not None else None
-        results.append({
-            "variant_id": v.get("id"),
-            "variant_name": var_name,
-            "value": value,
-            "vs_control": vs_control,
-            "change_percent": change_rounded,
-        })
+        results.append(
+            {
+                "variant_id": v.get("id"),
+                "variant_name": var_name,
+                "value": value,
+                "vs_control": vs_control,
+                "change_percent": change_rounded,
+            }
+        )
     summaries = []
     for r in results:
         if r.get("vs_control") == "same" or r.get("change_percent") is None:
@@ -254,9 +297,21 @@ def _primary_metric_summary(
         better_results = [r for r in results if r.get("vs_control") == "better"]
         if better_results:
             if direction == "higher":
-                best = max(better_results, key=lambda r: (r.get("change_percent") is not None, r.get("change_percent") or 0))
+                best = max(
+                    better_results,
+                    key=lambda r: (
+                        r.get("change_percent") is not None,
+                        r.get("change_percent") or 0,
+                    ),
+                )
             else:
-                best = min(better_results, key=lambda r: (r.get("change_percent") is not None, -(r.get("change_percent") or 0)))
+                best = min(
+                    better_results,
+                    key=lambda r: (
+                        r.get("change_percent") is not None,
+                        -(r.get("change_percent") or 0),
+                    ),
+                )
             recommendation = "rollout"
             winner_variant_id = best.get("variant_id")
             if winner_variant_id is not None:
@@ -311,21 +366,29 @@ async def get_experiment_report(experiment: dict, start_iso: str, end_iso: str) 
                 value = None
                 unit = None
                 if catalog:
-                    value = await _compute_metric_value(db, decision_ids, start_ts, end_ts, catalog)
+                    value = await _compute_metric_value(
+                        db, decision_ids, start_ts, end_ts, catalog
+                    )
                     unit = catalog.get("unit")
-                metric_values.append({
-                    "metric_key": metric_key,
-                    "value": value,
-                    "unit": unit,
-                })
-            event_counts = await _event_counts_by_type(db, decision_ids, event_keys_list, start_ts, end_ts)
-            report_variants.append({
-                "variant_id": var_id,
-                "variant_name": var_name,
-                "is_control": is_control,
-                "metric_values": metric_values,
-                "event_counts": event_counts,
-            })
+                metric_values.append(
+                    {
+                        "metric_key": metric_key,
+                        "value": value,
+                        "unit": unit,
+                    }
+                )
+            event_counts = await _event_counts_by_type(
+                db, decision_ids, event_keys_list, start_ts, end_ts
+            )
+            report_variants.append(
+                {
+                    "variant_id": var_id,
+                    "variant_name": var_name,
+                    "is_control": is_control,
+                    "metric_values": metric_values,
+                    "event_counts": event_counts,
+                }
+            )
 
     metrics_def = []
     primary_metric_key = None
@@ -339,18 +402,24 @@ async def get_experiment_report(experiment: dict, start_iso: str, end_iso: str) 
             if m:
                 primary_metric_name = m.get("name")
                 primary_event_expectations = m.get("event_expectations")
-        metrics_def.append({
-            "metric_key": em["metric_key"],
-            "metric_type": metric_type,
-            "name": m.get("name") if m else None,
-            "unit": m.get("unit") if m else None,
-            "event_expectations": m.get("event_expectations") if m else None,
-        })
+        metrics_def.append(
+            {
+                "metric_key": em["metric_key"],
+                "metric_type": metric_type,
+                "name": m.get("name") if m else None,
+                "unit": m.get("unit") if m else None,
+                "event_expectations": m.get("event_expectations") if m else None,
+            }
+        )
 
     primary_summary = None
     if primary_metric_key:
         primary_summary = _primary_metric_summary(
-            variants, report_variants, primary_metric_key, primary_metric_name, primary_event_expectations
+            variants,
+            report_variants,
+            primary_metric_key,
+            primary_metric_name,
+            primary_event_expectations,
         )
 
     completion = None
