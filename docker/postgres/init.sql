@@ -2,6 +2,7 @@ BEGIN;
 
 DROP TABLE IF EXISTS event_occurrences CASCADE;
 DROP TABLE IF EXISTS event_types CASCADE;
+DROP TABLE IF EXISTS subject_experiment_cooldown CASCADE;
 DROP TABLE IF EXISTS decisions CASCADE;
 DROP TABLE IF EXISTS experiment_version_snapshots CASCADE;
 DROP TABLE IF EXISTS experiment_guardrail_history CASCADE;
@@ -126,6 +127,14 @@ CREATE INDEX IF NOT EXISTS idx_experiment_variants_experiment ON experiment_vari
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_experiment_variants_one_control
     ON experiment_variants(experiment_id) WHERE is_control = TRUE;
+
+ALTER TABLE experiments ADD COLUMN IF NOT EXISTS completion_outcome VARCHAR
+    CHECK (completion_outcome IS NULL OR completion_outcome IN ('rollout_winner', 'rollback', 'no_effect'));
+ALTER TABLE experiments ADD COLUMN IF NOT EXISTS completion_comment TEXT;
+ALTER TABLE experiments ADD COLUMN IF NOT EXISTS completion_winner_variant_id UUID REFERENCES experiment_variants(id) ON DELETE SET NULL;
+COMMENT ON COLUMN experiments.completion_outcome IS 'Режим завершения: rollout_winner — раскатить победителя; rollback — откат к контролю; no_effect — эффект не выявлен';
+COMMENT ON COLUMN experiments.completion_comment IS 'Обязательный комментарий при завершении: обоснование решения и что делать с гипотезой';
+COMMENT ON COLUMN experiments.completion_winner_variant_id IS 'Вариант-победитель при completion_outcome=rollout_winner';
 
 CREATE OR REPLACE FUNCTION check_experiment_variants_invariants()
 RETURNS TRIGGER AS $$
@@ -307,6 +316,11 @@ CREATE INDEX IF NOT EXISTS idx_decisions_subject_id ON decisions(subject_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_flag_id ON decisions(flag_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_experiment_id ON decisions(experiment_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_created_at ON decisions(created_at);
+
+CREATE TABLE IF NOT EXISTS subject_experiment_cooldown (
+    subject_id VARCHAR NOT NULL PRIMARY KEY,
+    entered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 CREATE TABLE IF NOT EXISTS event_types (
     id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),

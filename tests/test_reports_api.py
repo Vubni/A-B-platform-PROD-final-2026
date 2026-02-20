@@ -61,6 +61,8 @@ async def test_report_success_structure(
         data = await resp.json()
         assert data.get("experiment_id") == ctx["experiment_id"]
         assert "experiment_name" in data
+        assert "status" in data
+        assert "completion" in data  # None пока эксперимент не завершён; при status=completed — outcome, comment, winner_*
         assert "context" in data
         assert data["context"]["window_start"] == params["start"]
         assert data["context"]["window_end"] == params["end"]

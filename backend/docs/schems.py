@@ -212,11 +212,25 @@ class StatusUpdateSchema(Schema):
         required=True,
         validate=mvalidate.OneOf((
             "draft", "on_review", "approved", "running", "paused",
-            "completed", "archived", "rejected",
+            "archived", "rejected",
         )),
-        description="Новый статус",
+        description="Новый статус (completed задаётся отдельным эндпоинтом POST .../complete)",
     )
     comment = fields.Str(allow_none=True, description="Комментарий (для ревью)")
+
+
+class CompleteExperimentSchema(Schema):
+    completion_outcome = fields.Str(
+        required=True,
+        validate=mvalidate.OneOf(("rollout_winner", "rollback", "no_effect")),
+        description="Режим завершения: rollout_winner — раскатить победителя; rollback — откат к контролю; no_effect — эффект не выявлен",
+    )
+    comment = fields.Str(required=True, description="Обоснование решения и что делать с гипотезой")
+    completion_winner_variant_id = fields.Str(
+        load_default=None,
+        allow_none=True,
+        description="UUID варианта-победителя (обязателен при completion_outcome=rollout_winner)",
+    )
 
 
 class VariantCreateSchema(Schema):
@@ -533,6 +547,16 @@ class ReportMetricDynamicsItemSchema(Schema):
     value = fields.Raw()
 
 
+class ReportCompletionSchema(Schema):
+    """Финальное решение по завершённому эксперименту (ТЗ 2.6)."""
+    outcome = fields.Str(
+        description="Режим завершения: rollout_winner — раскатить победителя; rollback — откат к контролю; no_effect — эффект не выявлен",
+    )
+    comment = fields.Str(allow_none=True, description="Обоснование решения и что делать с гипотезой")
+    winner_variant_id = fields.Str(allow_none=True, description="UUID варианта-победителя при outcome=rollout_winner")
+    winner_variant_name = fields.Str(allow_none=True, description="Название варианта-победителя при outcome=rollout_winner")
+
+
 class ReportExperimentResponseSchema(Schema):
     experiment_id = fields.Str(description="UUID эксперимента")
     experiment_name = fields.Str(allow_none=True, description="Название эксперимента")
@@ -559,6 +583,11 @@ class ReportExperimentResponseSchema(Schema):
         fields.Dict(),
         allow_none=True,
         description="Динамика метрик в выбранном диапазоне (если запрошена)",
+    )
+    completion = fields.Nested(
+        ReportCompletionSchema,
+        allow_none=True,
+        description="Финальное решение при status=completed: rollout_winner | rollback | no_effect и комментарий",
     )
 
 

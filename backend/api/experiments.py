@@ -2,12 +2,13 @@ from typing import Optional
 
 from aiohttp import web
 from aiohttp_apispec import docs, request_schema
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from dsl import validate_targeting_rule
 from api import validate
 from core import validate_uuid, check_authorization
 from docs.schems import (
+    CompleteExperimentSchema,
     ExperimentCreateSchema,
     ExperimentListResponseSchema,
     ExperimentItemSchema,
@@ -21,6 +22,7 @@ from docs.schems import (
 from functions.experiments import (
     add_experiment_variant,
     check_access_to_experiment,
+    complete_experiment,
     create_experiment,
     delete_experiment_variant,
     get_experiment_by_id,
@@ -180,6 +182,33 @@ class StatusUpdate(BaseModel):
         if v not in VALID_STATUSES:
             raise ValueError(f"Status must be one of {VALID_STATUSES}")
         return v
+
+
+# Завершение эксперимента — отдельный эндпоинт POST .../complete (experimenter передаёт решение и комментарий)
+class CompleteExperiment(BaseModel):
+    completion_outcome: str  # rollout_winner | rollback | no_effect
+    comment: str
+    completion_winner_variant_id: Optional[str] = None  # обязателен при completion_outcome=rollout_winner
+
+    @field_validator("completion_outcome")
+    @classmethod
+    def outcome_valid(cls, v: str) -> str:
+        if v not in ("rollout_winner", "rollback", "no_effect"):
+            raise ValueError("completion_outcome must be one of: rollout_winner, rollback, no_effect")
+        return v
+
+    @field_validator("comment")
+    @classmethod
+    def comment_nonempty(cls, v: str) -> str:
+        if not v or not str(v).strip():
+            raise ValueError("comment is required")
+        return v.strip()
+
+    @model_validator(mode="after")
+    def check_rollout_winner(self) -> "CompleteExperiment":
+        if self.completion_outcome == "rollout_winner" and not self.completion_winner_variant_id:
+            raise ValueError("completion_winner_variant_id required when completion_outcome=rollout_winner")
+        return self
 
 
 class VariantCreate(BaseModel):
@@ -433,22 +462,79 @@ async def experiments_update_status(request: web.Request, parsed: StatusUpdate) 
             return validate.format_403_error(request, "Only approvers can perform review actions")
         if not await check_access_to_experiment(exp_id, user_id):
             return validate.format_403_error(request, "Not enough permissions for this experiment")
-        updated = await update_experiment_status(
+        updated, status_err = await update_experiment_status(
             exp_id, new_status, comment=parsed.comment, reviewer_id=user_id)
     else:
         if role != "experimenter":
-            return validate.format_403_error(request, "Only experimenters can change status to on_review/running/paused/completed")
+            return validate.format_403_error(request, "Only experimenters can change status to on_review/running/paused")
         if not is_owner:
             return validate.format_403_error(request, "Only owner can change this experiment status")
-        updated = await update_experiment_status(exp_id, new_status, comment=parsed.comment, reviewer_id=user_id)
+        updated, status_err = await update_experiment_status(
+            exp_id, new_status, comment=parsed.comment, reviewer_id=user_id
+        )
 
     if not updated:
         if new_status == "running":
             return validate.format_409_error(request, "Another experiment for this flag is already running")
         if new_status == "paused":
             return validate.format_409_error(request, "Another experiment for this flag is already paused")
-        err = "Invalid status transition or validation failed (e.g. add variants for on_review)"
+        err = status_err or "Invalid status transition or validation failed (e.g. add variants for on_review)"
         return web.json_response({"error": err, "current_status": current}, status=400)
+    return web.json_response(updated)
+
+
+@docs(
+    tags=["Experiments"],
+    summary="Завершить эксперимент (финальное решение)",
+    description=(
+        "Experimenter явно завершает эксперимент и фиксирует решение: rollout_winner (раскатить победителя), "
+        "rollback (откат к контролю) или no_effect (эффект не выявлен). Комментарий обязателен. "
+        "Доступно только при статусе running или paused. Viewer затем может просмотреть результат по отчёту (GET report)."
+    ),
+    parameters=[{"name": "id", "in": "path", "required": True, "description": "UUID эксперимента", "schema": {"type": "string", "format": "uuid"}}],
+    responses={
+        200: {"description": "Эксперимент завершён", "schema": ExperimentItemSchema},
+        400: {"description": "Недопустимое состояние или неверный variant_id"},
+        403: {"description": "Только experimenter и владелец"},
+        404: {"description": "Эксперимент не найден"},
+    },
+)
+@request_schema(CompleteExperimentSchema(), location="json", put_into="data")
+@validate.validate(CompleteExperiment)
+async def experiments_complete(request: web.Request, parsed: CompleteExperiment) -> web.Response:
+    auth_payload = await check_authorization(request)
+    if not auth_payload:
+        return validate.format_401_error(request, "Token is required")
+    if auth_payload.get("role") != "experimenter":
+        return validate.format_403_error(request, "Only experimenters can complete experiments")
+    exp_id = _experiment_id_from_request(request)
+    if not exp_id:
+        return validate.format_404_error(request, "Invalid experiment id")
+    experiment = await get_experiment_by_id(exp_id)
+    if not experiment:
+        return validate.format_404_error(request, "Experiment not found")
+    if str(experiment["created_by"]) != str(auth_payload.get("id")):
+        return validate.format_403_error(request, "Only owner can complete this experiment")
+    if experiment["status"] not in ("running", "paused"):
+        return web.json_response(
+            {"error": "Experiment can be completed only when status is running or paused", "status": experiment["status"]},
+            status=400,
+        )
+    if parsed.completion_outcome == "rollout_winner":
+        variant_ids = [str(v.get("id")) for v in (experiment.get("variants") or []) if v.get("id")]
+        if parsed.completion_winner_variant_id not in variant_ids:
+            return web.json_response(
+                {"error": "completion_winner_variant_id must be a variant of this experiment"},
+                status=400,
+            )
+    updated = await complete_experiment(
+        exp_id,
+        outcome=parsed.completion_outcome,
+        comment=parsed.comment,
+        winner_variant_id=parsed.completion_winner_variant_id if parsed.completion_outcome == "rollout_winner" else None,
+    )
+    if not updated:
+        return web.json_response({"error": "Failed to complete experiment"}, status=400)
     return web.json_response(updated)
 
 

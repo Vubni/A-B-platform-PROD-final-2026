@@ -1,5 +1,6 @@
 from logging.handlers import RotatingFileHandler
 import logging
+import json
 from dotenv import load_dotenv
 import os
 
@@ -26,15 +27,34 @@ EXPERIMENT_COOLDOWN_SECONDS = int(os.getenv("EXPERIMENT_COOLDOWN_SECONDS", 7 * 2
 EVENTS_DEPENDENCY_MAX_DELAY_DAYS = int(os.getenv("EVENTS_DEPENDENCY_MAX_DELAY_DAYS", 7))
 
 
+def _utc_iso_timestamp(record: logging.LogRecord) -> str:
+    from time import gmtime
+    t = gmtime(record.created)
+    ms = int((record.created % 1) * 1000)
+    return f"{t.tm_year:04d}-{t.tm_mon:02d}-{t.tm_mday:02d}T{t.tm_hour:02d}:{t.tm_min:02d}:{t.tm_sec:02d}.{ms:03d}Z"
 
-LOG_FORMAT = "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
-LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
+
+class StructuredJsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        log_obj = {
+            "timestamp": _utc_iso_timestamp(record),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "module": record.module,
+            "funcName": record.funcName,
+            "lineno": record.lineno,
+        }
+        if record.exc_info:
+            log_obj["exception"] = self.formatException(record.exc_info)
+        return json.dumps(log_obj, ensure_ascii=False)
+
 
 logger = logging.getLogger("backend")
 logger.setLevel(logging.INFO)
 logger.propagate = False
 
-_formatter = logging.Formatter(LOG_FORMAT, datefmt=LOG_DATEFMT)
+_formatter = StructuredJsonFormatter()
 
 
 def _file_handler(path: str, level: int = logging.NOTSET) -> RotatingFileHandler:

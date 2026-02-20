@@ -353,9 +353,28 @@ async def get_experiment_report(experiment: dict, start_iso: str, end_iso: str) 
             variants, report_variants, primary_metric_key, primary_metric_name, primary_event_expectations
         )
 
+    completion = None
+    if experiment.get("status") == "completed":
+        outcome = experiment.get("completion_outcome")
+        comment = experiment.get("completion_comment")
+        winner_id = experiment.get("completion_winner_variant_id")
+        winner_name = None
+        if winner_id and variants:
+            for v in variants:
+                if str(v.get("id")) == str(winner_id):
+                    winner_name = v.get("variant_name")
+                    break
+        completion = {
+            "outcome": outcome,
+            "comment": comment,
+            "winner_variant_id": str(winner_id) if winner_id else None,
+            "winner_variant_name": winner_name,
+        }
+
     return {
         "experiment_id": experiment["id"],
         "experiment_name": experiment.get("name"),
+        "status": experiment.get("status"),
         "context": {
             "window_start": start_iso,
             "window_end": end_iso,
@@ -365,4 +384,5 @@ async def get_experiment_report(experiment: dict, start_iso: str, end_iso: str) 
         "variants": report_variants,
         "primary_metric_summary": primary_summary,
         "dynamics": None,
+        "completion": completion,
     }

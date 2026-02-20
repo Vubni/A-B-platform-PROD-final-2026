@@ -2,6 +2,8 @@ from decimal import Decimal
 import json
 from typing import Any, Optional
 
+import asyncpg
+
 from core import serialize_json
 from database.database import Database
 
@@ -75,15 +77,31 @@ async def create_experiment(flag_id: str, name: str, audience_fraction: float, c
 
 async def get_experiment_by_id(experiment_id: str) -> Optional[dict]:
     async with Database() as db:
-        row = await db.execute(
-            """SELECT e.id, e.flag_id, e.name, e.status::text, e.version,
-                      e.audience_fraction, e.targeting_rule,
-                      e.created_by, e.created_at, e.updated_at,
-                      f.key AS flag_key
-               FROM experiments e
-               JOIN feature_flags f ON f.id = e.flag_id
-               WHERE e.id = $1""",
-            (experiment_id,))
+        try:
+            row = await db.execute(
+                """SELECT e.id, e.flag_id, e.name, e.status::text, e.version,
+                          e.audience_fraction, e.targeting_rule,
+                          e.created_by, e.created_at, e.updated_at,
+                          e.completion_outcome, e.completion_comment, e.completion_winner_variant_id,
+                          f.key AS flag_key
+                   FROM experiments e
+                   JOIN feature_flags f ON f.id = e.flag_id
+                   WHERE e.id = $1""",
+                (experiment_id,))
+        except asyncpg.exceptions.UndefinedColumnError:
+            row = await db.execute(
+                """SELECT e.id, e.flag_id, e.name, e.status::text, e.version,
+                          e.audience_fraction, e.targeting_rule,
+                          e.created_by, e.created_at, e.updated_at,
+                          f.key AS flag_key
+                   FROM experiments e
+                   JOIN feature_flags f ON f.id = e.flag_id
+                   WHERE e.id = $1""",
+                (experiment_id,))
+            if row:
+                row["completion_outcome"] = None
+                row["completion_comment"] = None
+                row["completion_winner_variant_id"] = None
         if not row:
             return None
         row["variants"] = await db.execute_all(
@@ -293,22 +311,56 @@ async def add_experiment_metric(experiment_id: str, metric_key: str, metric_type
         return serialize_json(row)
 
 
-async def submit_review(experiment_id: str) -> Optional[dict]:
+async def _check_variant_weights_match_audience(db, experiment_id: str) -> Optional[str]:
+    """Проверяет, что сумма весов вариантов равна доле аудитории (покрытию) эксперимента.
+    Возвращает сообщение об ошибке или None если всё ок."""
+    row = await db.execute(
+        """SELECT e.audience_fraction,
+                  (SELECT COALESCE(SUM(ev.weight), 0) FROM experiment_variants ev WHERE ev.experiment_id = e.id) AS total_weight,
+                  (SELECT COUNT(*) FROM experiment_variants ev WHERE ev.experiment_id = e.id) AS variant_count
+           FROM experiments e WHERE e.id = $1""",
+        (experiment_id,),
+    )
+    if not row:
+        return None
+    af = row.get("audience_fraction")
+    total_weight = row.get("total_weight")
+    variant_count = int(row.get("variant_count") or 0)
+    if variant_count < 2:
+        return None
+    af_dec = Decimal(str(af)) if af is not None else None
+    tw_dec = Decimal(str(total_weight)) if total_weight is not None else Decimal(0)
+    if af_dec is None or tw_dec != af_dec:
+        af_str = str(float(af_dec)) if af_dec is not None else "?"
+        return (
+            f"Сумма долей вариантов ({float(tw_dec)}) должна равняться доле аудитории (покрытию) эксперимента ({af_str}). "
+            "Отправка на одобрение невозможна."
+        )
+    return None
+
+
+async def submit_review(experiment_id: str) -> tuple[Optional[dict], Optional[str]]:
+    """Переводит эксперимент в on_review. Возвращает (experiment, None) при успехе,
+    (None, error_message) при ошибке валидации, (None, None) при неверном статусе/нет вариантов."""
     async with Database() as db:
         row = await db.execute(
             "SELECT id, status FROM experiments WHERE id = $1",
             (experiment_id,))
         if not row or row["status"] != "draft":
-            return None
-        variant_count = await db.execute(
+            return (None, None)
+        variant_count_row = await db.execute(
             "SELECT COUNT(*) AS c FROM experiment_variants WHERE experiment_id = $1",
             (experiment_id,))
-        if variant_count["c"] < 1:
-            return None
+        variant_count = int((variant_count_row or {}).get("c") or 0)
+        if variant_count < 1:
+            return (None, "Добавьте хотя бы один вариант перед отправкой на одобрение.")
+        err = await _check_variant_weights_match_audience(db, experiment_id)
+        if err:
+            return (None, err)
         await db.execute(
             "UPDATE experiments SET status = 'on_review', updated_at = NOW() WHERE id = $1",
             (experiment_id,))
-    return await get_experiment_by_id(experiment_id)
+    return (await get_experiment_by_id(experiment_id), None)
 
 
 async def get_review_approvals_count(experiment_id: str) -> int:
@@ -378,39 +430,50 @@ async def add_review_record(experiment_id: str, reviewer_id: str, action: str, c
     return await get_experiment_by_id(experiment_id)
 
 
+# completed ставится только через отдельный эндпоинт POST .../complete, не через PATCH .../status
 STATUS_TRANSITIONS = {
     "draft": ("on_review",),
     "on_review": ("draft", "rejected", "approved"),
     "approved": ("running",),
-    "running": ("paused", "completed"),
-    "paused": ("running", "completed"),
+    "running": ("paused",),
+    "paused": ("running",),
 }
 
 
-async def update_experiment_status(experiment_id: str, new_status: str, comment: Optional[str] = None, reviewer_id: Optional[str] = None) -> Optional[dict]:
+async def update_experiment_status(
+    experiment_id: str,
+    new_status: str,
+    comment: Optional[str] = None,
+    reviewer_id: Optional[str] = None,
+) -> tuple[Optional[dict], Optional[str]]:
+    """Возвращает (experiment, None) при успехе, (None, error_message) при ошибке валидации, (None, None) при неверном переходе.
+    completed не выставляется здесь — только через complete_experiment (эндпоинт POST .../complete)."""
     if new_status not in EXPERIMENT_STATUSES:
-        return None
+        return (None, None)
     experiment = await get_experiment_by_id(experiment_id)
     if not experiment:
-        return None
+        return (None, None)
     allowed = STATUS_TRANSITIONS.get(experiment["status"], ())
     if new_status not in allowed:
-        return None
+        return (None, None)
     if new_status == "on_review":
         return await submit_review(experiment_id)
     if new_status == "draft":
-        return await add_review_record(experiment_id, reviewer_id, "requested_changes", comment)
+        updated = await add_review_record(experiment_id, reviewer_id, "requested_changes", comment)
+        return (updated, None)
     if new_status == "rejected":
-        return await add_review_record(experiment_id, reviewer_id, "rejected", comment)
+        updated = await add_review_record(experiment_id, reviewer_id, "rejected", comment)
+        return (updated, None)
     if new_status == "approved":
-        return await add_review_record(experiment_id, reviewer_id, "approved", comment)
+        updated = await add_review_record(experiment_id, reviewer_id, "approved", comment)
+        return (updated, None)
     if new_status == "running":
-        return await start_experiment(experiment_id)
+        updated = await start_experiment(experiment_id)
+        return (updated, None)
     if new_status == "paused":
-        return await pause_experiment(experiment_id)
-    if new_status == "completed":
-        return await complete_experiment(experiment_id)
-    return None
+        updated = await pause_experiment(experiment_id)
+        return (updated, None)
+    return (None, None)
 
 
 async def start_experiment(experiment_id: str) -> Optional[dict]:
@@ -445,7 +508,12 @@ async def pause_experiment(experiment_id: str) -> Optional[dict]:
         return await get_experiment_by_id(experiment_id)
 
 
+COMPLETION_OUTCOMES = ("rollout_winner", "rollback", "no_effect")
+
+
 async def rollback_experiment_to_control(experiment_id: str) -> Optional[dict]:
+    """Откат к контролю (guardrail): останавливаем раздачу вариантов и очищаем decisions. Статус → paused.
+    completed не ставится автоматически — experimenter завершает эксперимент через POST .../complete с outcome=rollback и комментарием."""
     async with Database() as db:
         row = await db.execute(
             "SELECT id, status FROM experiments WHERE id = $1",
@@ -457,21 +525,33 @@ async def rollback_experiment_to_control(experiment_id: str) -> Optional[dict]:
             "DELETE FROM decisions WHERE experiment_id = $1",
             (experiment_id,))
         await db.execute(
-            "UPDATE experiments SET status = 'completed', updated_at = NOW() WHERE id = $1",
+            "UPDATE experiments SET status = 'paused', updated_at = NOW() WHERE id = $1",
             (experiment_id,))
         return await get_experiment_by_id(experiment_id)
 
 
-async def complete_experiment(experiment_id: str) -> Optional[dict]:
+async def complete_experiment(
+    experiment_id: str,
+    outcome: str,
+    comment: str,
+    winner_variant_id: Optional[str] = None,
+) -> Optional[dict]:
+    """Завершение эксперимента с фиксацией решения: rollout_winner / rollback / no_effect и обязательным комментарием."""
+    if outcome not in COMPLETION_OUTCOMES:
+        return None
     async with Database() as db:
         row = await db.execute(
             "SELECT id, status FROM experiments WHERE id = $1",
             (experiment_id,))
         if not row or row["status"] not in ("running", "paused"):
             return None
+        if outcome == "rollout_winner" and not winner_variant_id:
+            return None
         await db.execute(
-            "UPDATE experiments SET status = 'completed', updated_at = NOW() WHERE id = $1",
-            (experiment_id,))
+            """UPDATE experiments SET status = 'completed', updated_at = NOW(),
+               completion_outcome = $2, completion_comment = $3, completion_winner_variant_id = $4
+               WHERE id = $1""",
+            (experiment_id, outcome, comment or "", winner_variant_id if outcome == "rollout_winner" else None))
         return await get_experiment_by_id(experiment_id)
 
 

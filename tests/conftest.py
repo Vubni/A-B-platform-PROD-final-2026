@@ -1,7 +1,17 @@
 import os
+import sys
 import uuid
+from pathlib import Path
+
 import pytest
 from aiohttp import ClientSession
+
+# Allow importing backend for unit-style tests (e.g. experiment validation)
+_tests_dir = Path(__file__).resolve().parent
+_project_root = _tests_dir.parent
+_backend_dir = _project_root / "backend"
+if _backend_dir.exists() and str(_backend_dir) not in sys.path:
+    sys.path.insert(0, str(_backend_dir))
 
 BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:80")
 

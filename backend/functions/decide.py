@@ -2,6 +2,10 @@ import uuid
 from decimal import Decimal
 from typing import Any, Optional
 
+from config import (
+    EXPERIMENT_COOLDOWN_SECONDS,
+    MAX_ACTIVE_EXPERIMENTS_PER_SUBJECT,
+)
 from core import serialize_json
 from database.database import Database
 from dsl import evaluate_targeting_rule
@@ -56,6 +60,30 @@ async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any],
                    FROM decisions WHERE subject_id = $1 AND flag_id = $2
                    ORDER BY created_at DESC LIMIT 1""",
                 (subject_id, flag_id))
+
+            active_count_row = await db.execute(
+                """SELECT COUNT(DISTINCT d.experiment_id) AS cnt
+                   FROM decisions d
+                   JOIN experiments e ON e.id = d.experiment_id AND e.status = 'running'
+                   WHERE d.subject_id = $1 AND d.variant_id IS NOT NULL""",
+                (subject_id,),
+            )
+            active_experiments_count = (active_count_row or {}).get("cnt") or 0
+            if active_experiments_count >= MAX_ACTIVE_EXPERIMENTS_PER_SUBJECT and not existing:
+                decision_id = uuid.uuid4()
+                await db.execute(
+                    """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
+                       VALUES ($1, $2, $3, $4, NULL, NULL)""",
+                    (decision_id, subject_id, flag_id, default_value),
+                )
+                result["flags"].append({
+                    "flag_key": experiment['flag_key'],
+                    "flag_value": default_value,
+                    "decision_id": str(decision_id),
+                    "experiment": None
+                })
+                continue
+
             if existing:
                 out_value = existing["value"]
                 out_experiment_id = str(existing["experiment_id"]) if existing.get("experiment_id") else None
@@ -88,7 +116,7 @@ async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any],
 
 
 
-            audience_fraction = serialize_json(experiment['audience_fraction'])
+            audience_fraction = experiment['audience_fraction']
             counts = await db.execute(
                 """SELECT
                     COUNT(*) AS total,
@@ -98,7 +126,14 @@ async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any],
             )
             total = counts["total"] or 0
             in_experiment = counts["in_experiment"] or 0
-            assign_to_experiment = (in_experiment / max(total, 1)) < audience_fraction
+
+            if total == 0:
+                assign_to_experiment = False
+            elif audience_fraction == 0:
+                assign_to_experiment = True
+            else:
+                target_in_experiment = (total + 1) * audience_fraction
+                assign_to_experiment = in_experiment < target_in_experiment
 
             decision_id = str(uuid.uuid4())
             if not assign_to_experiment:
@@ -132,11 +167,12 @@ async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any],
             af = audience_fraction
 
             best_variant = None
-            best_deficit = -1.0
+            best_deficit = Decimal("-1")
             for v in variants:
                 vid = str(v["id"])
-                target_ratio = serialize_json(v["weight"]) / af
-                current_ratio = (count_by_variant.get(vid, 0) / max(total_in_exp, 1))
+                weight = Decimal(str(serialize_json(v["weight"])))
+                target_ratio = weight / af if af else Decimal("0")
+                current_ratio = Decimal(count_by_variant.get(vid, 0)) / max(Decimal(total_in_exp), 1)
                 deficit = target_ratio - current_ratio
                 if deficit > best_deficit:
                     best_deficit = deficit
@@ -150,6 +186,19 @@ async def get_decisions_for_subject(subject_id: str, attributes: dict[str, Any],
                    VALUES ($1, $2, $3, $4, $5, $6)""",
                 (uuid.UUID(decision_id), subject_id, flag_id, variant_value, experiment['id'], variant_id),
             )
+            after_count_row = await db.execute(
+                """SELECT COUNT(DISTINCT d.experiment_id) AS cnt
+                   FROM decisions d
+                   JOIN experiments e ON e.id = d.experiment_id AND e.status = 'running'
+                   WHERE d.subject_id = $1 AND d.variant_id IS NOT NULL""",
+                (subject_id,),
+            )
+            if ((after_count_row or {}).get("cnt") or 0) >= MAX_ACTIVE_EXPERIMENTS_PER_SUBJECT:
+                await db.execute(
+                    """INSERT INTO subject_experiment_cooldown (subject_id, entered_at)
+                       VALUES ($1, NOW()) ON CONFLICT (subject_id) DO UPDATE SET entered_at = NOW()""",
+                    (subject_id,),
+                )
             result["flags"].append({
                 "flag_key": experiment['flag_key'],
                 "flag_value": variant_value,

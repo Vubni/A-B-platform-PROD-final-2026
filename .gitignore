@@ -5,3 +5,4 @@ test.py
 **/__pycache__
 __pycache__
 .DS_Store
+.ruff_cache

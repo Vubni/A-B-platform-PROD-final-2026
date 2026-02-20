@@ -105,7 +105,7 @@ async def _evaluate_experiment_guardrails(experiment_id: str) -> None:
         variant_rows = await db.execute_all(
             "SELECT id FROM experiment_variants WHERE experiment_id = $1",
             (experiment_id,))
-        all_decision_ids: List[str] = []
+        all_decision_ids = []
         for v in variant_rows or []:
             dids = await _decision_ids_by_variant(db, experiment_id, v["id"])
             all_decision_ids.extend(dids)

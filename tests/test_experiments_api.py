@@ -427,6 +427,49 @@ async def test_experiments_status_transition_to_on_review(
 
 
 @pytest.mark.asyncio
+async def test_experiments_variant_add_rejected_when_weights_sum_mismatch_audience_fraction(
+    http_session, base_url, auth_headers_experimenter, flag_id
+):
+    create_url = f"{base_url}/api/v1/experiments"
+    async with http_session.post(
+        create_url,
+        json={
+            "flag_id": flag_id,
+            "name": "Weights sum test",
+            "audience_fraction": 0.5,
+        },
+        headers=auth_headers_experimenter,
+    ) as cr:
+        assert cr.status == 201
+        exp_id = (await cr.json())["id"]
+
+    var_url = f"{base_url}/api/v1/experiments/{exp_id}/variants"
+    async with http_session.post(
+        var_url,
+        json={
+            "variant_name": "control",
+            "variant_value": "c",
+            "weight": 0.2,
+            "is_control": True,
+        },
+        headers=auth_headers_experimenter,
+    ) as vr:
+        assert vr.status == 201
+
+    async with http_session.post(
+        var_url,
+        json={
+            "variant_name": "treatment",
+            "variant_value": "t",
+            "weight": 0.2,
+            "is_control": False,
+        },
+        headers=auth_headers_experimenter,
+    ) as vr:
+        assert vr.status in (400, 500), "Ожидалось отклонение: сумма весов (0.4) не равна покрытию (0.5)"
+
+
+@pytest.mark.asyncio
 async def test_experiments_guardrail_history(
     http_session, base_url, auth_headers_experimenter, flag_id
 ):

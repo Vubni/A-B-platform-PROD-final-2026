@@ -100,6 +100,8 @@ if __name__ == "__main__":
                   experiments.experiments_update),
         web.patch(prefix + "/experiments/{id}/status",
                   experiments.experiments_update_status),
+        web.post(prefix + "/experiments/{id}/complete",
+                 experiments.experiments_complete),
         web.post(prefix + "/experiments/{id}/variants",
                  experiments.experiments_variant_create),
         web.patch(prefix + "/experiments/{id}/variants/{variant_id}",
