@@ -90,48 +90,53 @@ async def create_experiment(
     return (await get_experiment_by_id(str(new_id)), None, None)
 
 
+async def _get_experiment_row_using_db(db, experiment_id: str):
+    """Load experiment row + variants + metrics using the given db connection. Returns dict or None."""
+    try:
+        row = await db.execute(
+            """SELECT e.id, e.flag_id, e.name, e.status::text, e.version,
+                      e.audience_fraction, e.targeting_rule,
+                      e.created_by, e.created_at, e.updated_at,
+                      e.completion_outcome, e.completion_comment, e.completion_winner_variant_id,
+                      f.key AS flag_key
+               FROM experiments e
+               JOIN feature_flags f ON f.id = e.flag_id
+               WHERE e.id = $1""",
+            (experiment_id,),
+        )
+    except asyncpg.exceptions.UndefinedColumnError:
+        row = await db.execute(
+            """SELECT e.id, e.flag_id, e.name, e.status::text, e.version,
+                      e.audience_fraction, e.targeting_rule,
+                      e.created_by, e.created_at, e.updated_at,
+                      f.key AS flag_key
+               FROM experiments e
+               JOIN feature_flags f ON f.id = e.flag_id
+               WHERE e.id = $1""",
+            (experiment_id,),
+        )
+        if row:
+            row["completion_outcome"] = None
+            row["completion_comment"] = None
+            row["completion_winner_variant_id"] = None
+    if not row:
+        return None
+    row["variants"] = await db.execute_all(
+        """SELECT id, experiment_id, variant_name, variant_value, weight, is_control, created_at
+           FROM experiment_variants WHERE experiment_id = $1 ORDER BY variant_name""",
+        (experiment_id,),
+    )
+    row["metrics"] = await db.execute_all(
+        """SELECT id, experiment_id, metric_key, metric_type, created_at
+           FROM experiment_metrics WHERE experiment_id = $1""",
+        (experiment_id,),
+    )
+    return serialize_json(row)
+
+
 async def get_experiment_by_id(experiment_id: str) -> dict | None:
     async with Database() as db:
-        try:
-            row = await db.execute(
-                """SELECT e.id, e.flag_id, e.name, e.status::text, e.version,
-                          e.audience_fraction, e.targeting_rule,
-                          e.created_by, e.created_at, e.updated_at,
-                          e.completion_outcome, e.completion_comment, e.completion_winner_variant_id,
-                          f.key AS flag_key
-                   FROM experiments e
-                   JOIN feature_flags f ON f.id = e.flag_id
-                   WHERE e.id = $1""",
-                (experiment_id,),
-            )
-        except asyncpg.exceptions.UndefinedColumnError:
-            row = await db.execute(
-                """SELECT e.id, e.flag_id, e.name, e.status::text, e.version,
-                          e.audience_fraction, e.targeting_rule,
-                          e.created_by, e.created_at, e.updated_at,
-                          f.key AS flag_key
-                   FROM experiments e
-                   JOIN feature_flags f ON f.id = e.flag_id
-                   WHERE e.id = $1""",
-                (experiment_id,),
-            )
-            if row:
-                row["completion_outcome"] = None
-                row["completion_comment"] = None
-                row["completion_winner_variant_id"] = None
-        if not row:
-            return None
-        row["variants"] = await db.execute_all(
-            """SELECT id, experiment_id, variant_name, variant_value, weight, is_control, created_at
-               FROM experiment_variants WHERE experiment_id = $1 ORDER BY variant_name""",
-            (experiment_id,),
-        )
-        row["metrics"] = await db.execute_all(
-            """SELECT id, experiment_id, metric_key, metric_type, created_at
-               FROM experiment_metrics WHERE experiment_id = $1""",
-            (experiment_id,),
-        )
-        return serialize_json(row)
+        return await _get_experiment_row_using_db(db, experiment_id)
 
 
 async def get_experiments_list(
@@ -628,7 +633,7 @@ async def complete_experiment(
                 winner_variant_id if outcome == "rollout_winner" else None,
             ),
         )
-        return await get_experiment_by_id(experiment_id)
+        return await _get_experiment_row_using_db(db, experiment_id)
 
 
 async def get_review_history(experiment_id: str) -> list[dict]:

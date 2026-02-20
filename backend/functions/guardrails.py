@@ -80,10 +80,15 @@ async def upsert_metric_guardrail(
 
 async def delete_metric_guardrail(metric_key: str) -> bool:
     async with Database() as db:
-        res = await db.execute(
+        existing = await db.execute(
+            "SELECT 1 FROM metric_guardrails WHERE metric_key = $1", (metric_key.strip(),)
+        )
+        if not existing:
+            return False
+        await db.execute(
             "DELETE FROM metric_guardrails WHERE metric_key = $1", (metric_key.strip(),)
         )
-        return bool(res)
+        return True
 
 
 async def _evaluate_experiment_guardrails(experiment_id: str) -> None:

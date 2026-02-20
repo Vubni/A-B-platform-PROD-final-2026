@@ -40,6 +40,18 @@ async def test_auth_login_invalid_email(http_session, base_url):
         assert resp.status == 401
 
 
+@pytest.mark.asyncio
+async def test_auth_login_missing_body_or_invalid(http_session, base_url):
+    """POST /api/v1/auth без body или без email/password возвращает 400/422."""
+    url = f"{base_url}/api/v1/auth"
+    async with http_session.post(url, json={}) as resp:
+        assert resp.status in (400, 422)
+    async with http_session.post(url, json={"email": "admin@test.com"}) as resp:
+        assert resp.status in (400, 422)
+    async with http_session.post(url, json={"password": "admin123"}) as resp:
+        assert resp.status in (400, 422)
+
+
 
 @pytest.mark.asyncio
 async def test_users_list_requires_auth(http_session, base_url):

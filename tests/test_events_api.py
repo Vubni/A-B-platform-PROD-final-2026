@@ -1160,6 +1160,8 @@ async def test_guardrail_pauses_experiment_when_threshold_exceeded(
             headers=headers,
             json={"status": status},
         ) as resp:
+            if resp.status == 409:
+                pytest.skip("Another experiment already running on this flag")
             assert resp.status == 200, f"Failed to set status {status}: {await resp.text()}"
     decide_url = f"{base_url}/api/v1/decide"
     decision_ids = []

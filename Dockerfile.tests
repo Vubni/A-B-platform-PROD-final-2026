@@ -5,8 +5,8 @@ WORKDIR /app
 COPY backend/requirements.txt /app/backend/requirements.txt
 RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 
-COPY requirements-test.txt /app/requirements-test.txt
-RUN pip install --no-cache-dir -r /app/requirements-test.txt
+COPY tests/requirements-test.txt /app/tests/requirements-test.txt
+RUN pip install --no-cache-dir -r /app/tests/requirements-test.txt
 
 COPY backend /app/backend
 COPY tests /app/tests

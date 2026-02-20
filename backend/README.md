@@ -191,6 +191,9 @@
 
 ```text
 .
+├── .github/
+│   └── workflows/
+│       └── lint.yml         # CI: линтинг и проверка форматирования (Ruff)
 ├── backend/
 │   ├── api/                 # HTTP-эндпоинты (aiohttp handlers, валидация, auth)
 │   │   ├── auth.py          # Логин, выдача JWT
@@ -202,31 +205,44 @@
 │   │   ├── reports.py       # Отчёты по экспериментам, каталог метрик
 │   │   ├── guardrails.py    # CRUD по настройкам guardrail-метрик
 │   │   ├── health.py        # /health и /ready
-│   │   └── system_metrics.py# /metrics и middleware для счётчиков
+│   │   ├── system_metrics.py# /metrics и middleware для счётчиков
+│   │   ├── validate.py      # Общая валидация запросов (pydantic и др.)
+│   │   └── get_file.py      # Раздача статики (Swagger UI и т.п.)
 │   ├── functions/           # Бизнес-логика (без HTTP)
 │   │   ├── decide.py        # Алгоритм выдачи вариантов и записи decisions
 │   │   ├── events_submit.py # Валидация, дедупликация, атрибуция событий
+│   │   ├── events_dependency_queue.py # Очередь зависимостей событий (show → conversion)
 │   │   ├── experiments.py   # Жизненный цикл экспериментов, ревью, guardrail-history
 │   │   ├── reports.py       # Расчёт метрик и отчёта по эксперименту
 │   │   ├── guardrails.py    # Проверка guardrail-метрик и автоматический pause/rollback
 │   │   ├── metrics.py       # Каталог метрик и правила агрегации
-│   │   └── event_types.py   # Каталог типов событий
+│   │   ├── event_types.py   # Каталог типов событий
+│   │   ├── flags.py         # CRUD и логика feature flags
+│   │   └── users.py         # Пользователи, роли, approver-группы (доменная логика)
 │   ├── database/
 │   │   ├── database.py      # Обёртка над async-подключением к PostgreSQL
 │   │   └── functions.py     # Инициализация справочных данных
-│   ├── docs/                # Схемы для swagger
+│   ├── docs/                # Документация и схемы для Swagger
+│   │   ├── schems.py        # Модели/схемы для OpenAPI (Swagger)
+│   │   ├── compliance-matrix.md  # Матрица трассируемости задание–критерий–реализация
+│   │   └── c4-diagrams.md   # C4-диаграммы (Context, Container, Component)
 │   ├── config.py            # Конфигурация, переменные окружения, настройка логгера
+│   ├── core.py              # Общие утилиты: авторизация (JWT), проверка прав, константы
+│   ├── dsl.py               # Парсер правил таргетинга (выражения, операторы, даты)
 │   ├── server.py            # Точка входа backend, регистрация маршрутов и middleware
 │   ├── Runbook.md           # Операционный runbook (логи, нагрузка, линт/формат)
-│   └── requirements*.txt    # Зависимости backend и тестов
+│   └── requirements*.txt    # Зависимости backend
 ├── docker/
 │   └── postgres/
 │       └── init.sql         # Схема БД, индексы, ограничения и триггеры
 ├── tests/                   # Интеграционные тесты к HTTP-API
 │   ├── conftest.py          # Фикстуры (логин, сиды, base_url)
 │   ├── test_*.py            # Наборы тестов по доменным областям
+│   ├── requirements-test.txt # Зависимости для запуска тестов
 │   └── README.md            # Инструкция по запуску тестов и отчёту о покрытии
 ├── docker-compose.yml       # Композиция postgres, backend и контейнера с тестами
+├── Dockerfile.tests         # Образ для запуска тестов в CI/локально
+├── Makefile                 # Цели: lint, format, format-check, install-dev
 ├── pyproject.toml           # Настройки Ruff (линтинг и форматирование)
 └── README.md                # Общий README задачи и требования к запуску
 ```

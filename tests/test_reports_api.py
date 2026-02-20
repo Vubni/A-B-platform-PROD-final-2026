@@ -32,6 +32,27 @@ async def test_report_experiment_not_found(
 
 
 @pytest.mark.asyncio
+async def test_report_missing_params_returns_400(
+    http_session, base_url, auth_headers_experimenter, linked_event_types_metrics_experiment
+):
+    """GET report без start или end возвращает 400/422."""
+    ctx = linked_event_types_metrics_experiment
+    url = f"{base_url}/api/v1/experiments/{ctx['experiment_id']}/report"
+    async with http_session.get(
+        url,
+        params={"end": "2026-02-01T00:00:00Z"},
+        headers=auth_headers_experimenter,
+    ) as resp:
+        assert resp.status in (400, 422)
+    async with http_session.get(
+        url,
+        params={"start": "2026-01-01T00:00:00Z"},
+        headers=auth_headers_experimenter,
+    ) as resp:
+        assert resp.status in (400, 422)
+
+
+@pytest.mark.asyncio
 async def test_report_invalid_window(
     http_session, base_url, auth_headers_experimenter, linked_event_types_metrics_experiment
 ):
@@ -62,7 +83,7 @@ async def test_report_success_structure(
         assert data.get("experiment_id") == ctx["experiment_id"]
         assert "experiment_name" in data
         assert "status" in data
-        assert "completion" in data  # None пока эксперимент не завершён; при status=completed — outcome, comment, winner_*
+        assert "completion" in data
         assert "context" in data
         assert data["context"]["window_start"] == params["start"]
         assert data["context"]["window_end"] == params["end"]

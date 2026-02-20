@@ -18,13 +18,104 @@ BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:80")
 TEST_SECTIONS = {
     "test_health.py": "Health",
     "test_users_api.py": "Users",
+    "test_approver_groups_api.py": "Approver groups",
     "test_flags_api.py": "Flags",
     "test_experiments_api.py": "Experiments",
     "test_experiment_validation.py": "Experiments (validation)",
+    "test_guardrails_api.py": "Guardrails",
     "test_decide_api.py": "Decide",
     "test_events_api.py": "Events",
     "test_reports_api.py": "Reports",
+    "test_metrics_catalog_api.py": "Metrics catalog",
 }
+
+ALL_ENDPOINTS = [
+    ("GET", "/health"),
+    ("GET", "/ready"),
+    ("GET", "/metrics"),
+    ("POST", "/api/v1/auth"),
+    ("GET", "/api/v1/users"),
+    ("POST", "/api/v1/users"),
+    ("GET", "/api/v1/users/{id}"),
+    ("PATCH", "/api/v1/users/{id}"),
+    ("GET", "/api/v1/approver-groups"),
+    ("POST", "/api/v1/approver-groups"),
+    ("PATCH", "/api/v1/approver-groups/{id}"),
+    ("POST", "/api/v1/flags"),
+    ("GET", "/api/v1/flags"),
+    ("GET", "/api/v1/flags/{key}"),
+    ("PATCH", "/api/v1/flags/{key}"),
+    ("POST", "/api/v1/experiments"),
+    ("GET", "/api/v1/experiments"),
+    ("GET", "/api/v1/experiments/{id}"),
+    ("PATCH", "/api/v1/experiments/{id}"),
+    ("PATCH", "/api/v1/experiments/{id}/status"),
+    ("POST", "/api/v1/experiments/{id}/complete"),
+    ("POST", "/api/v1/experiments/{id}/variants"),
+    ("PATCH", "/api/v1/experiments/{id}/variants/{variant_id}"),
+    ("DELETE", "/api/v1/experiments/{id}/variants/{variant_id}"),
+    ("GET", "/api/v1/experiments/{id}/guardrail-history"),
+    ("GET", "/api/v1/guardrails"),
+    ("GET", "/api/v1/guardrails/{metric_key}"),
+    ("POST", "/api/v1/guardrails"),
+    ("DELETE", "/api/v1/guardrails/{metric_key}"),
+    ("POST", "/api/v1/decide"),
+    ("POST", "/api/v1/events"),
+    ("GET", "/api/v1/event-types"),
+    ("POST", "/api/v1/event-types"),
+    ("GET", "/api/v1/event-types/{id}"),
+    ("PATCH", "/api/v1/event-types/{id}"),
+    ("DELETE", "/api/v1/event-types/{id}"),
+    ("GET", "/api/v1/experiments/{id}/report"),
+    ("GET", "/api/v1/metrics"),
+    ("GET", "/api/v1/metrics/{key}"),
+    ("POST", "/api/v1/metrics"),
+    ("PATCH", "/api/v1/metrics/{key}"),
+]
+
+TESTED_ENDPOINTS = [
+    ("GET", "/health"),
+    ("GET", "/ready"),
+    ("GET", "/metrics"),
+    ("POST", "/api/v1/auth"),
+    ("GET", "/api/v1/users"),
+    ("POST", "/api/v1/users"),
+    ("GET", "/api/v1/users/{id}"),
+    ("PATCH", "/api/v1/users/{id}"),
+    ("GET", "/api/v1/approver-groups"),
+    ("POST", "/api/v1/approver-groups"),
+    ("PATCH", "/api/v1/approver-groups/{id}"),
+    ("POST", "/api/v1/flags"),
+    ("GET", "/api/v1/flags"),
+    ("GET", "/api/v1/flags/{key}"),
+    ("PATCH", "/api/v1/flags/{key}"),
+    ("POST", "/api/v1/experiments"),
+    ("GET", "/api/v1/experiments"),
+    ("GET", "/api/v1/experiments/{id}"),
+    ("PATCH", "/api/v1/experiments/{id}"),
+    ("PATCH", "/api/v1/experiments/{id}/status"),
+    ("POST", "/api/v1/experiments/{id}/complete"),
+    ("POST", "/api/v1/experiments/{id}/variants"),
+    ("PATCH", "/api/v1/experiments/{id}/variants/{variant_id}"),
+    ("DELETE", "/api/v1/experiments/{id}/variants/{variant_id}"),
+    ("GET", "/api/v1/experiments/{id}/guardrail-history"),
+    ("GET", "/api/v1/guardrails"),
+    ("GET", "/api/v1/guardrails/{metric_key}"),
+    ("POST", "/api/v1/guardrails"),
+    ("DELETE", "/api/v1/guardrails/{metric_key}"),
+    ("POST", "/api/v1/decide"),
+    ("POST", "/api/v1/events"),
+    ("GET", "/api/v1/event-types"),
+    ("POST", "/api/v1/event-types"),
+    ("GET", "/api/v1/event-types/{id}"),
+    ("PATCH", "/api/v1/event-types/{id}"),
+    ("DELETE", "/api/v1/event-types/{id}"),
+    ("GET", "/api/v1/experiments/{id}/report"),
+    ("GET", "/api/v1/metrics"),
+    ("GET", "/api/v1/metrics/{key}"),
+    ("POST", "/api/v1/metrics"),
+    ("PATCH", "/api/v1/metrics/{key}"),
+]
 
 
 def _section_for_nodeid(nodeid: str) -> str:
@@ -58,6 +149,35 @@ def pytest_report_collectionfinish(config, start_path, items):
     if lines:
         return ["\nTest groups:", "\n".join(lines), ""]
     return []
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Вывод отчёта покрытия эндпоинтов (не покрытия кода)."""
+    all_set = set(ALL_ENDPOINTS)
+    tested_set = set(TESTED_ENDPOINTS)
+    covered = all_set & tested_set
+    total = len(all_set)
+    num_covered = len(covered)
+    pct = (100.0 * num_covered / total) if total else 0
+    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    if reporter is None:
+        return
+    reporter.ensure_newline()
+    reporter.write_line("")
+    reporter.write_line("=== Покрытие эндпоинтов ===")
+    reporter.write_line("")
+    reporter.write_line("Протестированные эндпоинты:")
+    for method, path in sorted(covered, key=lambda x: (x[1], x[0])):
+        reporter.write_line(f"  {method:6} {path}")
+    reporter.write_line("")
+    uncovered = all_set - tested_set
+    if uncovered:
+        reporter.write_line("Непротестированные эндпоинты:")
+        for method, path in sorted(uncovered, key=lambda x: (x[1], x[0])):
+            reporter.write_line(f"  {method:6} {path}")
+        reporter.write_line("")
+    reporter.write_line(f"Итого: {num_covered}/{total} эндпоинтов — {pct:.0f}%")
+    reporter.write_line("")
 
 
 _last_section = [None]

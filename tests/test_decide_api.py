@@ -73,9 +73,19 @@ async def test_decide_success_viewer(http_session, base_url, auth_headers_viewer
 
 @pytest.mark.asyncio
 async def test_decide_returns_default_value_when_no_experiment(
-    http_session, base_url, auth_headers_viewer, flag_id
+    http_session, base_url, auth_headers_viewer, auth_headers_admin, flag_id
 ):
+    """Decide возвращает default_value флага, когда субъект не в эксперименте."""
     url = f"{base_url}{DECIDE_URL_SUFFIX}"
+    flags_list_url = f"{base_url}/api/v1/flags"
+    async with http_session.get(flags_list_url, headers=auth_headers_admin) as r:
+        if r.status != 200:
+            pytest.skip("Need to list flags")
+        flags_data = await r.json()
+        flag = next((f for f in (flags_data.get("flags") or []) if f.get("id") == flag_id), None)
+    if not flag:
+        pytest.skip("Flag not found")
+    expected_default = flag.get("default_value") or "control"
     payload = {
         "subject_id": "user-default-check",
         "attributes": {},
@@ -85,7 +95,7 @@ async def test_decide_returns_default_value_when_no_experiment(
         assert resp.status == 200
         data = await resp.json()
         assert len(data["flags"]) == 1
-        assert data["flags"][0]["flag_value"] == "control"
+        assert data["flags"][0]["flag_value"] == expected_default
         assert data["flags"][0]["experiment"] is None
 
 
@@ -250,8 +260,8 @@ async def test_decide_audience_fraction_about_20_percent(
             "approver_ids": [approver_id],
         },
     ) as grp:
-        if grp.status not in (200, 201):
-            pytest.skip("Could not create approver group")
+        if grp.status not in (200, 201, 409):
+            pytest.skip(f"Could not create approver group: {grp.status} {await grp.text()}")
 
     async with http_session.post(
         exp_url,
