@@ -397,6 +397,8 @@ async def events_submit_context(
     auth_headers_experimenter,
     auth_headers_approver,
 ):
+    from conftest import transition_experiment_to_running
+
     et_url = f"{base_url}/api/v1/event-types"
     key_exposure = "exposure"
     async with http_session.get(et_url, headers=auth_headers_admin) as r:
@@ -413,22 +415,6 @@ async def events_submit_context(
             if r.status not in (200, 201):
                 pytest.skip(f"Could not create event type exposure: {await r.text()}")
 
-    flags_url = f"{base_url}/api/v1/flags"
-    flag_key = f"events_submit_{uuid.uuid4().hex[:8]}"
-    async with http_session.post(
-        flags_url,
-        headers=auth_headers_admin,
-        json={
-            "key": flag_key,
-            "value_type": "string",
-            "default_value": "control",
-        },
-    ) as r:
-        if r.status not in (200, 201):
-            pytest.skip("Could not create flag for events submit")
-        flag_data = await r.json()
-        flag_id = flag_data["id"]
-
     users_url = f"{base_url}/api/v1/users"
     async with http_session.get(users_url, headers=auth_headers_admin) as r:
         if r.status != 200:
@@ -438,50 +424,54 @@ async def events_submit_context(
     approver_user = next((u for u in users if u.get("email") == "approver@test.com"), None)
     if not experimenter or not approver_user:
         pytest.skip("Need experimenter and approver")
-    experimenter_id, approver_id = experimenter["id"], approver_user["id"]
 
     async with http_session.post(
         f"{base_url}/api/v1/approver-groups",
         headers=auth_headers_admin,
-        json={"experimenter_id": experimenter_id, "min_approvals": 1, "approver_ids": [approver_id]},
+        json={"experimenter_id": experimenter["id"], "min_approvals": 1, "approver_ids": [approver_user["id"]]},
     ) as _:
         pass
 
-    exp_url = f"{base_url}/api/v1/experiments"
-    async with http_session.post(
-        exp_url,
-        headers=auth_headers_experimenter,
-        json={"flag_id": flag_id, "name": "Events submit test", "audience_fraction": 1.0},
-    ) as r:
-        if r.status != 201:
-            pytest.skip(f"Could not create experiment: {await r.text()}")
-        exp = await r.json()
-        exp_id = exp["id"]
-
-    for v in [
-        {"variant_name": "control", "variant_value": "c", "weight": 0.5, "is_control": True},
-        {"variant_name": "treatment", "variant_value": "t", "weight": 0.5, "is_control": False},
-    ]:
+    for attempt in range(2):
+        flags_url = f"{base_url}/api/v1/flags"
+        flag_key = f"events_submit_{uuid.uuid4().hex}"
         async with http_session.post(
-            f"{base_url}/api/v1/experiments/{exp_id}/variants",
-            headers=auth_headers_experimenter,
-            json=v,
-        ) as vr:
-            if vr.status != 201:
-                pytest.skip("Could not add variant")
+            flags_url,
+            headers=auth_headers_admin,
+            json={"key": flag_key, "value_type": "string", "default_value": "control"},
+        ) as r:
+            if r.status not in (200, 201):
+                pytest.skip("Could not create flag for events submit")
+            flag_id = (await r.json())["id"]
 
-    for status, role in [
-        ("on_review", auth_headers_experimenter),
-        ("approved", auth_headers_approver),
-        ("running", auth_headers_experimenter),
-    ]:
-        async with http_session.patch(
-            f"{base_url}/api/v1/experiments/{exp_id}/status",
-            headers=role,
-            json={"status": status},
-        ) as sr:
-            if sr.status != 200:
-                pytest.skip(f"Could not set status {status}")
+        exp_url = f"{base_url}/api/v1/experiments"
+        async with http_session.post(
+            exp_url,
+            headers=auth_headers_experimenter,
+            json={"flag_id": flag_id, "name": "Events submit test", "audience_fraction": 1.0},
+        ) as r:
+            if r.status != 201:
+                pytest.skip(f"Could not create experiment: {await r.text()}")
+            exp_id = (await r.json())["id"]
+
+        for v in [
+            {"variant_name": "control", "variant_value": "c", "weight": 0.5, "is_control": True},
+            {"variant_name": "treatment", "variant_value": "t", "weight": 0.5, "is_control": False},
+        ]:
+            async with http_session.post(
+                f"{base_url}/api/v1/experiments/{exp_id}/variants",
+                headers=auth_headers_experimenter,
+                json=v,
+            ) as vr:
+                if vr.status != 201:
+                    pytest.skip("Could not add variant")
+
+        if await transition_experiment_to_running(
+            http_session, base_url, exp_id, auth_headers_experimenter, auth_headers_approver
+        ):
+            break
+        if attempt == 1:
+            pytest.skip("Could not set status running (another experiment on flag)")
 
     decide_url = f"{base_url}/api/v1/decide"
     subject_id = f"events-subject-{uuid.uuid4().hex[:8]}"
@@ -1113,9 +1103,9 @@ async def test_guardrail_pauses_experiment_when_threshold_exceeded(
     auth_headers_experimenter,
     auth_headers_approver,
     auth_headers_viewer,
-    linked_event_types_metrics_experiment,
+    linked_event_types_metrics_experiment_running,
 ):
-    ctx = linked_event_types_metrics_experiment
+    ctx = linked_event_types_metrics_experiment_running
     exp_id = ctx["experiment_id"]
     metric_key_guardrail = ctx["metric_keys"]["conversions"]
     guardrails_url = f"{base_url}/api/v1/guardrails"
@@ -1130,39 +1120,6 @@ async def test_guardrail_pauses_experiment_when_threshold_exceeded(
         },
     ) as resp:
         assert resp.status == 200, await resp.text()
-    users_url = f"{base_url}/api/v1/users"
-    async with http_session.get(users_url, headers=auth_headers_admin) as resp:
-        assert resp.status == 200
-        users = (await resp.json()).get("users") or []
-    experimenter = next((u for u in users if u.get("email") == "experimenter@test.com"), None)
-    approver_user = next((u for u in users if u.get("email") == "approver@test.com"), None)
-    assert experimenter and approver_user, "Seed users experimenter@test.com and approver@test.com are required"
-
-    approver_groups_url = f"{base_url}/api/v1/approver-groups"
-    async with http_session.post(
-        approver_groups_url,
-        headers=auth_headers_approver,
-        json={
-            "experimenter_id": experimenter["id"],
-            "min_approvals": 1,
-            "approver_ids": [approver_user["id"]],
-        },
-    ) as resp:
-        assert resp.status in (200, 201, 409), await resp.text()
-    status_url = f"{base_url}/api/v1/experiments/{exp_id}/status"
-    for status, headers in [
-        ("on_review", auth_headers_experimenter),
-        ("approved", auth_headers_approver),
-        ("running", auth_headers_experimenter),
-    ]:
-        async with http_session.patch(
-            status_url,
-            headers=headers,
-            json={"status": status},
-        ) as resp:
-            if resp.status == 409:
-                pytest.skip("Another experiment already running on this flag")
-            assert resp.status == 200, f"Failed to set status {status}: {await resp.text()}"
     decide_url = f"{base_url}/api/v1/decide"
     decision_ids = []
     for i in range(3):

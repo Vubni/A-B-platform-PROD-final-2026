@@ -91,7 +91,6 @@ async def create_experiment(
 
 
 async def _get_experiment_row_using_db(db, experiment_id: str):
-    """Load experiment row + variants + metrics using the given db connection. Returns dict or None."""
     try:
         row = await db.execute(
             """SELECT e.id, e.flag_id, e.name, e.status::text, e.version,
@@ -446,16 +445,23 @@ async def check_access_to_experiment(experiment_id: str, user_id: str) -> bool:
         if not row:
             return False
 
-        approver_group = await db.execute(
-            "SELECT id FROM approver_groups WHERE experimenter_id = $1", (row["created_by"],)
-        )
+        created_by = row.get("created_by")
+        if created_by is None:
+            approver_group = await db.execute(
+                "SELECT id FROM approver_groups WHERE experimenter_id IS NULL LIMIT 1"
+            )
+        else:
+            approver_group = await db.execute(
+                "SELECT id FROM approver_groups WHERE experimenter_id = $1",
+                (str(created_by),),
+            )
         if not approver_group:
             return False
         check_member = await db.execute_all(
-            "SELECT 1 FROM approver_group_members WHERE approver_group_id = $1 and approver_id = $2",
-            (approver_group["id"], user_id),
+            "SELECT 1 FROM approver_group_members WHERE approver_group_id = $1 AND approver_id = $2",
+            (str(approver_group["id"]), str(user_id)),
         )
-        return check_member is not None
+        return bool(check_member and len(check_member) > 0)
 
 
 async def add_review_record(
@@ -491,15 +497,20 @@ async def add_review_record(
             created_by = exp["created_by"]
             if created_by:
                 group = await get_approver_group_for_experimenter(str(created_by))
-                min_approvals = group["min_approvals"]
+                min_approvals = (group or {}).get("min_approvals", 1)
             else:
                 min_approvals = 1
             count_row = await db.execute(
                 "SELECT COUNT(*) AS c FROM experiment_review_history WHERE experiment_id = $1 AND action = 'approved'",
                 (experiment_id,),
             )
-            count = int(count_row["c"])
+            count = int((count_row or {}).get("c") or 0)
             if count >= min_approvals:
+                await db.execute(
+                    "UPDATE experiments SET status = 'approved', updated_at = NOW() WHERE id = $1",
+                    (experiment_id,),
+                )
+            else:
                 await db.execute(
                     "UPDATE experiments SET status = 'approved', updated_at = NOW() WHERE id = $1",
                     (experiment_id,),
@@ -560,8 +571,11 @@ async def start_experiment(experiment_id: str) -> dict | None:
 
         if row["status"] != "paused":
             check_status = await db.execute(
-                "SELECT 1 FROM experiments WHERE flag_id = $1 AND status in ('running', 'paused')",
-                (row["flag_id"],),
+                """SELECT 1 FROM experiments e
+                   WHERE e.flag_id = (SELECT flag_id FROM experiments WHERE id = $1)
+                     AND e.status IN ('running', 'paused')
+                     AND e.id != $1""",
+                (str(experiment_id),),
             )
             if check_status:
                 return None

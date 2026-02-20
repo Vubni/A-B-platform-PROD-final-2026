@@ -1,5 +1,5 @@
 import pytest
-
+import uuid
 
 DECIDE_URL_SUFFIX = "/api/v1/decide"
 
@@ -122,6 +122,123 @@ async def test_decide_same_subject_same_value(
 
 
 @pytest.mark.asyncio
+async def test_decide_returns_default_when_targeting_rule_not_matched(
+    http_session,
+    base_url,
+    auth_headers_viewer,
+    auth_headers_admin,
+    auth_headers_experimenter,
+    auth_headers_approver,
+):
+    """B2-2: при непрохождении правила участия (таргетинг) возвращается default, не вариант эксперимента."""
+    flags_url = f"{base_url}/api/v1/flags"
+    exp_url = f"{base_url}/api/v1/experiments"
+    decide_url = f"{base_url}{DECIDE_URL_SUFFIX}"
+    users_url = f"{base_url}/api/v1/users"
+
+    async with http_session.get(users_url, headers=auth_headers_admin) as resp:
+        if resp.status != 200:
+            pytest.skip("Need admin to list users")
+        users = (await resp.json()).get("users") or []
+    experimenter = next((u for u in users if u.get("email") == "experimenter@test.com"), None)
+    approver_user = next((u for u in users if u.get("email") == "approver@test.com"), None)
+    if not experimenter or not approver_user:
+        pytest.skip("Need experimenter and approver in seed")
+    experimenter_id, approver_id = experimenter["id"], approver_user["id"]
+
+    flag_key = f"decide_targeting_{uuid.uuid4().hex[:12]}"
+    async with http_session.post(
+        flags_url,
+        headers=auth_headers_admin,
+        json={
+            "key": flag_key,
+            "value_type": "string",
+            "default_value": "default_outside",
+        },
+    ) as resp:
+        if resp.status not in (200, 201):
+            pytest.skip("Could not create flag for targeting test")
+        flag_data = await resp.json()
+        flag_id = flag_data["id"]
+
+    async with http_session.post(
+        f"{base_url}/api/v1/approver-groups",
+        headers=auth_headers_approver,
+        json={
+            "experimenter_id": experimenter_id,
+            "min_approvals": 1,
+            "approver_ids": [approver_id],
+        },
+    ) as grp:
+        if grp.status not in (200, 201, 409):
+            pytest.skip("Could not create approver group")
+
+    async with http_session.post(
+        exp_url,
+        headers=auth_headers_experimenter,
+        json={
+            "flag_id": flag_id,
+            "name": "Decide targeting test",
+            "audience_fraction": 1.0,
+            "targeting_rule": 'country == "RU"',
+        },
+    ) as resp:
+        if resp.status != 201:
+            pytest.skip(f"Could not create experiment: {await resp.text()}")
+        exp = await resp.json()
+        exp_id = exp["id"]
+
+    for variant in [
+        {"variant_name": "control", "variant_value": "default_outside", "weight": 0.5, "is_control": True},
+        {"variant_name": "treatment", "variant_value": "treatment_val", "weight": 0.5, "is_control": False},
+    ]:
+        async with http_session.post(
+            f"{base_url}/api/v1/experiments/{exp_id}/variants",
+            headers=auth_headers_experimenter,
+            json=variant,
+        ) as r:
+            if r.status != 201:
+                pytest.skip("Could not add variant")
+
+    from conftest import transition_experiment_to_running
+
+    if not await transition_experiment_to_running(
+        http_session, base_url, exp_id, auth_headers_experimenter, auth_headers_approver
+    ):
+        pytest.skip("Could not set status running")
+
+    payload = {
+        "subject_id": "user-outside-targeting",
+        "attributes": {"country": "BY"},
+        "flags": [flag_id],
+    }
+    async with http_session.post(decide_url, json=payload, headers=auth_headers_viewer) as resp:
+        assert resp.status == 200
+        data = await resp.json()
+        assert len(data["flags"]) == 1
+        assert data["flags"][0]["flag_value"] == "default_outside"
+        assert data["flags"][0]["experiment"] is None
+
+    payload_match = {
+        "subject_id": "user-inside-targeting",
+        "attributes": {"country": "RU"},
+        "flags": [flag_id],
+    }
+    async with http_session.post(decide_url, json=payload_match, headers=auth_headers_viewer) as resp:
+        assert resp.status == 200
+        data = await resp.json()
+        assert len(data["flags"]) == 1
+        assert data["flags"][0]["experiment"] is not None
+
+    async with http_session.post(
+        f"{base_url}/api/v1/experiments/{exp_id}/complete",
+        headers=auth_headers_experimenter,
+        json={"completion_outcome": "rollback", "comment": "Teardown targeting test"},
+    ):
+        pass
+
+
+@pytest.mark.asyncio
 async def test_decide_validation_empty_subject_id(http_session, base_url, auth_headers_viewer, flag_id):
     url = f"{base_url}{DECIDE_URL_SUFFIX}"
     payload = {
@@ -183,11 +300,12 @@ async def test_decide_response_order_matches_request(
 ):
     url_flags = f"{base_url}/api/v1/flags"
     url_decide = f"{base_url}{DECIDE_URL_SUFFIX}"
+    second_key = f"decide_order_second_{uuid.uuid4().hex[:12]}"
     async with http_session.post(
         url_flags,
         headers=auth_headers_admin,
         json={
-            "key": "decide_order_second",
+            "key": second_key,
             "value_type": "string",
             "default_value": "second_default",
         },
@@ -208,7 +326,7 @@ async def test_decide_response_order_matches_request(
         data = await resp.json()
         assert len(data["flags"]) == 2
         assert data["flags"][0]["flag_key"] == "test_feature_flag"
-        assert data["flags"][1]["flag_key"] == "decide_order_second"
+        assert data["flags"][1]["flag_key"] == second_key
         assert data["flags"][0]["flag_value"] == "control"
         assert data["flags"][1]["flag_value"] == "second_default"
 
@@ -237,11 +355,12 @@ async def test_decide_audience_fraction_about_20_percent(
         pytest.skip("Need experimenter and approver in seed")
     experimenter_id, approver_id = experimenter["id"], approver_user["id"]
 
+    flag_key = f"decide_audience_{uuid.uuid4().hex[:12]}"
     async with http_session.post(
         flags_url,
         headers=auth_headers_admin,
         json={
-            "key": "decide_audience_test",
+            "key": flag_key,
             "value_type": "string",
             "default_value": "default",
         },
@@ -289,14 +408,44 @@ async def test_decide_audience_fraction_about_20_percent(
             if r.status != 201:
                 pytest.skip("Could not add variant")
 
-    for status, role in [("on_review", auth_headers_experimenter), ("approved", auth_headers_approver), ("running", auth_headers_experimenter)]:
-        async with http_session.patch(
-            f"{base_url}/api/v1/experiments/{exp_id}/status",
-            headers=role,
-            json={"status": status},
-        ) as r:
-            if r.status != 200:
-                pytest.skip(f"Could not set status {status}: {await r.text()}")
+    from conftest import transition_experiment_to_running
+
+    if not await transition_experiment_to_running(
+        http_session, base_url, exp_id, auth_headers_experimenter, auth_headers_approver
+    ):
+        flag_key = f"decide_audience_{uuid.uuid4().hex[:12]}"
+        async with http_session.post(
+            flags_url,
+            headers=auth_headers_admin,
+            json={"key": flag_key, "value_type": "string", "default_value": "default"},
+        ) as resp:
+            if resp.status not in (200, 201):
+                pytest.skip("Could not create second flag for audience test")
+            flag_id = (await resp.json())["id"]
+        async with http_session.post(
+            exp_url,
+            headers=auth_headers_experimenter,
+            json={"flag_id": flag_id, "name": "Decide audience 20% test (retry)", "audience_fraction": 0.2},
+        ) as resp:
+            if resp.status != 201:
+                pytest.skip(f"Could not create retry experiment: {await resp.text()}")
+            exp_id = (await resp.json())["id"]
+        for variant in [
+            {"variant_name": "control", "variant_value": "default", "weight": 0.1, "is_control": True},
+            {"variant_name": "treatment", "variant_value": "treatment_val", "weight": 0.1, "is_control": False},
+        ]:
+            async with http_session.post(
+                f"{base_url}/api/v1/experiments/{exp_id}/variants",
+                headers=auth_headers_experimenter,
+                json=variant,
+            ) as r:
+                if r.status != 201:
+                    pytest.skip("Could not add variant on retry")
+        ok = await transition_experiment_to_running(
+            http_session, base_url, exp_id, auth_headers_experimenter, auth_headers_approver
+        )
+        if not ok:
+            pytest.skip("Could not set status running (another experiment on flag)")
 
     in_experiment = 0
     n = 50
@@ -317,3 +466,9 @@ async def test_decide_audience_fraction_about_20_percent(
     assert 0.12 <= ratio <= 0.30, (
         f"Ожидалось ~20% в эксперименте (audience_fraction=0.2), получено {ratio:.1%} ({in_experiment}/{n})"
     )
+    async with http_session.post(
+        f"{base_url}/api/v1/experiments/{exp_id}/complete",
+        headers=auth_headers_experimenter,
+        json={"completion_outcome": "rollback", "comment": "Teardown after audience test"},
+    ) as _:
+        pass

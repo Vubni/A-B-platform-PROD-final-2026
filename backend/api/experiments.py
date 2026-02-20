@@ -497,11 +497,17 @@ async def experiments_update_status(request: web.Request, parsed: StatusUpdate) 
 
     if not updated:
         if new_status == "running":
-            return validate.format_409_error(
+            exp_now = await get_experiment_by_id(exp_id)
+            if exp_now and exp_now.get("status") not in ("approved", "paused"):
+                err = status_err or "Experiment must be approved or paused before starting"
+                return web.json_response(
+                    {"error": err, "current_status": exp_now.get("status")}, status=400
+                )
+            return validate.format_409_conflict(
                 request, "Another experiment for this flag is already running"
             )
         if new_status == "paused":
-            return validate.format_409_error(
+            return validate.format_409_conflict(
                 request, "Another experiment for this flag is already paused"
             )
         err = (

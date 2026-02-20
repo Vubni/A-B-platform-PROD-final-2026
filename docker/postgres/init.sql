@@ -1,5 +1,6 @@
 BEGIN;
 
+DROP TABLE IF EXISTS events_dependency_queue CASCADE;
 DROP TABLE IF EXISTS event_occurrences CASCADE;
 DROP TABLE IF EXISTS event_types CASCADE;
 DROP TABLE IF EXISTS subject_experiment_cooldown CASCADE;
@@ -358,5 +359,23 @@ CREATE INDEX IF NOT EXISTS idx_event_occurrences_decision_id ON event_occurrence
 CREATE INDEX IF NOT EXISTS idx_event_occurrences_event_type_id ON event_occurrences(event_type_id);
 CREATE INDEX IF NOT EXISTS idx_event_occurrences_subject_id ON event_occurrences(subject_id);
 CREATE INDEX IF NOT EXISTS idx_event_occurrences_timestamp ON event_occurrences("timestamp");
+
+-- Очередь ожидающих событий (show → conversion): хранение до EVENTS_DEPENDENCY_MAX_DELAY_DAYS дней
+CREATE TABLE IF NOT EXISTS events_dependency_queue (
+    id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
+    decision_id UUID NOT NULL REFERENCES decisions(decision_id) ON DELETE CASCADE,
+    required_show_event_type_id UUID NOT NULL REFERENCES event_types(id) ON DELETE CASCADE,
+    event_id VARCHAR NOT NULL,
+    event_type_id UUID NOT NULL REFERENCES event_types(id) ON DELETE CASCADE,
+    subject_id VARCHAR NOT NULL,
+    "timestamp" TIMESTAMPTZ NOT NULL,
+    payload JSONB,
+    queued_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_dependency_queue_pop
+    ON events_dependency_queue(decision_id, required_show_event_type_id);
+CREATE INDEX IF NOT EXISTS idx_events_dependency_queue_queued_at
+    ON events_dependency_queue(queued_at);
 
 COMMIT;

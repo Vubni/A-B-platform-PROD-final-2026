@@ -283,6 +283,76 @@ async def flag_id(http_session, base_url, auth_headers_admin):
     pytest.skip("Could not get or create test flag")
 
 
+async def transition_experiment_to_running(
+    http_session,
+    base_url,
+    exp_id,
+    auth_headers_experimenter,
+    auth_headers_approver,
+) -> bool:
+    """Переводит эксперимент on_review -> approved -> running. Возвращает True при успехе, False при 409."""
+    for status, role in [
+        ("on_review", auth_headers_experimenter),
+        ("approved", auth_headers_approver),
+        ("running", auth_headers_experimenter),
+    ]:
+        async with http_session.patch(
+            f"{base_url}/api/v1/experiments/{exp_id}/status",
+            headers=role,
+            json={"status": status},
+        ) as r:
+            if r.status == 409 and status == "running":
+                return False
+            if r.status != 200:
+                text = await r.text()
+                raise RuntimeError(f"Could not set status {status}: {text}")
+    return True
+
+
+async def create_experiment_in_running(
+    http_session,
+    base_url,
+    auth_headers_experimenter,
+    auth_headers_approver,
+    auth_headers_admin,
+    key_prefix: str = "complete",
+) -> str:
+    """Создаёт флаг, эксперимент с двумя вариантами и переводит в running. При 409 повторяет с новым флагом. Возвращает exp_id."""
+    flags_url = f"{base_url}/api/v1/flags"
+    create_url = f"{base_url}/api/v1/experiments"
+    for attempt in range(2):
+        key = f"{key_prefix}_{uuid.uuid4().hex[:12]}"
+        async with http_session.post(
+            flags_url,
+            headers=auth_headers_admin,
+            json={"key": key, "value_type": "string", "default_value": "c"},
+        ) as fr:
+            if fr.status != 201:
+                raise RuntimeError(f"Could not create flag: {(await fr.text())}")
+            flag_id = (await fr.json())["id"]
+        async with http_session.post(
+            create_url,
+            json={"flag_id": flag_id, "name": f"Complete test {key}", "audience_fraction": 0.5},
+            headers=auth_headers_experimenter,
+        ) as cr:
+            if cr.status != 201:
+                raise RuntimeError(f"Could not create experiment: {(await cr.text())}")
+            exp_id = (await cr.json())["id"]
+        var_url = f"{base_url}/api/v1/experiments/{exp_id}/variants"
+        for v in [
+            {"variant_name": "control", "variant_value": "c", "weight": 0.25, "is_control": True},
+            {"variant_name": "treatment", "variant_value": "t", "weight": 0.25, "is_control": False},
+        ]:
+            async with http_session.post(var_url, headers=auth_headers_experimenter, json=v) as vr:
+                assert vr.status == 201, f"Variant add failed: {(await vr.text())}"
+        ok = await transition_experiment_to_running(
+            http_session, base_url, exp_id, auth_headers_experimenter, auth_headers_approver
+        )
+        if ok:
+            return exp_id
+    raise AssertionError("Could not set status running (retry with new flag)")
+
+
 @pytest.fixture
 async def linked_event_types_metrics_experiment(
     http_session,
@@ -290,6 +360,15 @@ async def linked_event_types_metrics_experiment(
     auth_headers_admin,
     auth_headers_experimenter,
 ):
+    return await _create_linked_event_types_metrics_experiment(
+        http_session, base_url, auth_headers_admin, auth_headers_experimenter
+    )
+
+
+async def _create_linked_event_types_metrics_experiment(
+    http_session, base_url, auth_headers_admin, auth_headers_experimenter
+):
+    """Создаёт связанные event types, метрики, флаг и эксперимент с вариантами (draft). Возвращает контекст-словарь."""
     suffix = uuid.uuid4().hex[:8]
     et_url = f"{base_url}/api/v1/event-types"
     event_keys = {}
@@ -435,3 +514,29 @@ async def linked_event_types_metrics_experiment(
         "experiment_id": exp_id,
         "suffix": suffix,
     }
+
+
+@pytest.fixture
+async def linked_event_types_metrics_experiment_running(
+    http_session,
+    base_url,
+    auth_headers_admin,
+    auth_headers_experimenter,
+    auth_headers_approver,
+):
+    """linked_event_types_metrics_experiment + on_review -> approved -> running с одной повторной попыткой при 409."""
+    ctx = await _create_linked_event_types_metrics_experiment(
+        http_session, base_url, auth_headers_admin, auth_headers_experimenter
+    )
+    if await transition_experiment_to_running(
+        http_session, base_url, ctx["experiment_id"], auth_headers_experimenter, auth_headers_approver
+    ):
+        return ctx
+    ctx2 = await _create_linked_event_types_metrics_experiment(
+        http_session, base_url, auth_headers_admin, auth_headers_experimenter
+    )
+    if await transition_experiment_to_running(
+        http_session, base_url, ctx2["experiment_id"], auth_headers_experimenter, auth_headers_approver
+    ):
+        return ctx2
+    pytest.skip("Could not set status running for linked experiment (retry)")

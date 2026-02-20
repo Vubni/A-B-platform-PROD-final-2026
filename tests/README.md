@@ -85,12 +85,14 @@ pip install -r backend/requirements.txt -r tests/requirements-test.txt
 docker-compose up -d
 ```
 
-3. Сидинг тестовых данных (пользователи, метрики, типы событий и т.д.):
+3. Сидинг тестовых данных (пользователи, флаг `test_feature_flag`, типы событий `demo_exposure`/`demo_click`/`demo_conversion`, метрики `demo_impressions`/`demo_conversions`/`demo_conversion_rate`, группа аппруверов для experimenter):
 
 ```bash
 export API_BASE_URL=http://localhost:80
 python tests/seed_test_data.py
 ```
+
+Пакет сценариев (позитивные, негативные, граничные) с шагами воспроизведения и ожидаемыми результатами: **`backend/docs/demo-scenarios.md`**.
 
 4. Запуск тестов:
 

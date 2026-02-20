@@ -110,6 +110,18 @@ def format_409_error(
     return web.json_response(error_response, status=409)
 
 
+def format_409_conflict(
+    request: web.Request, message: str, code: str = "CONFLICT"
+) -> web.Response:
+    error_response = format_error_response(
+        code=code,
+        message=message,
+        path=str(request.path_qs),
+        status=409,
+    )
+    return web.json_response(error_response, status=409)
+
+
 def format_422_error(request: web.Request, code: str = "ERROR") -> web.Response:
     error_response = {
         "code": code,

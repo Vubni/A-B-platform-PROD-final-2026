@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-import asyncio
-from dataclasses import dataclass, field
+import json
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from core import parse_iso_timestamp
 from config import EVENTS_DEPENDENCY_MAX_DELAY_DAYS
+from database.database import Database
 
 
 @dataclass
@@ -16,7 +18,7 @@ class PendingEvent:
     subject_id: str
     timestamp: datetime
     payload: dict[str, Any] | None
-    queued_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    queued_at: datetime | None = None
 
     def to_insert_dict(self) -> dict[str, Any]:
         return {
@@ -29,13 +31,27 @@ class PendingEvent:
         }
 
 
+def _row_to_pending_event(row: dict[str, Any]) -> PendingEvent:
+    ts_val = row.get("timestamp")
+    ts, _ = parse_iso_timestamp(ts_val)
+    queued_val = row.get("queued_at")
+    queued_at, _ = parse_iso_timestamp(queued_val) if queued_val is not None else (None, None)
+    return PendingEvent(
+        event_id=str(row["event_id"]),
+        decision_id=str(row["decision_id"]),
+        event_type_id=str(row["event_type_id"]),
+        subject_id=str(row["subject_id"]),
+        timestamp=ts or datetime.now(UTC),
+        payload=row.get("payload"),
+        queued_at=queued_at,
+    )
+
+
 class EventsDependencyQueue:
     def __init__(self, max_delay_days: int | None = None) -> None:
         self._max_delay_days = (
             max_delay_days if max_delay_days is not None else EVENTS_DEPENDENCY_MAX_DELAY_DAYS
         )
-        self._pending: dict[tuple[str, str], list[PendingEvent]] = {}
-        self._lock = asyncio.Lock()
 
     def _cutoff(self) -> datetime:
         return datetime.now(UTC) - timedelta(days=self._max_delay_days)
@@ -46,45 +62,61 @@ class EventsDependencyQueue:
         required_show_event_type_id: str,
         event: PendingEvent,
     ) -> None:
-        async with self._lock:
-            key = (decision_id, required_show_event_type_id)
-            if key not in self._pending:
-                self._pending[key] = []
-            self._pending[key].append(event)
+        async with Database() as db:
+            await db.execute(
+                """INSERT INTO events_dependency_queue
+                   (decision_id, required_show_event_type_id, event_id, event_type_id, subject_id, "timestamp", payload)
+                   VALUES ($1::uuid, $2::uuid, $3, $4::uuid, $5, $6, $7)""",
+                (
+                    decision_id,
+                    required_show_event_type_id,
+                    event.event_id,
+                    event.event_type_id,
+                    event.subject_id,
+                    event.timestamp,
+                    json.dumps(event.payload) if event.payload is not None else None,
+                ),
+            )
 
     async def pop_ready(
         self,
         decision_id: str,
         show_event_type_id: str,
     ) -> list[PendingEvent]:
-        async with self._lock:
-            key = (decision_id, show_event_type_id)
-            events = self._pending.pop(key, [])
-            return events
+        async with Database() as db:
+            rows = await db.execute_all(
+                """SELECT event_id, decision_id, event_type_id, subject_id, "timestamp", payload, queued_at
+                   FROM events_dependency_queue
+                   WHERE decision_id = $1::uuid AND required_show_event_type_id = $2::uuid""",
+                (decision_id, show_event_type_id),
+            )
+            if not rows:
+                return []
+            await db.execute(
+                """DELETE FROM events_dependency_queue
+                   WHERE decision_id = $1::uuid AND required_show_event_type_id = $2::uuid""",
+                (decision_id, show_event_type_id),
+            )
+            return [_row_to_pending_event(r) for r in rows]
 
     async def expire_old(self) -> int:
         cutoff = self._cutoff()
-        removed = 0
-        async with self._lock:
-            keys_to_drop: list[tuple[str, str]] = []
-            for key, events in self._pending.items():
-                kept: list[PendingEvent] = []
-                for e in events:
-                    if e.queued_at >= cutoff:
-                        kept.append(e)
-                    else:
-                        removed += 1
-                if kept:
-                    self._pending[key] = kept
-                else:
-                    keys_to_drop.append(key)
-            for k in keys_to_drop:
-                del self._pending[k]
+        async with Database() as db:
+            count_row = await db.execute(
+                "SELECT COUNT(*) AS n FROM events_dependency_queue WHERE queued_at < $1",
+                (cutoff,),
+            )
+            removed = int(count_row["n"]) if count_row else 0
+            await db.execute(
+                "DELETE FROM events_dependency_queue WHERE queued_at < $1",
+                (cutoff,),
+            )
         return removed
 
     async def size(self) -> int:
-        async with self._lock:
-            return sum(len(events) for events in self._pending.values())
+        async with Database() as db:
+            row = await db.execute("SELECT COUNT(*) AS n FROM events_dependency_queue")
+            return int(row["n"]) if row else 0
 
 
 events_dependency_queue = EventsDependencyQueue()

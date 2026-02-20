@@ -13,6 +13,8 @@
 | `DATE_BASE_CONNECT["password"]` | `DB_PASSWORD` | — | Пароль БД (обязательно задать в prod) |
 | `DATE_BASE_CONNECT["database"]` | `DB_NAME` | `prod` | Имя базы данных |
 
+Для корректной работы триггеров схемы (`docker/postgres/init.sql`) требуется **PostgreSQL 14+** (в 11–13 используется `EXECUTE PROCEDURE` вместо `EXECUTE FUNCTION`). Подробнее — Runbook, раздел «База данных и триггеры».
+
 ### Аутентификация и безопасность
 
 | Переменная | Env | По умолчанию | Описание |
@@ -93,17 +95,19 @@
    ```
    В ответе — `flags` (массив решений) и для каждого флага `decision_id` для атрибуции событий.
 
-4. **Событие**:
+4. **Событие** (в каждом элементе массива `events` указывайте **event_type_key** — ключ типа события из каталога `GET /api/v1/event-types`):
    ```bash
    curl -X POST http://localhost/api/v1/events \
      -H "Content-Type: application/json" \
-     -d '{"events": [{"event_id": "ev-1", "decision_id": "<из шага 3>", "event_type": "exposure", "subject_id": "u42", "timestamp": "2026-02-14T12:00:00Z"}]}'
+     -d '{"events": [{"event_id": "ev-1", "decision_id": "<из шага 3>", "event_type_key": "exposure", "subject_id": "u42", "timestamp": "2026-02-14T12:00:00Z"}]}'
    ```
 
 5. **Отчёт по эксперименту**:
    ```bash
    curl "http://localhost/api/v1/experiments/{experiment_id}/report?start=2026-02-01&end=2026-02-15"
    ```
+
+После выполнения `python tests/seed_test_data.py` доступны фиксированные типы событий (`demo_exposure`, `demo_click`, `demo_conversion`) и метрики (`demo_impressions`, `demo_conversions`, `demo_conversion_rate`) — их можно использовать в эксперименте и в шагах 4–5. Полный пакет тестовых данных и сценариев (happy-path, негативные, граничные) с шагами и ожидаемыми результатами описан в **`backend/docs/demo-scenarios.md`**.
 
 ## Роли и аппрувер-группы
 

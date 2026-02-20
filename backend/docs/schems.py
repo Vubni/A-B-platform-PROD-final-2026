@@ -650,6 +650,10 @@ class ReportExperimentResponseSchema(Schema):
     experiment_id = fields.Str(description="UUID эксперимента")
     experiment_name = fields.Str(allow_none=True, description="Название эксперимента")
     status = fields.Str(allow_none=True, description="Статус эксперимента")
+    result = fields.Str(
+        allow_none=True,
+        description="Явный результат при status=completed: rollout — раскат победителя; rollback — откат к контролю; no_effect — эффект не выявлен. Иначе null.",
+    )
     context = fields.Nested(
         ReportContextSchema,
         allow_none=True,

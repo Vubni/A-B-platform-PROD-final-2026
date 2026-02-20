@@ -83,6 +83,11 @@ async def test_report_success_structure(
         assert data.get("experiment_id") == ctx["experiment_id"]
         assert "experiment_name" in data
         assert "status" in data
+        assert "result" in data
+        if data.get("status") == "completed":
+            assert data["result"] in ("rollout", "rollback", "no_effect"), (
+                f"При status=completed result должен быть rollout | rollback | no_effect, получено: {data.get('result')!r}"
+            )
         assert "completion" in data
         assert "context" in data
         assert data["context"]["window_start"] == params["start"]
