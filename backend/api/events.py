@@ -13,6 +13,7 @@ from docs.schems import (
     EventTypesListQuerySchema,
     EventTypesListResponseSchema,
     EventTypeUpdateSchema,
+    RESPONSES_HTTP_ERROR,
 )
 from functions.event_types import (
     archive_event_type,
@@ -26,6 +27,15 @@ from functions.events_submit import process_events_batch
 
 class EventsSubmitInput(BaseModel):
     events: list[dict]
+
+    @field_validator("events")
+    @classmethod
+    def events_bounded(cls, v: list) -> list:
+        if not isinstance(v, list):
+            raise ValueError("events must be a list")
+        if len(v) > 10_000:
+            raise ValueError("events list cannot exceed 10000 items")
+        return v
 
 
 class EventTypeCreate(BaseModel):
@@ -43,7 +53,24 @@ class EventTypeCreate(BaseModel):
     def key_non_empty(cls, v: str) -> str:
         if not v or not v.strip():
             raise ValueError("key is required")
-        return v.strip()
+        v = v.strip()
+        if len(v) > 255:
+            raise ValueError("key must be at most 255 characters")
+        return v
+
+    @field_validator("display_name")
+    @classmethod
+    def display_name_length(cls, v: str | None) -> str | None:
+        if v is not None and len(v) > 255:
+            raise ValueError("display_name must be at most 255 characters")
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def description_length(cls, v: str | None) -> str | None:
+        if v is not None and len(v) > 2048:
+            raise ValueError("description must be at most 2048 characters")
+        return v
 
     @field_validator("requires_show_event_type_id")
     @classmethod
@@ -64,6 +91,20 @@ class EventTypeUpdate(BaseModel):
     report_alert_config: dict | None = None
     requires_show_event_type_id: str | None = None
     is_critical: bool | None = None
+
+    @field_validator("display_name")
+    @classmethod
+    def display_name_length(cls, v: str | None) -> str | None:
+        if v is not None and len(v) > 255:
+            raise ValueError("display_name must be at most 255 characters")
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def description_length(cls, v: str | None) -> str | None:
+        if v is not None and len(v) > 2048:
+            raise ValueError("description must be at most 2048 characters")
+        return v
 
     @field_validator("requires_show_event_type_id")
     @classmethod
@@ -95,7 +136,8 @@ def _event_type_id_from_request(request: web.Request) -> str | None:
             "description": "Пакет обработан. См. счётчики accepted/duplicates/rejected.",
             "schema": EventsSubmitResponseSchema,
         },
-        400: {"description": "Некорректный формат пакета"},
+        400: RESPONSES_HTTP_ERROR[400],
+        422: RESPONSES_HTTP_ERROR[422],
     },
 )
 @request_schema(EventsSubmitRequestSchema(), location="json", put_into="data")
@@ -121,7 +163,7 @@ async def events_submit(request: web.Request, parsed: EventsSubmitInput) -> web.
     description="Получить каталог типов событий. Админ создаёт/редактирует типы с метаданными и правилами валидации.",
     responses={
         200: {"description": "Список типов событий", "schema": EventTypesListResponseSchema},
-        401: {"description": "Требуется авторизация"},
+        401: RESPONSES_HTTP_ERROR[401],
     },
 )
 @request_schema(EventTypesListQuerySchema(), location="querystring", put_into="querystring")
@@ -142,9 +184,12 @@ async def event_types_list(request: web.Request) -> web.Response:
     description="Создать тип события в каталоге (Админ).",
     responses={
         201: {"description": "Тип события создан", "schema": EventTypeItemSchema},
-        400: {"description": "Некорректный запрос"},
-        403: {"description": "Только для админа"},
-        409: {"description": "Тип с таким key уже существует"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        409: RESPONSES_HTTP_ERROR[409],
+        422: RESPONSES_HTTP_ERROR[422],
+        500: RESPONSES_HTTP_ERROR[500],
     },
 )
 @request_schema(EventTypeCreateSchema(), location="json", put_into="data")
@@ -170,25 +215,12 @@ async def event_types_create(request: web.Request, parsed: EventTypeCreate) -> w
             request, parsed.key, "Event type with this key already exists", field="key"
         )
     if err == "db_error":
-        return web.json_response(
-            validate.format_error_response(
-                code="INTERNAL_ERROR",
-                message="Failed to load created event type",
-                path=str(request.path_qs),
-                status=500,
-            ),
-            status=500,
-        )
+        return validate.format_500_error(request, "Failed to load created event type")
     if err == "invalid_requires_show":
-        return web.json_response(
-            validate.format_error_response(
-                code="BAD_REQUEST",
-                message="requires_show_event_type_id must reference an existing active event type",
-                path=str(request.path_qs),
-                status=400,
-                details={"field": "requires_show_event_type_id"},
-            ),
-            status=400,
+        return validate.format_400_error(
+            request,
+            "requires_show_event_type_id must reference an existing active event type",
+            details={"field": "requires_show_event_type_id"},
         )
     return web.json_response(data, status=201)
 
@@ -199,8 +231,8 @@ async def event_types_create(request: web.Request, parsed: EventTypeCreate) -> w
     description="Получить тип события по id.",
     responses={
         200: {"description": "Данные типа события", "schema": EventTypeItemSchema},
-        401: {"description": "Требуется авторизация"},
-        404: {"description": "Не найден"},
+        401: RESPONSES_HTTP_ERROR[401],
+        404: RESPONSES_HTTP_ERROR[404],
     },
 )
 async def event_types_get(request: web.Request) -> web.Response:
@@ -222,12 +254,11 @@ async def event_types_get(request: web.Request) -> web.Response:
     description="Обновить тип события (Админ).",
     responses={
         200: {"description": "Обновлено", "schema": EventTypeItemSchema},
-        400: {
-            "description": "Некорректный запрос (например самозависимость или неверный requires_show)"
-        },
-        401: {"description": "Требуется авторизация"},
-        403: {"description": "Только для админа"},
-        404: {"description": "Не найден"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
+        422: RESPONSES_HTTP_ERROR[422],
     },
 )
 @request_schema(EventTypeUpdateSchema(), location="json", put_into="data")
@@ -254,26 +285,16 @@ async def event_types_update(request: web.Request, parsed: EventTypeUpdate) -> w
     if err == "not_found":
         return validate.format_404_error(request, "Event type not found")
     if err == "self_reference":
-        return web.json_response(
-            validate.format_error_response(
-                code="BAD_REQUEST",
-                message="requires_show_event_type_id cannot reference the same event type",
-                path=str(request.path_qs),
-                status=400,
-                details={"field": "requires_show_event_type_id"},
-            ),
-            status=400,
+        return validate.format_400_error(
+            request,
+            "requires_show_event_type_id cannot reference the same event type",
+            details={"field": "requires_show_event_type_id"},
         )
     if err == "invalid_requires_show":
-        return web.json_response(
-            validate.format_error_response(
-                code="BAD_REQUEST",
-                message="requires_show_event_type_id must reference an existing active event type",
-                path=str(request.path_qs),
-                status=400,
-                details={"field": "requires_show_event_type_id"},
-            ),
-            status=400,
+        return validate.format_400_error(
+            request,
+            "requires_show_event_type_id must reference an existing active event type",
+            details={"field": "requires_show_event_type_id"},
         )
     return web.json_response(data)
 
@@ -284,9 +305,9 @@ async def event_types_update(request: web.Request, parsed: EventTypeUpdate) -> w
     description="Архивировать тип события (мягкое удаление).",
     responses={
         200: {"description": "Архивировано", "schema": EventTypeItemSchema},
-        401: {"description": "Требуется авторизация"},
-        403: {"description": "Только для админа"},
-        404: {"description": "Не найден"},
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
     },
 )
 async def event_types_archive(request: web.Request) -> web.Response:

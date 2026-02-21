@@ -1,5 +1,6 @@
-import pytest
 import uuid
+
+import pytest
 
 
 @pytest.mark.asyncio
@@ -136,7 +137,7 @@ async def test_users_create_duplicate_email_returns_409(
     payload = {
         "email": "admin@test.com",
         "first_name": "AnotherName",
-        "password": "pass",
+        "password": "Password1",
         "role": "viewer",
     }
     async with http_session.post(
@@ -154,7 +155,7 @@ async def test_users_create_forbidden_for_experimenter(
     payload = {
         "email": "x@test.com",
         "first_name": "X",
-        "password": "p",
+        "password": "Password1",
         "role": "viewer",
     }
     async with http_session.post(
@@ -241,7 +242,7 @@ async def test_users_update_success(http_session, base_url, auth_headers_admin):
         json={
             "email": f"patch_target_{unique}@test.com",
             "first_name": f"PatchTarget_{unique}",
-            "password": "oldpass",
+            "password": "Oldpass1",
             "role": "viewer",
         },
         headers=auth_headers_admin,

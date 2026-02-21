@@ -7,7 +7,7 @@ from pydantic import BaseModel, field_validator
 from api import validate
 from api.system_metrics import record_decide
 from core import validate_uuid
-from docs.schems import DecideRequestSchema, DecideResponseSchema
+from docs.schems import DecideRequestSchema, DecideResponseSchema, RESPONSES_HTTP_ERROR
 from functions.decide import get_decisions_for_subject
 from functions.flags import get_flag_by_id
 
@@ -22,7 +22,10 @@ class DecideRequest(BaseModel):
     def subject_id_non_empty(cls, v: str) -> str:
         if not v or not v.strip():
             raise ValueError("subject_id is required")
-        return v.strip()
+        v = v.strip()
+        if len(v) > 1024:
+            raise ValueError("subject_id must be at most 1024 characters")
+        return v
 
     @field_validator("attributes", mode="before")
     @classmethod
@@ -83,12 +86,11 @@ class DecideRequest(BaseModel):
                 }
             },
         },
-        400: {
-            "description": "Некорректный запрос (пустой subject_id, невалидные UUID флагов, пустой список flags)"
-        },
-        401: {"description": "Не авторизован (нет или неверный JWT)"},
-        403: {"description": "Доступ запрещён (нужна роль viewer)"},
-        404: {"description": "Один из переданных флагов не найден"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
+        422: RESPONSES_HTTP_ERROR[422],
     },
 )
 @request_schema(DecideRequestSchema(), location="json", put_into="data")

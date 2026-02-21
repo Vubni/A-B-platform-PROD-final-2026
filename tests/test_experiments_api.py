@@ -1,8 +1,6 @@
-import uuid
 
 import pytest
-
-from conftest import create_experiment_in_running, transition_experiment_to_running
+from conftest import create_experiment_in_running
 
 
 @pytest.mark.asyncio
@@ -543,7 +541,7 @@ async def test_experiments_complete_forbidden_for_viewer(
         headers=auth_headers_experimenter,
         json={"completion_outcome": "rollback", "comment": "Teardown"},
     ) as _:
-        pass  # cleanup
+        pass
 
 
 @pytest.mark.asyncio

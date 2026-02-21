@@ -131,6 +131,37 @@ class ErrorDetailSchema(Schema):
     value = fields.Raw(description="Значение параметра, если оно было передано", allow_none=True)
 
 
+class FieldErrorItemSchema(Schema):
+    field = fields.Str(description="Поле с ошибкой")
+    issue = fields.Str(description="Описание ошибки")
+    rejectedValue = fields.Raw(allow_none=True, description="Отклонённое значение")
+
+
+class HttpErrorSchema(Schema):
+    code = fields.Str(description="Код ошибки (UNAUTHORIZED, FORBIDDEN, NOT_FOUND, ...)")
+    message = fields.Str(description="Сообщение об ошибке")
+    traceId = fields.Str(description="Идентификатор запроса для отладки")
+    timestamp = fields.Str(description="Время ответа в ISO 8601")
+    path = fields.Str(description="Путь запроса")
+    details = fields.Dict(allow_none=True, description="Дополнительные данные (опционально)")
+    fieldErrors = fields.List(
+        fields.Nested(FieldErrorItemSchema),
+        allow_none=True,
+        description="Ошибки по полям при 422 (опционально)",
+    )
+
+
+RESPONSES_HTTP_ERROR = {
+    400: {"description": "Некорректный запрос", "schema": HttpErrorSchema},
+    401: {"description": "Не авторизован", "schema": HttpErrorSchema},
+    403: {"description": "Нет прав", "schema": HttpErrorSchema},
+    404: {"description": "Не найдено", "schema": HttpErrorSchema},
+    409: {"description": "Конфликт (дубликат и т.п.)", "schema": HttpErrorSchema},
+    422: {"description": "Ошибка валидации", "schema": HttpErrorSchema},
+    500: {"description": "Внутренняя ошибка сервера", "schema": HttpErrorSchema},
+}
+
+
 class Error400Schema(Schema):
     error = fields.Str(description="Общее сообщение об ошибке")
     errors = fields.List(fields.Nested(ErrorDetailSchema), description="Список детальных ошибок")
@@ -335,6 +366,313 @@ class ExperimentGuardrailListResponseSchema(Schema):
     guardrails = fields.List(
         fields.Nested(ExperimentGuardrailItemSchema), description="Guardrail-правила эксперимента"
     )
+
+
+class RampPlanStepSchema(Schema):
+    step_index = fields.Int(
+        description="Порядковый индекс ступени (0..N), определяет последовательность раскатки"
+    )
+    traffic_fraction = fields.Float(
+        description="Целевая доля аудитории эксперимента на этой ступени (0, 1]"
+    )
+
+
+class RampSafetyActionSchema(Schema):
+    trigger_type = fields.Str(
+        validate=mvalidate.OneOf(
+            ("guardrail_triggered", "error_rate_high", "latency_high", "data_quality_critical")
+        ),
+        description="Событие-триггер, при котором запускается safety-реакция",
+    )
+    action = fields.Str(
+        validate=mvalidate.OneOf(("pause", "rollback_to_control", "step_back")),
+        description="Какой защитный шаг выполнить при срабатывании триггера",
+    )
+    notify = fields.Bool(description="Отправлять ли уведомление ответственным после срабатывания")
+
+
+class RampPlanGateDataSufficiencySchema(Schema):
+    min_total_impressions = fields.Int(description="Минимум показов на шаге (в сумме)")
+    min_impressions_per_variant = fields.Int(description="Минимум показов на каждый вариант")
+    min_minutes_on_step = fields.Int(description="Минимальное время на текущей ступени (минуты)")
+
+
+class RampPlanGateSafetySchema(Schema):
+    use_guardrails = fields.Bool(description="Учитывать guardrail-срабатывания при автооценке")
+    error_rate_threshold = fields.Float(description="Порог error_rate для safety gate")
+    latency_p95_ms = fields.Float(description="Порог p95 latency в миллисекундах")
+
+
+class RampPlanGateDataHealthSchema(Schema):
+    require_no_srm = fields.Bool(description="Требовать отсутствие SRM")
+    require_no_mass_rejected = fields.Bool(
+        description="Требовать отсутствие массово отклонённых событий"
+    )
+
+
+class RampPlanSchema(Schema):
+    id = fields.Str(description="UUID ramp-плана (идентификатор ресурса)")
+    experiment_id = fields.Str(description="UUID эксперимента, к которому относится план")
+    observation_window_seconds = fields.Int(
+        description="Длина окна наблюдения в секундах перед автоматической оценкой перехода на следующую ступень"
+    )
+    gate_data_sufficiency = fields.Nested(
+        RampPlanGateDataSufficiencySchema,
+        description="Gate: достаточность данных перед переходом между ступенями",
+    )
+    gate_safety = fields.Nested(
+        RampPlanGateSafetySchema, description="Gate: условия безопасности раскатки"
+    )
+    gate_data_health = fields.Nested(
+        RampPlanGateDataHealthSchema, description="Gate: проверка качества данных"
+    )
+    steps = fields.List(
+        fields.Nested(RampPlanStepSchema),
+        description="Бизнес-представление ступеней раскатки (только order + traffic), отсортировано по step_index",
+    )
+    safety_actions = fields.List(
+        fields.Nested(RampSafetyActionSchema),
+        description="Набор защитных реакций на критические сигналы качества/безопасности",
+    )
+    created_at = fields.Str(
+        allow_none=True, description="Когда ramp-план был создан (техническое поле аудита)"
+    )
+    updated_at = fields.Str(
+        allow_none=True, description="Когда ramp-план в последний раз обновлялся (техническое поле аудита)"
+    )
+
+
+class RampPlanStepUpsertSchema(Schema):
+    step_index = fields.Int(
+        required=False,
+        description="Индекс ступени. Если не задан, выставляется автоматически по позиции в массиве",
+    )
+    traffic_fraction = fields.Float(required=True, description="Доля трафика на ступени (0, 1]")
+
+
+class RampSafetyActionUpsertSchema(Schema):
+    trigger_type = fields.Str(
+        required=True,
+        validate=mvalidate.OneOf(
+            ("guardrail_triggered", "error_rate_high", "latency_high", "data_quality_critical")
+        ),
+        description="Триггер, при котором выполняется safety action",
+    )
+    action = fields.Str(
+        required=True,
+        validate=mvalidate.OneOf(("pause", "rollback_to_control", "step_back")),
+        description="Действие при триггере",
+    )
+    notify = fields.Bool(load_default=True, description="Нужно ли отправлять уведомление")
+
+
+class RampPlanPutSchema(Schema):
+    observation_window_seconds = fields.Int(required=True, description="Окно наблюдения в секундах (> 0)")
+    steps = fields.List(
+        fields.Nested(RampPlanStepUpsertSchema),
+        required=True,
+        description="Список ступеней раскатки (минимум одна)",
+    )
+    gate_data_sufficiency = fields.Nested(
+        RampPlanGateDataSufficiencySchema,
+        required=False,
+        description="Настройки gate достаточности данных (опционально)",
+    )
+    gate_safety = fields.Nested(
+        RampPlanGateSafetySchema,
+        required=False,
+        description="Настройки gate безопасности (опционально)",
+    )
+    gate_data_health = fields.Nested(
+        RampPlanGateDataHealthSchema,
+        required=False,
+        description="Настройки gate качества данных (опционально)",
+    )
+    safety_actions = fields.List(
+        fields.Nested(RampSafetyActionUpsertSchema),
+        required=False,
+        description="Правила safety actions (опционально)",
+    )
+
+
+class RampStateSchema(Schema):
+    experiment_id = fields.Str(description="UUID эксперимента, для которого работает runtime-состояние")
+    ramp_plan_id = fields.Str(description="UUID активного ramp-плана, по которому идёт управление")
+    current_step_index = fields.Int(
+        description="Текущая применённая ступень (индекс из steps), определяет текущую долю трафика"
+    )
+    mode = fields.Str(
+        validate=mvalidate.OneOf(("autopilot", "manual", "paused")),
+        description="Режим работы автопилота",
+    )
+    started_at = fields.Str(
+        allow_none=True, description="Когда автопилот был впервые запущен для эксперимента"
+    )
+    last_eval_at = fields.Str(
+        allow_none=True, description="Время последней автоматической/ручной оценки состояния"
+    )
+    manual_override_by_user_id = fields.Str(
+        allow_none=True, description="UUID пользователя, изменившего ступень/режим вручную"
+    )
+    manual_override_at = fields.Str(
+        allow_none=True, description="Когда последний раз выполнялось ручное вмешательство"
+    )
+    updated_at = fields.Str(
+        allow_none=True, description="Последнее обновление записи состояния (техническое поле аудита)"
+    )
+
+
+class RampModePatchSchema(Schema):
+    mode = fields.Str(
+        required=True,
+        validate=mvalidate.OneOf(("autopilot", "manual", "paused")),
+        description="Новый режим работы: autopilot | manual | paused",
+    )
+
+
+class RampOverridePostSchema(Schema):
+    to_step_index = fields.Int(required=True, description="Индекс целевой ступени (>= 0)")
+
+
+class RampDecisionLogItemSchema(Schema):
+    id = fields.Str(description="UUID записи лога решения")
+    experiment_id = fields.Str(description="UUID эксперимента, к которому относится решение")
+    decided_at = fields.Str(description="Момент принятия решения (временная ось логов)")
+    action = fields.Str(
+        validate=mvalidate.OneOf(
+            ("start", "resume", "step_up", "step_back", "pause", "rollback", "override", "no_change")
+        ),
+        description="Тип решения автопилота",
+    )
+    from_step_index = fields.Int(description="Индекс ступени до изменения")
+    to_step_index = fields.Int(
+        allow_none=True, description="Индекс ступени после изменения (null для no_change)"
+    )
+    reason = fields.Dict(description="Причины/контекст решения: результаты gate-проверок, служебные детали")
+    triggered_by = fields.Str(description="Кто инициировал решение: autopilot | manual")
+    user_id = fields.Str(
+        allow_none=True, description="UUID пользователя для manual-действий, иначе null"
+    )
+    created_at = fields.Str(allow_none=True)
+
+
+class RampDecisionLogResponseSchema(Schema):
+    decisions = fields.List(
+        fields.Nested(RampDecisionLogItemSchema), description="Лента решений по автопилот-раскатке"
+    )
+
+
+RAMP_PLAN_PUT_REQUEST_EXAMPLE = {
+    "observation_window_seconds": 3600,
+    "steps": [
+        {"step_index": 0, "traffic_fraction": 0.05},
+        {"step_index": 1, "traffic_fraction": 0.2},
+        {"step_index": 2, "traffic_fraction": 0.5},
+        {"step_index": 3, "traffic_fraction": 1.0},
+    ],
+    "gate_data_sufficiency": {
+        "min_total_impressions": 1000,
+        "min_impressions_per_variant": 200,
+        "min_minutes_on_step": 60,
+    },
+    "gate_safety": {
+        "use_guardrails": True,
+        "error_rate_threshold": 0.01,
+        "latency_p95_ms": 500,
+    },
+    "gate_data_health": {
+        "require_no_srm": True,
+        "require_no_mass_rejected": True,
+    },
+    "safety_actions": [
+        {"trigger_type": "guardrail_triggered", "action": "pause", "notify": True},
+        {"trigger_type": "error_rate_high", "action": "step_back", "notify": True},
+    ],
+}
+
+RAMP_PLAN_RESPONSE_EXAMPLE = {
+    "id": "d4e5f6a7-b8c9-4012-9abc-def123456789",
+    "experiment_id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+    "observation_window_seconds": 3600,
+    "gate_data_sufficiency": {
+        "min_total_impressions": 1000,
+        "min_impressions_per_variant": 200,
+        "min_minutes_on_step": 60,
+    },
+    "gate_safety": {
+        "use_guardrails": True,
+        "error_rate_threshold": 0.01,
+        "latency_p95_ms": 500,
+    },
+    "gate_data_health": {
+        "require_no_srm": True,
+        "require_no_mass_rejected": True,
+    },
+    "steps": [
+        {
+            "step_index": 0,
+            "traffic_fraction": 0.05,
+        },
+        {
+            "step_index": 1,
+            "traffic_fraction": 0.2,
+        },
+    ],
+    "safety_actions": [
+        {
+            "trigger_type": "guardrail_triggered",
+            "action": "pause",
+            "notify": True,
+        }
+    ],
+    "created_at": "2026-02-20T11:10:00Z",
+    "updated_at": "2026-02-20T11:10:00Z",
+}
+
+RAMP_STATE_RESPONSE_EXAMPLE = {
+    "experiment_id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+    "ramp_plan_id": "d4e5f6a7-b8c9-4012-9abc-def123456789",
+    "current_step_index": 1,
+    "mode": "autopilot",
+    "started_at": "2026-02-20T11:20:00Z",
+    "last_eval_at": "2026-02-20T12:00:00Z",
+    "manual_override_by_user_id": None,
+    "manual_override_at": None,
+    "updated_at": "2026-02-20T12:00:00Z",
+}
+
+RAMP_MODE_PATCH_REQUEST_EXAMPLE = {"mode": "manual"}
+
+RAMP_OVERRIDE_POST_REQUEST_EXAMPLE = {"to_step_index": 2}
+
+RAMP_DECISION_LOG_RESPONSE_EXAMPLE = {
+    "decisions": [
+        {
+            "id": "b8c9d0e1-f2a3-4456-def1-234567890123",
+            "experiment_id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+            "decided_at": "2026-02-20T11:20:00Z",
+            "action": "start",
+            "from_step_index": 0,
+            "to_step_index": 0,
+            "reason": {"message": "autopilot started"},
+            "triggered_by": "autopilot",
+            "user_id": None,
+            "created_at": "2026-02-20T11:20:00Z",
+        },
+        {
+            "id": "c9d0e1f2-a3b4-4567-ef12-345678901234",
+            "experiment_id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+            "decided_at": "2026-02-20T12:00:00Z",
+            "action": "step_up",
+            "from_step_index": 0,
+            "to_step_index": 1,
+            "reason": {"gate_data_sufficiency": True, "gate_safety": True},
+            "triggered_by": "autopilot",
+            "user_id": None,
+            "created_at": "2026-02-20T12:00:00Z",
+        },
+    ]
+}
 
 
 class FlagItemSchema(Schema):
@@ -630,8 +968,6 @@ class ReportMetricDynamicsItemSchema(Schema):
 
 
 class ReportCompletionSchema(Schema):
-    """Финальное решение по завершённому эксперименту (ТЗ 2.6)."""
-
     outcome = fields.Str(
         description="Режим завершения: rollout_winner — раскатить победителя; rollback — откат к контролю; no_effect — эффект не выявлен",
     )

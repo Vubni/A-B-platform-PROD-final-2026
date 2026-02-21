@@ -13,6 +13,7 @@ from docs.schems import (
     MetricCatalogUpdateSchema,
     MetricsListResponseSchema,
     ReportExperimentResponseSchema,
+    RESPONSES_HTTP_ERROR,
 )
 from functions.experiments import get_experiment_by_id
 from functions.metrics import create_metric, get_metric_by_key, list_metrics, update_metric
@@ -54,14 +55,20 @@ class ReportsExperiment(BaseModel):
     def start_iso(cls, v: str) -> str:
         if not v or not v.strip():
             raise ValueError("start is required")
-        return v.strip()
+        v = v.strip()
+        if _parse_iso_for_validate(v) is None:
+            raise ValueError("start must be a valid ISO 8601 datetime")
+        return v
 
     @field_validator("end")
     @classmethod
     def end_iso(cls, v: str) -> str:
         if not v or not v.strip():
             raise ValueError("end is required")
-        return v.strip()
+        v = v.strip()
+        if _parse_iso_for_validate(v) is None:
+            raise ValueError("end must be a valid ISO 8601 datetime")
+        return v
 
     @model_validator(mode="after")
     def check_window(self) -> "ReportsExperiment":
@@ -239,8 +246,9 @@ class MetricsUpdate(BaseModel):
             "description": "Отчёт с метриками по вариантам",
             "schema": ReportExperimentResponseSchema,
         },
-        400: {"description": "Некорректное окно (start >= end или невалидный ISO)"},
-        404: {"description": "Эксперимент не найден"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        404: RESPONSES_HTTP_ERROR[404],
     },
 )
 @validate.validate(ReportsExperiment)
@@ -273,7 +281,8 @@ async def reports_experiment(request: web.Request, parsed: ReportsExperiment) ->
     ),
     responses={
         200: {"description": "Список метрик каталога", "schema": MetricsListResponseSchema},
-        401: {"description": "Требуется авторизация"},
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
     },
 )
 async def metrics_list(request: web.Request) -> web.Response:
@@ -302,8 +311,9 @@ async def metrics_list(request: web.Request) -> web.Response:
     ],
     responses={
         200: {"description": "Метрика из каталога", "schema": MetricCatalogItemSchema},
-        401: {"description": "Требуется авторизация"},
-        404: {"description": "Метрика не найдена"},
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
     },
 )
 async def metrics_get(request: web.Request) -> web.Response:
@@ -332,10 +342,11 @@ async def metrics_get(request: web.Request) -> web.Response:
     ),
     responses={
         201: {"description": "Метрика создана", "schema": MetricCatalogItemSchema},
-        400: {"description": "Некорректный запрос (неверный ключ, правило и т.д.)"},
-        401: {"description": "Требуется авторизация"},
-        403: {"description": "Только для админа"},
-        409: {"description": "Метрика с таким ключом уже существует"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        409: RESPONSES_HTTP_ERROR[409],
+        500: RESPONSES_HTTP_ERROR[500],
     },
 )
 @request_schema(MetricCatalogCreateSchema(), location="json", put_into="data")
@@ -358,41 +369,19 @@ async def metrics_create(request: web.Request, parsed: MetricsCreate) -> web.Res
             unit=parsed.unit,
         )
     except Exception as e:
-        return web.json_response(
-            validate.format_error_response(
-                code="INTERNAL_ERROR",
-                message="Failed to create metric",
-                path=str(request.path_qs),
-                status=500,
-                details={"error": str(e)},
-            ),
-            status=500,
+        return validate.format_500_error(
+            request, "Failed to create metric", details={"error": str(e)}
         )
     if err == "duplicate_key":
         return validate.format_409_error(
             request, parsed.key, "Metric with this key already exists", field="key"
         )
     if err in ("invalid_key", "invalid_name", "invalid_aggregation_rule"):
-        return web.json_response(
-            validate.format_error_response(
-                code="BAD_REQUEST",
-                message="Invalid metric data",
-                path=str(request.path_qs),
-                status=400,
-                details={"error": err},
-            ),
-            status=400,
+        return validate.format_400_error(
+            request, "Invalid metric data", details={"error": err}
         )
     if err == "db_error" or not created:
-        return web.json_response(
-            validate.format_error_response(
-                code="INTERNAL_ERROR",
-                message="Failed to create metric",
-                path=str(request.path_qs),
-                status=500,
-            ),
-            status=500,
-        )
+        return validate.format_500_error(request, "Failed to create metric")
     return web.json_response(created, status=201)
 
 
@@ -411,10 +400,11 @@ async def metrics_create(request: web.Request, parsed: MetricsCreate) -> web.Res
     ],
     responses={
         200: {"description": "Метрика обновлена", "schema": MetricCatalogItemSchema},
-        400: {"description": "Некорректный запрос"},
-        401: {"description": "Требуется авторизация"},
-        403: {"description": "Только для админа"},
-        404: {"description": "Метрика не найдена"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
+        500: RESPONSES_HTTP_ERROR[500],
     },
 )
 @request_schema(MetricCatalogUpdateSchema(), location="json", put_into="data")
@@ -442,13 +432,5 @@ async def metrics_update(request: web.Request, parsed: MetricsUpdate) -> web.Res
     if err == "not_found":
         return validate.format_404_error(request, "Metric not found")
     if err == "db_error" or not updated:
-        return web.json_response(
-            validate.format_error_response(
-                code="INTERNAL_ERROR",
-                message="Failed to update metric",
-                path=str(request.path_qs),
-                status=500,
-            ),
-            status=500,
-        )
+        return validate.format_500_error(request, "Failed to update metric")
     return web.json_response(updated, status=200)

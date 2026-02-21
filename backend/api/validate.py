@@ -51,6 +51,7 @@ def format_error_response(
     details: dict[str, Any] | None = None,
     field_errors: list | None = None,
 ) -> dict[str, Any]:
+    """Единый шаблон тела ответа для всех HTTP-ошибок (4xx, 5xx)."""
     response = {
         "code": code,
         "message": message,
@@ -58,32 +59,51 @@ def format_error_response(
         "timestamp": get_timestamp(),
         "path": path,
     }
-
     if details:
         response["details"] = details
-
     if field_errors:
         response["fieldErrors"] = field_errors
-
     return response
+
+
+def format_http_error(
+    request: web.Request,
+    status: int,
+    code: str,
+    message: str,
+    details: dict[str, Any] | None = None,
+    field_errors: list | None = None,
+) -> web.Response:
+    """Единая точка формирования ответа об ошибке для любого HTTP-статуса."""
+    body = format_error_response(
+        code=code,
+        message=message,
+        path=str(request.path_qs),
+        status=status,
+        details=details,
+        field_errors=field_errors,
+    )
+    return web.json_response(body, status=status)
+
+
+def format_400_error(
+    request: web.Request,
+    message: str = "Некорректный запрос",
+    details: dict[str, Any] | None = None,
+) -> web.Response:
+    return format_http_error(request, 400, "BAD_REQUEST", message, details=details)
 
 
 def format_401_error(
     request: web.Request, message: str = "Токен отсутствует, невалиден или истёк"
 ) -> web.Response:
-    error_response = format_error_response(
-        code="UNAUTHORIZED", message=message, path=str(request.path_qs), status=401
-    )
-    return web.json_response(error_response, status=401)
+    return format_http_error(request, 401, "UNAUTHORIZED", message)
 
 
 def format_403_error(
     request: web.Request, message: str = "Недостаточно прав для выполнения операции"
 ) -> web.Response:
-    error_response = format_error_response(
-        code="FORBIDDEN", message=message, path=str(request.path_qs), status=403
-    )
-    return web.json_response(error_response, status=403)
+    return format_http_error(request, 403, "FORBIDDEN", message)
 
 
 def format_404_error(
@@ -91,57 +111,46 @@ def format_404_error(
     message: str = "Ресурс не найден",
     details: dict[str, Any] | None = None,
 ) -> web.Response:
-    error_response = format_error_response(
-        code="NOT_FOUND", message=message, path=str(request.path_qs), status=404, details=details
-    )
-    return web.json_response(error_response, status=404)
+    return format_http_error(request, 404, "NOT_FOUND", message, details=details)
 
 
 def format_409_error(
     request: web.Request, value, message: str = "Токен отсутствует или невалиден", field="email"
 ) -> web.Response:
-    error_response = format_error_response(
-        code=f"{field.upper()}_ALREADY_EXISTS",
-        message=message,
-        path=str(request.path_qs),
-        status=409,
-        details={"field": field, "value": value},
+    return format_http_error(
+        request, 409, f"{field.upper()}_ALREADY_EXISTS", message, details={"field": field, "value": value}
     )
-    return web.json_response(error_response, status=409)
 
 
 def format_409_conflict(
     request: web.Request, message: str, code: str = "CONFLICT"
 ) -> web.Response:
-    error_response = format_error_response(
-        code=code,
-        message=message,
-        path=str(request.path_qs),
-        status=409,
+    return format_http_error(request, 409, code, message)
+
+
+def format_422_error(
+    request: web.Request,
+    code: str = "VALIDATION_FAILED",
+    message: str = "Некоторые поля не прошли валидацию",
+    field_errors: list | None = None,
+) -> web.Response:
+    return format_http_error(
+        request, 422, code, message, field_errors=field_errors
     )
-    return web.json_response(error_response, status=409)
-
-
-def format_422_error(request: web.Request, code: str = "ERROR") -> web.Response:
-    error_response = {
-        "code": code,
-        "message": "Некоторые поля не прошли валидацию",
-        "timestamp": get_timestamp(),
-        "path": str(request.path_qs),
-    }
-    return web.json_response(error_response, status=422)
 
 
 def format_423_error(
     request: web.Request, message: str = "Пользователь деактивирован"
 ) -> web.Response:
-    error_response = {
-        "code": "USER_INACTIVE",
-        "message": message,
-        "timestamp": get_timestamp(),
-        "path": str(request.path_qs),
-    }
-    return web.json_response(error_response, status=423)
+    return format_http_error(request, 423, "USER_INACTIVE", message)
+
+
+def format_500_error(
+    request: web.Request,
+    message: str = "Внутренняя ошибка сервера",
+    details: dict[str, Any] | None = None,
+) -> web.Response:
+    return format_http_error(request, 500, "INTERNAL_ERROR", message, details=details)
 
 
 def require_auth(handler: Callable[[web.Request, Any], Awaitable[web.Response]]) -> Callable:
@@ -162,8 +171,6 @@ def validate[T: BaseModel](model: type[T], require_auth: bool = False) -> Callab
     def decorator(handler: Callable[[web.Request, Any], Awaitable[web.Response]]):
         @wraps(handler)
         async def wrapper(request: web.Request) -> web.Response:
-            path = str(request.path_qs)
-
             if require_auth:
                 payload = await core.check_authorization(request)
                 if not isinstance(payload, dict):
@@ -175,14 +182,11 @@ def validate[T: BaseModel](model: type[T], require_auth: bool = False) -> Callab
             if request.method in ("POST", "PUT", "PATCH"):
                 content_type = request.headers.get("Content-Type", "")
                 if not content_type.startswith("application/json"):
-                    error_response = format_error_response(
-                        code="BAD_REQUEST",
-                        message="Неподдерживаемый Content-Type",
-                        path=path,
-                        status=400,
+                    return format_400_error(
+                        request,
+                        "Неподдерживаемый Content-Type",
                         details={"hint": "Используйте Content-Type: application/json"},
                     )
-                    return web.json_response(error_response, status=400)
 
             if request.method == "GET":
                 data = dict(request.query)
@@ -192,37 +196,28 @@ def validate[T: BaseModel](model: type[T], require_auth: bool = False) -> Callab
                     try:
                         size = int(content_length)
                         if size > 10 * 1024 * 1024:
-                            error_response = format_error_response(
-                                code="BAD_REQUEST",
-                                message="Слишком большой payload",
-                                path=path,
-                                status=400,
+                            return format_400_error(
+                                request,
+                                "Слишком большой payload",
                                 details={"hint": "Максимальный размер запроса: 10MB"},
                             )
-                            return web.json_response(error_response, status=400)
                     except ValueError:
                         pass
 
                 try:
                     data = await request.json()
                 except json.JSONDecodeError:
-                    error_response = format_error_response(
-                        code="BAD_REQUEST",
-                        message="Невалидный JSON",
-                        path=path,
-                        status=400,
+                    return format_400_error(
+                        request,
+                        "Невалидный JSON",
                         details={"hint": "Проверьте запятые/кавычки"},
                     )
-                    return web.json_response(error_response, status=400)
                 except Exception:
-                    error_response = format_error_response(
-                        code="BAD_REQUEST",
-                        message="Ошибка обработки запроса",
-                        path=path,
-                        status=400,
+                    return format_400_error(
+                        request,
+                        "Ошибка обработки запроса",
                         details={"hint": "Проверьте формат и размер запроса"},
                     )
-                    return web.json_response(error_response, status=400)
 
             all_data = dict(request.query)
             all_data.update(data)
@@ -259,26 +254,22 @@ def validate[T: BaseModel](model: type[T], require_auth: bool = False) -> Callab
                     }
                     for error in e.errors()
                 ]
-                error_response = format_error_response(
+                return format_422_error(
+                    request,
                     code="VALIDATION_FAILED",
                     message="Некоторые поля не прошли валидацию",
-                    path=path,
-                    status=422,
                     field_errors=field_errors,
                 )
-                return web.json_response(error_response, status=422)
             except EmailError as e:
                 field_errors = [
                     {"field": "email", "issue": e.message, "rejectedValue": all_data.get("email")}
                 ]
-                error_response = format_error_response(
+                return format_422_error(
+                    request,
                     code="VALIDATION_FAILED",
                     message="Некоторые поля не прошли валидацию",
-                    path=path,
-                    status=422,
                     field_errors=field_errors,
                 )
-                return web.json_response(error_response, status=422)
 
             return await handler(request, parsed)
 
@@ -297,7 +288,11 @@ class Register(BaseModel):
     maritalStatus: str | None = None
 
     @field_validator("email")
+    @classmethod
     def check_email(cls, v):
+        v = v.strip() if isinstance(v, str) else v
+        if not v:
+            raise ValueError("Email is required")
         if len(v) > 254:
             raise ValueError("Email cannot exceed 254 characters")
         if not core.is_valid_email(v):
@@ -307,18 +302,21 @@ class Register(BaseModel):
         return v
 
     @field_validator("age")
+    @classmethod
     def check_age(cls, v):
         if v is not None and (v < 18 or v > 120):
             raise ValueError("Age must be between 18 and 120")
         return v
 
     @field_validator("fullName")
+    @classmethod
     def check_full_name(cls, v):
         if v is not None and (len(v) < 2 or len(v) > 100):
             raise ValueError("Full name must be between 2 and 100 characters")
         return v
 
     @field_validator("password")
+    @classmethod
     def check_password(cls, v):
         if v is not None:
             if len(v) < 8 or len(v) > 72:
@@ -328,18 +326,21 @@ class Register(BaseModel):
         return v
 
     @field_validator("region")
+    @classmethod
     def check_region(cls, v):
         if v is not None and len(v) > 32:
             raise ValueError("Region cannot exceed 32 characters")
         return v
 
     @field_validator("gender")
+    @classmethod
     def check_gender(cls, v):
         if v not in ["MALE", "FEMALE", None]:
             raise ValueError("Gender must be either MALE or FEMALE")
         return v
 
     @field_validator("maritalStatus")
+    @classmethod
     def check_marital_status(cls, v):
         if v not in ["SINGLE", "MARRIED", "DIVORCED", "WIDOWED", None]:
             raise ValueError(

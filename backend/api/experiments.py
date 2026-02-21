@@ -12,6 +12,7 @@ from docs.schems import (
     ExperimentUpdateSchema,
     ExperimentVariantSchema,
     GuardrailHistoryResponseSchema,
+    RESPONSES_HTTP_ERROR,
     StatusUpdateSchema,
     VariantCreateSchema,
     VariantUpdateSchema,
@@ -171,10 +172,24 @@ class ExperimentUpdate(BaseModel):
 class ReviewAction(BaseModel):
     comment: str | None = None
 
+    @field_validator("comment")
+    @classmethod
+    def comment_length(cls, v: str | None) -> str | None:
+        if v is not None and len(v) > 2048:
+            raise ValueError("comment must be at most 2048 characters")
+        return v
+
 
 class StatusUpdate(BaseModel):
     status: str
     comment: str | None = None
+
+    @field_validator("comment")
+    @classmethod
+    def comment_length(cls, v: str | None) -> str | None:
+        if v is not None and len(v) > 2048:
+            raise ValueError("comment must be at most 2048 characters")
+        return v
 
     @field_validator("status")
     @classmethod
@@ -188,6 +203,16 @@ class CompleteExperiment(BaseModel):
     completion_outcome: str
     comment: str
     completion_winner_variant_id: str | None = None
+
+    @field_validator("completion_winner_variant_id")
+    @classmethod
+    def winner_variant_uuid(cls, v: str | None) -> str | None:
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        u = validate_uuid(str(v).strip())
+        if not u:
+            raise ValueError("completion_winner_variant_id must be a valid UUID")
+        return u
 
     @field_validator("completion_outcome")
     @classmethod
@@ -267,8 +292,11 @@ class VariantUpdate(BaseModel):
     summary="Создать эксперимент",
     responses={
         201: {"description": "Эксперимент создан", "schema": ExperimentItemSchema},
-        400: {"description": "Некорректный запрос"},
-        404: {"description": "Флаг не найден"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
+        422: RESPONSES_HTTP_ERROR[422],
     },
 )
 @request_schema(ExperimentCreateSchema(), location="json", put_into="data")
@@ -311,7 +339,8 @@ async def experiments_create(request: web.Request, parsed: ExperimentCreate) -> 
     tags=["Experiments"],
     summary="Список экспериментов",
     responses={
-        200: {"description": "Список экспериментов", "schema": ExperimentListResponseSchema}
+        200: {"description": "Список экспериментов", "schema": ExperimentListResponseSchema},
+        401: RESPONSES_HTTP_ERROR[401],
     },
 )
 async def experiments_list(request: web.Request) -> web.Response:
@@ -335,7 +364,8 @@ async def experiments_list(request: web.Request) -> web.Response:
     summary="Получить эксперимент",
     responses={
         200: {"description": "Данные эксперимента", "schema": ExperimentItemSchema},
-        404: {"description": "Эксперимент не найден"},
+        401: RESPONSES_HTTP_ERROR[401],
+        404: RESPONSES_HTTP_ERROR[404],
     },
 )
 async def experiments_get(request: web.Request) -> web.Response:
@@ -358,8 +388,11 @@ async def experiments_get(request: web.Request) -> web.Response:
     summary="Обновить эксперимент",
     responses={
         200: {"description": "Эксперимент обновлён", "schema": ExperimentItemSchema},
-        400: {"description": "Некорректный запрос или не в черновике"},
-        404: {"description": "Эксперимент не найден"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
+        422: RESPONSES_HTTP_ERROR[422],
     },
 )
 @request_schema(ExperimentUpdateSchema(), location="json", put_into="data")
@@ -446,10 +479,12 @@ async def experiments_update(request: web.Request, parsed: ExperimentUpdate) -> 
     summary="Обновить статус эксперимента",
     responses={
         200: {"description": "Статус обновлён", "schema": ExperimentItemSchema},
-        400: {"description": "Недопустимый переход"},
-        403: {"description": "Нет прав"},
-        404: {"description": "Эксперимент не найден"},
-        409: {"description": "Конфликт (другой эксперимент на флаг)"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
+        409: RESPONSES_HTTP_ERROR[409],
+        422: RESPONSES_HTTP_ERROR[422],
     },
 )
 @request_schema(StatusUpdateSchema(), location="json", put_into="data")
@@ -537,9 +572,11 @@ async def experiments_update_status(request: web.Request, parsed: StatusUpdate) 
     ],
     responses={
         200: {"description": "Эксперимент завершён", "schema": ExperimentItemSchema},
-        400: {"description": "Недопустимое состояние или неверный variant_id"},
-        403: {"description": "Только experimenter и владелец"},
-        404: {"description": "Эксперимент не найден"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
+        422: RESPONSES_HTTP_ERROR[422],
     },
 )
 @request_schema(CompleteExperimentSchema(), location="json", put_into="data")
@@ -591,9 +628,11 @@ async def experiments_complete(request: web.Request, parsed: CompleteExperiment)
     summary="Добавить вариант к эксперименту",
     responses={
         201: {"description": "Вариант создан", "schema": ExperimentVariantSchema},
-        400: {"description": "Эксперимент не в черновике"},
-        403: {"description": "Нет прав"},
-        404: {"description": "Эксперимент не найден"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
+        422: RESPONSES_HTTP_ERROR[422],
     },
 )
 @request_schema(VariantCreateSchema(), location="json", put_into="data")
@@ -640,9 +679,11 @@ async def experiments_variant_create(request: web.Request, parsed: VariantCreate
     summary="Обновить вариант эксперимента",
     responses={
         200: {"description": "Вариант обновлён", "schema": ExperimentVariantSchema},
-        400: {"description": "Эксперимент не в черновике"},
-        403: {"description": "Нет прав"},
-        404: {"description": "Эксперимент или вариант не найден"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
+        422: RESPONSES_HTTP_ERROR[422],
     },
 )
 @request_schema(VariantUpdateSchema(), location="json", put_into="data")
@@ -687,9 +728,10 @@ async def experiments_variant_update(request: web.Request, parsed: VariantUpdate
     summary="Удалить вариант эксперимента",
     responses={
         204: {"description": "Вариант удалён"},
-        400: {"description": "Эксперимент не в черновике"},
-        403: {"description": "Нет прав"},
-        404: {"description": "Эксперимент не найден"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
     },
 )
 async def experiments_variant_delete(request: web.Request) -> web.Response:
@@ -726,7 +768,9 @@ async def experiments_variant_delete(request: web.Request) -> web.Response:
     summary="История срабатываний guardrail",
     responses={
         200: {"description": "История guardrail", "schema": GuardrailHistoryResponseSchema},
-        404: {"description": "Эксперимент не найден"},
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
     },
 )
 async def experiments_guardrail_history(request: web.Request) -> web.Response:

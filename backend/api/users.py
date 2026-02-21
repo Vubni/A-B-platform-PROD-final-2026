@@ -1,14 +1,17 @@
+import re
+
 from aiohttp import web
 from aiohttp_apispec import docs, request_schema
 from pydantic import BaseModel, field_validator
 
 from api import validate
-from core import check_authorization, parse_uuid, validate_uuid
+from core import check_authorization, is_valid_email, parse_uuid, validate_uuid
 from docs.schems import (
     ApproverGroupItemSchema,
     ApproverGroupListResponseSchema,
     ApproverGroupSetSchema,
     ApproverGroupUpdateSchema,
+    RESPONSES_HTTP_ERROR,
     UserCreateSchema,
     UserListQuerySchema,
     UserListResponseSchema,
@@ -34,6 +37,39 @@ class UserCreate(BaseModel):
     password: str
     role: str = "viewer"
 
+    @field_validator("email")
+    @classmethod
+    def email_valid(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("email is required")
+        v = v.strip()
+        if len(v) > 254:
+            raise ValueError("email cannot exceed 254 characters")
+        if not is_valid_email(v):
+            raise ValueError("email must be a valid email address")
+        return v
+
+    @field_validator("first_name")
+    @classmethod
+    def first_name_valid(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("first_name is required")
+        v = v.strip()
+        if len(v) > 255:
+            raise ValueError("first_name must be at most 255 characters")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def password_valid(cls, v: str) -> str:
+        if not v or not isinstance(v, str):
+            raise ValueError("password is required")
+        if len(v) < 8 or len(v) > 72:
+            raise ValueError("password must be between 8 and 72 characters")
+        if re.match(r"^(?=.*[A-Za-z])(?=.*\d).+$", v) is None:
+            raise ValueError("password must contain at least one letter and one number")
+        return v
+
     @field_validator("role")
     @classmethod
     def role_valid(cls, v: str) -> str:
@@ -47,6 +83,43 @@ class UserUpdate(BaseModel):
     first_name: str | None = None
     password: str | None = None
     role: str | None = None
+
+    @field_validator("email")
+    @classmethod
+    def email_valid(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip() if isinstance(v, str) else v
+        if not v:
+            raise ValueError("email cannot be empty")
+        if len(v) > 254:
+            raise ValueError("email cannot exceed 254 characters")
+        if not is_valid_email(v):
+            raise ValueError("email must be a valid email address")
+        return v
+
+    @field_validator("first_name")
+    @classmethod
+    def first_name_valid(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip() if isinstance(v, str) else v
+        if v and len(v) > 255:
+            raise ValueError("first_name must be at most 255 characters")
+        return v or None
+
+    @field_validator("password")
+    @classmethod
+    def password_valid(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise ValueError("password must be a string")
+        if len(v) < 8 or len(v) > 72:
+            raise ValueError("password must be between 8 and 72 characters")
+        if re.match(r"^(?=.*[A-Za-z])(?=.*\d).+$", v) is None:
+            raise ValueError("password must contain at least one letter and one number")
+        return v
 
     @field_validator("role")
     @classmethod
@@ -64,21 +137,44 @@ class ApproverGroupSet(BaseModel):
     @field_validator("experimenter_id")
     @classmethod
     def experimenter_id_uuid(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
-        return validate_uuid(v)
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        u = validate_uuid(str(v).strip())
+        if not u:
+            raise ValueError("experimenter_id must be a valid UUID")
+        return u
+
+    @field_validator("min_approvals")
+    @classmethod
+    def min_approvals_positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("min_approvals must be >= 1")
+        return v
 
     @field_validator("approver_ids", mode="before")
     @classmethod
     def approver_ids_uuids(cls, v):
         if not v:
             return []
-        return [validate_uuid(str(x)) for x in v]
+        result = []
+        for i, x in enumerate(v):
+            u = validate_uuid(str(x)) if x is not None else None
+            if not u:
+                raise ValueError(f"approver_ids[{i}] must be a valid UUID")
+            result.append(u)
+        return result
 
 
 class ApproverGroupUpdate(BaseModel):
     min_approvals: int | None = None
     approver_ids: list[str] | None = None
+
+    @field_validator("min_approvals")
+    @classmethod
+    def min_approvals_positive(cls, v: int | None) -> int | None:
+        if v is not None and v < 1:
+            raise ValueError("min_approvals must be >= 1")
+        return v
 
     @field_validator("approver_ids", mode="before")
     @classmethod
@@ -87,11 +183,24 @@ class ApproverGroupUpdate(BaseModel):
             return None
         if not v:
             return []
-        return [validate_uuid(str(x)) for x in v]
+        result = []
+        for i, x in enumerate(v):
+            u = validate_uuid(str(x)) if x is not None else None
+            if not u:
+                raise ValueError(f"approver_ids[{i}] must be a valid UUID")
+            result.append(u)
+        return result
 
 
 class UserList(BaseModel):
     role: str | None = None
+
+    @field_validator("role")
+    @classmethod
+    def role_valid(cls, v: str | None) -> str | None:
+        if v is not None and v not in ROLES:
+            raise ValueError(f"role must be one of {ROLES}")
+        return v
 
 
 @docs(
@@ -104,7 +213,9 @@ class UserList(BaseModel):
         200: {
             "description": "Список пользователей (массив в поле users)",
             "schema": UserListResponseSchema,
-        }
+        },
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
     },
 )
 @request_schema(UserListQuerySchema(), location="querystring", put_into="querystring")
@@ -129,8 +240,11 @@ async def users_list(request: web.Request, parsed: UserList) -> web.Response:
             "description": "Пользователь создан (объект пользователя без пароля)",
             "schema": UserProfileSchema,
         },
-        400: {"description": "Некорректный запрос"},
-        409: {"description": "Email или first_name уже заняты"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        409: RESPONSES_HTTP_ERROR[409],
+        422: RESPONSES_HTTP_ERROR[422],
     },
 )
 @request_schema(UserCreateSchema(), location="json", put_into="data")
@@ -164,7 +278,10 @@ async def users_create(request: web.Request, parsed: UserCreate) -> web.Response
             "description": "Данные пользователя (id, email, first_name, role, verified, created_at, updated_at)",
             "schema": UserProfileSchema,
         },
-        404: {"description": "Пользователь не найден"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
     },
 )
 async def users_get(request: web.Request) -> web.Response:
@@ -193,8 +310,12 @@ async def users_get(request: web.Request) -> web.Response:
             "description": "Пользователь обновлён (объект пользователя без пароля)",
             "schema": UserProfileSchema,
         },
-        400: {"description": "Некорректный запрос"},
-        404: {"description": "Пользователь не найден"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
+        409: RESPONSES_HTTP_ERROR[409],
+        422: RESPONSES_HTTP_ERROR[422],
     },
 )
 @request_schema(UserUpdateSchema(), location="json", put_into="data")
@@ -232,7 +353,9 @@ async def users_update(request: web.Request, parsed: UserUpdate) -> web.Response
         200: {
             "description": "Список групп аппруверов (поле approver_groups)",
             "schema": ApproverGroupListResponseSchema,
-        }
+        },
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
     },
 )
 async def approver_groups_list(request: web.Request) -> web.Response:
@@ -259,9 +382,12 @@ async def approver_groups_list(request: web.Request) -> web.Response:
             "description": "Группа создана (объект группы с id, experimenter_id, min_approvals, created_at, updated_at)",
             "schema": ApproverGroupItemSchema,
         },
-        400: {"description": "Некорректный запрос"},
-        404: {"description": "Experimenter не найден"},
-        409: {"description": "Группа для experimenter_id уже существует"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
+        409: RESPONSES_HTTP_ERROR[409],
+        422: RESPONSES_HTTP_ERROR[422],
     },
 )
 @request_schema(ApproverGroupSetSchema(), location="json", put_into="data")
@@ -273,8 +399,6 @@ async def approver_groups_create(request: web.Request, parsed: ApproverGroupSet)
     if auth_payload["role"] != "approver":
         return validate.format_403_error(request, "Not enough permissions to access this resource")
 
-    if parsed.min_approvals < 1:
-        return web.json_response({"error": "min_approvals must be >= 1"}, status=400)
     result = await create_approver_group(
         experimenter_id=parsed.experimenter_id,
         min_approvals=parsed.min_approvals,
@@ -302,8 +426,11 @@ async def approver_groups_create(request: web.Request, parsed: ApproverGroupSet)
             "description": "Группа обновлена (объект группы)",
             "schema": ApproverGroupItemSchema,
         },
-        400: {"description": "Некорректный запрос"},
-        404: {"description": "Группа не найдена"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
+        422: RESPONSES_HTTP_ERROR[422],
     },
 )
 @request_schema(ApproverGroupUpdateSchema(), location="json", put_into="data")
@@ -321,8 +448,6 @@ async def approver_groups_update(
     if not group_id:
         return web.json_response({"error": "Invalid group id (expected UUID)"}, status=400)
 
-    if parsed.min_approvals is not None and parsed.min_approvals < 1:
-        return web.json_response({"error": "min_approvals must be >= 1"}, status=400)
     if parsed.min_approvals is None and parsed.approver_ids is None:
         return web.json_response({"error": "No fields to update"}, status=400)
     result = await update_approver_group(

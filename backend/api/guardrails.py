@@ -1,3 +1,5 @@
+import math
+
 from aiohttp import web
 from aiohttp_apispec import docs, request_schema
 from pydantic import BaseModel, field_validator
@@ -8,6 +10,7 @@ from docs.schems import (
     ExperimentGuardrailItemSchema,
     ExperimentGuardrailListResponseSchema,
     ExperimentGuardrailUpsertSchema,
+    RESPONSES_HTTP_ERROR,
 )
 from functions.guardrails import (
     delete_metric_guardrail,
@@ -22,6 +25,15 @@ class MetricGuardrailUpsert(BaseModel):
     threshold: float
     window_seconds: int
     action: str
+
+    @field_validator("threshold")
+    @classmethod
+    def threshold_finite(cls, v: float) -> float:
+        if v != v:
+            raise ValueError("threshold must be a valid number")
+        if math.isinf(v):
+            raise ValueError("threshold must be finite")
+        return v
 
     @field_validator("metric_key")
     @classmethod
@@ -56,6 +68,7 @@ def _metric_key_from_request(request: web.Request) -> str | None:
     summary="Список guardrail-правил по метрикам",
     responses={
         200: {"description": "Список guardrails", "schema": ExperimentGuardrailListResponseSchema},
+        401: RESPONSES_HTTP_ERROR[401],
     },
 )
 async def guardrails_list(request: web.Request) -> web.Response:
@@ -72,7 +85,8 @@ async def guardrails_list(request: web.Request) -> web.Response:
     summary="Получить guardrail по метрике",
     responses={
         200: {"description": "Guardrail по метрике", "schema": ExperimentGuardrailItemSchema},
-        404: {"description": "Guardrail не найден"},
+        401: RESPONSES_HTTP_ERROR[401],
+        404: RESPONSES_HTTP_ERROR[404],
     },
 )
 async def guardrails_get(request: web.Request) -> web.Response:
@@ -95,9 +109,11 @@ async def guardrails_get(request: web.Request) -> web.Response:
     summary="Создать или обновить guardrail по метрике",
     responses={
         200: {"description": "Guardrail сохранён", "schema": ExperimentGuardrailItemSchema},
-        400: {"description": "Некорректный запрос"},
-        403: {"description": "Нет прав"},
-        404: {"description": "Метрика не найдена"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
+        422: RESPONSES_HTTP_ERROR[422],
     },
 )
 @request_schema(ExperimentGuardrailUpsertSchema(), location="json", put_into="data")
@@ -127,8 +143,9 @@ async def guardrails_upsert(request: web.Request, parsed: MetricGuardrailUpsert)
     summary="Удалить guardrail по метрике",
     responses={
         204: {"description": "Guardrail удалён"},
-        403: {"description": "Нет прав"},
-        404: {"description": "Guardrail не найден"},
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
     },
 )
 async def guardrails_delete(request: web.Request) -> web.Response:

@@ -12,11 +12,10 @@ def _ensure_backend_on_path() -> None:
 async def main() -> None:
     _ensure_backend_on_path()
 
-    from functions.users import create_user, get_user_by_email
-    from functions.flags import create_flag
     from functions.event_types import create_event_type
+    from functions.flags import create_flag
     from functions.metrics import create_metric
-    from functions.users import create_approver_group
+    from functions.users import create_approver_group, create_user, get_user_by_email
 
     admin = await create_user(
         email="admin@test.com",

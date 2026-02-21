@@ -1,6 +1,7 @@
-import pytest
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
+import pytest
 
 
 @pytest.mark.asyncio
@@ -278,7 +279,7 @@ async def test_event_types_update_forbidden_for_non_admin(
 @pytest.mark.asyncio
 async def test_event_types_update_not_found(
     http_session, base_url, auth_headers_admin
-):      
+):
     url = f"{base_url}/api/v1/event-types/{uuid.uuid4()}"
     async with http_session.patch(
         url,
@@ -1058,7 +1059,7 @@ async def test_events_submit_out_of_order_with_requires_show(
 
     ctx = events_submit_context
     events_url = f"{base_url}/api/v1/events"
-    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     click_payload = {
         "events": [
             {
@@ -1142,7 +1143,7 @@ async def test_guardrail_pauses_experiment_when_threshold_exceeded(
     decision_id = decision_ids[0]
     events_url = f"{base_url}/api/v1/events"
     conversion_key = ctx["event_type_keys"]["conversion"]
-    now_ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    now_ts = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     events_payload = {
         "events": [
             {

@@ -9,6 +9,7 @@ from aiohttp_apispec import (
 
 from api import (
     auth,
+    autopilot_ramp_api,
     decide,
     events,
     experiments,
@@ -121,6 +122,14 @@ if __name__ == "__main__":
             prefix + "/experiments/{id}/guardrail-history",
             experiments.experiments_guardrail_history,
         ),
+        web.get(prefix + "/experiments/{id}/ramp-plan", autopilot_ramp_api.ramp_plan_get),
+        web.put(prefix + "/experiments/{id}/ramp-plan", autopilot_ramp_api.ramp_plan_put),
+        web.delete(prefix + "/experiments/{id}/ramp-plan", autopilot_ramp_api.ramp_plan_delete),
+        web.get(prefix + "/experiments/{id}/ramp-state", autopilot_ramp_api.ramp_state_get),
+        web.post(prefix + "/experiments/{id}/ramp-start", autopilot_ramp_api.ramp_start_post),
+        web.patch(prefix + "/experiments/{id}/ramp-mode", autopilot_ramp_api.ramp_mode_patch),
+        web.post(prefix + "/experiments/{id}/ramp-override", autopilot_ramp_api.ramp_override_post),
+        web.get(prefix + "/experiments/{id}/ramp-decision-log", autopilot_ramp_api.ramp_decision_log_get),
         web.get(prefix + "/guardrails", guardrails.guardrails_list),
         web.get(prefix + "/guardrails/{metric_key}", guardrails.guardrails_get),
         web.post(prefix + "/guardrails", guardrails.guardrails_upsert),

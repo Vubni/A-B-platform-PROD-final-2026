@@ -6,6 +6,11 @@ DROP TABLE IF EXISTS event_types CASCADE;
 DROP TABLE IF EXISTS subject_experiment_cooldown CASCADE;
 DROP TABLE IF EXISTS decisions CASCADE;
 DROP TABLE IF EXISTS experiment_version_snapshots CASCADE;
+DROP TABLE IF EXISTS experiment_ramp_decision_log CASCADE;
+DROP TABLE IF EXISTS experiment_ramp_state CASCADE;
+DROP TABLE IF EXISTS ramp_safety_actions CASCADE;
+DROP TABLE IF EXISTS ramp_steps CASCADE;
+DROP TABLE IF EXISTS ramp_plans CASCADE;
 DROP TABLE IF EXISTS experiment_guardrail_history CASCADE;
 DROP TABLE IF EXISTS experiment_review_history CASCADE;
 DROP TABLE IF EXISTS experiment_metrics CASCADE;
@@ -133,9 +138,6 @@ ALTER TABLE experiments ADD COLUMN IF NOT EXISTS completion_outcome VARCHAR
     CHECK (completion_outcome IS NULL OR completion_outcome IN ('rollout_winner', 'rollback', 'no_effect'));
 ALTER TABLE experiments ADD COLUMN IF NOT EXISTS completion_comment TEXT;
 ALTER TABLE experiments ADD COLUMN IF NOT EXISTS completion_winner_variant_id UUID REFERENCES experiment_variants(id) ON DELETE SET NULL;
-COMMENT ON COLUMN experiments.completion_outcome IS 'Режим завершения: rollout_winner — раскатить победителя; rollback — откат к контролю; no_effect — эффект не выявлен';
-COMMENT ON COLUMN experiments.completion_comment IS 'Обязательный комментарий при завершении: обоснование решения и что делать с гипотезой';
-COMMENT ON COLUMN experiments.completion_winner_variant_id IS 'Вариант-победитель при completion_outcome=rollout_winner';
 
 CREATE OR REPLACE FUNCTION check_experiment_variants_invariants()
 RETURNS TRIGGER AS $$
@@ -252,7 +254,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_metric_catalog_key ON metric_catalog(key);
 
 ALTER TABLE metric_catalog ADD COLUMN IF NOT EXISTS attribution_rule JSONB;
 ALTER TABLE metric_catalog ADD COLUMN IF NOT EXISTS event_expectations JSONB;
-COMMENT ON COLUMN metric_catalog.event_expectations IS 'Ключи событий и ожидание: {"event_type_key": "higher"|"lower"}. Какие эвенты метрика смотрит; направление используется для отчёта (лучше = рост или падение).';
 
 CREATE TABLE IF NOT EXISTS experiment_review_history (
     id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -377,5 +378,69 @@ CREATE INDEX IF NOT EXISTS idx_events_dependency_queue_pop
     ON events_dependency_queue(decision_id, required_show_event_type_id);
 CREATE INDEX IF NOT EXISTS idx_events_dependency_queue_queued_at
     ON events_dependency_queue(queued_at);
+
+-- =============================================================================
+-- Autopilot Ramp-up: умная раскатка по ступеням трафика с gates и safety
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS ramp_plans (
+    id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
+    experiment_id UUID NOT NULL UNIQUE REFERENCES experiments(id) ON DELETE CASCADE,
+    observation_window_seconds INTEGER NOT NULL CHECK (observation_window_seconds > 0),
+    gate_data_sufficiency JSONB NOT NULL DEFAULT '{}',
+    gate_safety JSONB NOT NULL DEFAULT '{}',
+    gate_data_health JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ramp_plans_experiment ON ramp_plans(experiment_id);
+
+CREATE TABLE IF NOT EXISTS ramp_steps (
+    ramp_plan_id UUID NOT NULL REFERENCES ramp_plans(id) ON DELETE CASCADE,
+    step_index INTEGER NOT NULL CHECK (step_index >= 0),
+    traffic_fraction NUMERIC(5,4) NOT NULL CHECK (traffic_fraction > 0 AND traffic_fraction <= 1),
+    PRIMARY KEY (ramp_plan_id, step_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ramp_steps_plan ON ramp_steps(ramp_plan_id);
+
+CREATE TABLE IF NOT EXISTS ramp_safety_actions (
+    id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
+    ramp_plan_id UUID NOT NULL REFERENCES ramp_plans(id) ON DELETE CASCADE,
+    trigger_type VARCHAR(64) NOT NULL,
+    action VARCHAR(64) NOT NULL CHECK (action IN ('pause', 'rollback_to_control', 'step_back')),
+    notify BOOLEAN NOT NULL DEFAULT true
+);
+
+CREATE INDEX IF NOT EXISTS idx_ramp_safety_actions_plan ON ramp_safety_actions(ramp_plan_id);
+
+CREATE TABLE IF NOT EXISTS experiment_ramp_state (
+    experiment_id UUID NOT NULL PRIMARY KEY REFERENCES experiments(id) ON DELETE CASCADE,
+    ramp_plan_id UUID NOT NULL REFERENCES ramp_plans(id) ON DELETE CASCADE,
+    current_step_index INTEGER NOT NULL CHECK (current_step_index >= 0),
+    mode VARCHAR(32) NOT NULL DEFAULT 'autopilot' CHECK (mode IN ('autopilot', 'manual', 'paused')),
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_eval_at TIMESTAMPTZ,
+    manual_override_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    manual_override_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS experiment_ramp_decision_log (
+    id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
+    experiment_id UUID NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+    decided_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    action VARCHAR(64) NOT NULL,
+    from_step_index INTEGER,
+    to_step_index INTEGER,
+    reason JSONB,
+    triggered_by VARCHAR(32) NOT NULL CHECK (triggered_by IN ('autopilot', 'manual')),
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_experiment_ramp_decision_log_experiment ON experiment_ramp_decision_log(experiment_id);
+CREATE INDEX IF NOT EXISTS idx_experiment_ramp_decision_log_decided_at ON experiment_ramp_decision_log(decided_at);
 
 COMMIT;

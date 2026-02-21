@@ -183,9 +183,14 @@ async def test_approver_groups_create_min_approvals_validation(
             "approver_ids": [approver_user["id"]],
         },
     ) as resp:
-        assert resp.status == 400
+        assert resp.status in (400, 422)
         data = await resp.json()
-        assert "min_approvals" in (data.get("error") or "").lower()
+        err = data.get("error") or data.get("message") or ""
+        field_errors = data.get("fieldErrors") or []
+        err_lower = err.lower()
+        assert "min_approvals" in err_lower or any(
+            "min_approvals" in str(e.get("field", "")).lower() for e in field_errors
+        )
 
 
 @pytest.mark.asyncio

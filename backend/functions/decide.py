@@ -2,6 +2,7 @@ import uuid
 from decimal import Decimal
 from typing import Any
 
+from autopilot_ramp.ramp_evaluator import sync_and_tick_autopilot
 from config import (
     MAX_ACTIVE_EXPERIMENTS_PER_SUBJECT,
 )
@@ -39,6 +40,12 @@ async def get_decisions_for_subject(
             return serialize_json(result)
 
         for experiment in experiments:
+            await sync_and_tick_autopilot(str(experiment["id"]))
+            fresh = await db.execute(
+                """SELECT audience_fraction FROM experiments WHERE id = $1""",
+                (experiment["id"],))
+            experiment["audience_fraction"] = fresh["audience_fraction"]
+
             flag = await get_flag_by_key(experiment["flag_key"])
             flag_id = experiment["flag_id"]
             default_value = flag["default_value"]

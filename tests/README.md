@@ -60,6 +60,7 @@ pytest tests/test_decide_api.py
 - **События**: `tests/test_events_api.py` — CRUD типов событий, POST /events (батчи), дедупликация, guardrail pause.
 - **Отчёты**: `tests/test_reports_api.py` — GET report по эксперименту, валидация окна и параметров.
 - **Каталог метрик**: `tests/test_metrics_catalog_api.py` — GET list, GET by key, POST create, PATCH update (admin).
+- **Autopilot ramp-up**: `tests/test_autopilot_ramp_api.py` — план раскатки (PUT/GET/DELETE), старт автопилота, режимы, manual override, лог решений.
 
 Негативные сценарии (400/401/403/404) покрыты в соответствующих тестах (например, `test_events_api.py::test_events_submit_invalid_body_*`, `test_users_api.py::test_auth_login_invalid_*`).
 
@@ -82,7 +83,7 @@ pip install -r backend/requirements.txt -r tests/requirements-test.txt
 2. Запуск инфраструктуры через Docker:
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 3. Сидинг тестовых данных (пользователи, флаг `test_feature_flag`, типы событий `demo_exposure`/`demo_click`/`demo_conversion`, метрики `demo_impressions`/`demo_conversions`/`demo_conversion_rate`, группа аппруверов для experimenter):
@@ -99,7 +100,7 @@ python tests/seed_test_data.py
 **Через Docker:**
 
 ```bash
-docker-compose --profile test run --rm --build tests
+docker compose --profile test run --rm --build tests
 ```
 
 **Локально** (при уже поднятых backend и БД):

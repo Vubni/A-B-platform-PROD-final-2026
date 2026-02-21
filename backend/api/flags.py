@@ -6,7 +6,13 @@ from pydantic import BaseModel, field_validator
 
 from api import validate
 from core import FLAG_KEY_PATTERN, check_authorization
-from docs.schems import FlagCreateSchema, FlagItemSchema, FlagListResponseSchema, FlagUpdateSchema
+from docs.schems import (
+    FlagCreateSchema,
+    FlagItemSchema,
+    FlagListResponseSchema,
+    FlagUpdateSchema,
+    RESPONSES_HTTP_ERROR,
+)
 from functions.flags import (
     FLAG_VALUE_TYPES,
     create_flag,
@@ -73,9 +79,25 @@ class FlagCreate(BaseModel):
         if isinstance(v, str) and v.strip() == "":
             raise ValueError("default_value is required")
         v = v.strip() if isinstance(v, str) else str(v)
+        if len(v) > 2048:
+            raise ValueError("default_value must be at most 2048 characters")
         value_type = info.data.get("value_type") if hasattr(info, "data") else None
         if value_type:
             _validate_default_value_by_type(value_type, v)
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def description_length(cls, v: str | None) -> str | None:
+        if v is not None and len(v) > 2048:
+            raise ValueError("description must be at most 2048 characters")
+        return v
+
+    @field_validator("owner")
+    @classmethod
+    def owner_length(cls, v: str | None) -> str | None:
+        if v is not None and len(v) > 255:
+            raise ValueError("owner must be at most 255 characters")
         return v
 
     @field_validator("metadata", mode="before")
@@ -96,7 +118,10 @@ class FlagUpdate(BaseModel):
     def default_value_non_empty(cls, v: str) -> str:
         if v is None or (isinstance(v, str) and v.strip() == ""):
             raise ValueError("default_value is required")
-        return v.strip() if isinstance(v, str) else str(v)
+        v = v.strip() if isinstance(v, str) else str(v)
+        if len(v) > 2048:
+            raise ValueError("default_value must be at most 2048 characters")
+        return v
 
 
 @docs(
@@ -105,8 +130,11 @@ class FlagUpdate(BaseModel):
     description="Создание нового feature flag с ключом, типом значения и значением по умолчанию.",
     responses={
         201: {"description": "Флаг создан", "schema": FlagItemSchema},
-        400: {"description": "Некорректный запрос"},
-        409: {"description": "Флаг с таким ключом уже существует"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        409: RESPONSES_HTTP_ERROR[409],
+        422: RESPONSES_HTTP_ERROR[422],
     },
 )
 @request_schema(FlagCreateSchema(), location="json", put_into="data")
@@ -137,7 +165,10 @@ async def flags_create(request: web.Request, parsed: FlagCreate) -> web.Response
     tags=["Feature Flags"],
     summary="Список feature flags",
     description="Получить список всех feature flags",
-    responses={200: {"description": "Список флагов", "schema": FlagListResponseSchema}},
+    responses={
+        200: {"description": "Список флагов", "schema": FlagListResponseSchema},
+        401: RESPONSES_HTTP_ERROR[401],
+    },
 )
 async def flags_list(request: web.Request) -> web.Response:
     auth_payload = await check_authorization(request)
@@ -154,7 +185,9 @@ async def flags_list(request: web.Request) -> web.Response:
     description="Получить feature flag по ключу.",
     responses={
         200: {"description": "Данные флага", "schema": FlagItemSchema},
-        404: {"description": "Флаг не найден"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        404: RESPONSES_HTTP_ERROR[404],
     },
 )
 async def flags_get(request: web.Request) -> web.Response:
@@ -178,8 +211,11 @@ async def flags_get(request: web.Request) -> web.Response:
     description="Обновить только значение по умолчанию существующего флага. Варианты и эксперименты не меняются.",
     responses={
         200: {"description": "Флаг обновлён", "schema": FlagItemSchema},
-        400: {"description": "Некорректный запрос"},
-        404: {"description": "Флаг не найден"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
+        422: RESPONSES_HTTP_ERROR[422],
     },
 )
 @request_schema(FlagUpdateSchema(), location="json", put_into="data")

@@ -423,7 +423,7 @@ async def get_experiment_report(experiment: dict, start_iso: str, end_iso: str) 
         )
 
     completion = None
-    result = None  # явный результат: rollout | rollback | no_effect (только при status=completed)
+    result = None
     if experiment.get("status") == "completed":
         outcome = experiment.get("completion_outcome")
         if outcome == "rollout_winner":

@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from core import parse_iso_timestamp
 from config import EVENTS_DEPENDENCY_MAX_DELAY_DAYS
+from core import parse_iso_timestamp
 from database.database import Database
 
 

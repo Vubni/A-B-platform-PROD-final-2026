@@ -1,5 +1,6 @@
-import pytest
 import uuid
+
+import pytest
 
 DECIDE_URL_SUFFIX = "/api/v1/decide"
 

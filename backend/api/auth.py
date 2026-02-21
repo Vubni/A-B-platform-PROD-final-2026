@@ -2,18 +2,35 @@ import time
 
 from aiohttp import web
 from aiohttp_apispec import docs, request_schema
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from api import validate
 from config import AUTH_TOKEN_EXPIRATION
 from core import check_token, create_token
-from docs.schems import AuthLoginResponseSchema, AuthLoginSchema
+from docs.schems import AuthLoginResponseSchema, AuthLoginSchema, RESPONSES_HTTP_ERROR
 from functions.users import get_user_by_email
 
 
 class AuthLogin(BaseModel):
     email: str
     password: str
+
+    @field_validator("email")
+    @classmethod
+    def email_non_empty(cls, v: str) -> str:
+        if not v or not isinstance(v, str) or not v.strip():
+            raise ValueError("email is required")
+        v = v.strip()
+        if len(v) > 254:
+            raise ValueError("email cannot exceed 254 characters")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def password_non_empty(cls, v: str) -> str:
+        if not v or not isinstance(v, str):
+            raise ValueError("password is required")
+        return v
 
 
 @docs(
@@ -25,8 +42,9 @@ class AuthLogin(BaseModel):
             "description": "Успешный вход (token, user без пароля)",
             "schema": AuthLoginResponseSchema,
         },
-        400: {"description": "Некорректный запрос (email или пароль)"},
-        401: {"description": "Неверный email или пароль"},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        422: RESPONSES_HTTP_ERROR[422],
     },
 )
 @request_schema(AuthLoginSchema(), location="json", put_into="data")

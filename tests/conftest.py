@@ -27,6 +27,7 @@ TEST_SECTIONS = {
     "test_events_api.py": "Events",
     "test_reports_api.py": "Reports",
     "test_metrics_catalog_api.py": "Metrics catalog",
+    "test_autopilot_ramp_api.py": "Autopilot ramp-up",
 }
 
 ALL_ENDPOINTS = [
@@ -55,6 +56,14 @@ ALL_ENDPOINTS = [
     ("PATCH", "/api/v1/experiments/{id}/variants/{variant_id}"),
     ("DELETE", "/api/v1/experiments/{id}/variants/{variant_id}"),
     ("GET", "/api/v1/experiments/{id}/guardrail-history"),
+    ("GET", "/api/v1/experiments/{id}/ramp-plan"),
+    ("PUT", "/api/v1/experiments/{id}/ramp-plan"),
+    ("DELETE", "/api/v1/experiments/{id}/ramp-plan"),
+    ("GET", "/api/v1/experiments/{id}/ramp-state"),
+    ("POST", "/api/v1/experiments/{id}/ramp-start"),
+    ("PATCH", "/api/v1/experiments/{id}/ramp-mode"),
+    ("POST", "/api/v1/experiments/{id}/ramp-override"),
+    ("GET", "/api/v1/experiments/{id}/ramp-decision-log"),
     ("GET", "/api/v1/guardrails"),
     ("GET", "/api/v1/guardrails/{metric_key}"),
     ("POST", "/api/v1/guardrails"),
@@ -99,6 +108,14 @@ TESTED_ENDPOINTS = [
     ("PATCH", "/api/v1/experiments/{id}/variants/{variant_id}"),
     ("DELETE", "/api/v1/experiments/{id}/variants/{variant_id}"),
     ("GET", "/api/v1/experiments/{id}/guardrail-history"),
+    ("GET", "/api/v1/experiments/{id}/ramp-plan"),
+    ("PUT", "/api/v1/experiments/{id}/ramp-plan"),
+    ("DELETE", "/api/v1/experiments/{id}/ramp-plan"),
+    ("GET", "/api/v1/experiments/{id}/ramp-state"),
+    ("POST", "/api/v1/experiments/{id}/ramp-start"),
+    ("PATCH", "/api/v1/experiments/{id}/ramp-mode"),
+    ("POST", "/api/v1/experiments/{id}/ramp-override"),
+    ("GET", "/api/v1/experiments/{id}/ramp-decision-log"),
     ("GET", "/api/v1/guardrails"),
     ("GET", "/api/v1/guardrails/{metric_key}"),
     ("POST", "/api/v1/guardrails"),
@@ -320,7 +337,7 @@ async def create_experiment_in_running(
     """Создаёт флаг, эксперимент с двумя вариантами и переводит в running. При 409 повторяет с новым флагом. Возвращает exp_id."""
     flags_url = f"{base_url}/api/v1/flags"
     create_url = f"{base_url}/api/v1/experiments"
-    for attempt in range(2):
+    for _attempt in range(2):
         key = f"{key_prefix}_{uuid.uuid4().hex[:12]}"
         async with http_session.post(
             flags_url,
