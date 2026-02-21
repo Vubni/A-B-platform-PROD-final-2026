@@ -7,11 +7,11 @@ from pydantic import BaseModel, field_validator
 from api import validate
 from core import FLAG_KEY_PATTERN, check_authorization
 from docs.schems import (
+    RESPONSES_HTTP_ERROR,
     FlagCreateSchema,
     FlagItemSchema,
     FlagListResponseSchema,
     FlagUpdateSchema,
-    RESPONSES_HTTP_ERROR,
 )
 from functions.flags import (
     FLAG_VALUE_TYPES,

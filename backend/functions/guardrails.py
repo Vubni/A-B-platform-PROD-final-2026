@@ -173,9 +173,7 @@ async def check_guardrails_for_decisions(decision_ids: list[str]) -> None:
     if not decision_ids:
         return
     try:
-        decision_ids_uuid = [
-            uuid.UUID(d) if isinstance(d, str) else d for d in decision_ids if d
-        ]
+        decision_ids_uuid = [uuid.UUID(d) if isinstance(d, str) else d for d in decision_ids if d]
     except (ValueError, TypeError):
         return
     if not decision_ids_uuid:

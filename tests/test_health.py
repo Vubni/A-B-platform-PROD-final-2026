@@ -19,9 +19,22 @@ async def test_ready(http_session, base_url):
 
 @pytest.mark.asyncio
 async def test_metrics(http_session, base_url):
-    """GET /metrics возвращает 200 и text/plain с метриками Prometheus."""
+    """GET /metrics по умолчанию возвращает 200 и JSON с метриками."""
     url = f"{base_url}/metrics"
     async with http_session.get(url) as resp:
         assert resp.status == 200
+        data = await resp.json()
+        assert "metrics" in data
+        assert isinstance(data["metrics"], list)
+        names = {m["name"] for m in data["metrics"]}
+        assert "http_requests_total" in names or "decide_requests_total" in names or len(names) >= 0
+
+
+@pytest.mark.asyncio
+async def test_metrics_prometheus(http_session, base_url):
+    """GET /metrics?format=prometheus возвращает text/plain в формате Prometheus."""
+    url = f"{base_url}/metrics?format=prometheus"
+    async with http_session.get(url) as resp:
+        assert resp.status == 200
         text = await resp.text()
-        assert "http_requests_total" in text or "decide_requests_total" in text or len(text) >= 0
+        assert "http_requests_total" in text or "decide_requests_total" in text

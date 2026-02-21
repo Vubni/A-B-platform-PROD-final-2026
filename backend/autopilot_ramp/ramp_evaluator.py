@@ -1,4 +1,3 @@
-
 from datetime import UTC, datetime, timedelta
 
 from autopilot_ramp.ramp_apply import apply_ramp_step_to_experiment
@@ -23,8 +22,7 @@ async def evaluate_autopilot_tick(experiment_id: str) -> None:
             (experiment_id,))
         if not state or state["mode"] != "autopilot":
             return
-        ex = await db.execute(
-            "SELECT id, status FROM experiments WHERE id = $1", (experiment_id,))
+        ex = await db.execute("SELECT id, status FROM experiments WHERE id = $1", (experiment_id,))
         if not ex or ex["status"] != "running":
             return
 
@@ -50,8 +48,7 @@ async def evaluate_autopilot_tick(experiment_id: str) -> None:
 
         await db.execute(
             "UPDATE experiment_ramp_state SET last_eval_at = $1, updated_at = NOW() WHERE experiment_id = $2",
-            (now, experiment_id),
-        )
+            (now, experiment_id))
 
     safety_action = await _check_safety(experiment_id, plan, since, now)
     if safety_action:
@@ -67,13 +64,14 @@ async def evaluate_autopilot_tick(experiment_id: str) -> None:
         )
 
 
-async def _check_safety(experiment_id: str, plan: dict, since: datetime, now: datetime) -> dict | None:
+async def _check_safety(
+    experiment_id: str, plan: dict, since: datetime, now: datetime
+) -> dict | None:
     async with Database() as db:
         triggered = await db.execute_all(
             """SELECT metric_key, action, triggered_at FROM experiment_guardrail_history
                WHERE experiment_id = $1 AND triggered_at >= $2 AND triggered_at <= $3""",
-            (experiment_id, since, now),
-        )
+            (experiment_id, since, now))
     if not triggered:
         return None
     actions = {sa["trigger_type"]: sa for sa in plan.get("safety_actions") or []}
@@ -99,7 +97,11 @@ async def _apply_safety_action(
             "pause",
             current_step,
             None,
-            {"reason": "safety", "trigger_type": safety.get("trigger_type"), "metric_key": safety.get("metric_key")},
+            {
+                "reason": "safety",
+                "trigger_type": safety.get("trigger_type"),
+                "metric_key": safety.get("metric_key"),
+            },
         )
     elif action == "rollback_to_control":
         await rollback_experiment_to_control(experiment_id)
@@ -117,8 +119,7 @@ async def _apply_safety_action(
                 await db.execute(
                     """UPDATE experiment_ramp_state SET current_step_index = $1, updated_at = NOW()
                        WHERE experiment_id = $2""",
-                    (new_step, experiment_id),
-                )
+                    (new_step, experiment_id))
             await apply_ramp_step_to_experiment(experiment_id)
             await log_autopilot_decision(
                 experiment_id,
@@ -129,8 +130,9 @@ async def _apply_safety_action(
             )
 
 
-async def _check_gates(experiment_id: str, plan: dict, current_step: int,
-    steps: list, since: datetime, now: datetime) -> tuple[bool, dict]:
+async def _check_gates(
+    experiment_id: str, plan: dict, current_step: int, steps: list, since: datetime, now: datetime
+) -> tuple[bool, dict]:
     gates = plan.get("gate_data_sufficiency") or {}
     min_total = int(gates.get("min_total_impressions") or 0)
     min_per_variant = int(gates.get("min_impressions_per_variant") or 0)
@@ -139,8 +141,7 @@ async def _check_gates(experiment_id: str, plan: dict, current_step: int,
     async with Database() as db:
         state = await db.execute(
             "SELECT started_at, last_eval_at FROM experiment_ramp_state WHERE experiment_id = $1",
-            (experiment_id,),
-        )
+            (experiment_id,))
         step_start = state.get("last_eval_at") or state.get("started_at") if state else None
         if step_start and isinstance(step_start, str):
             try:
@@ -153,8 +154,7 @@ async def _check_gates(experiment_id: str, plan: dict, current_step: int,
             """SELECT COUNT(*) AS total
                FROM decisions
                WHERE experiment_id = $1 AND created_at >= $2 AND created_at <= $3""",
-            (experiment_id, since, now),
-        )
+            (experiment_id, since, now))
         total = int((counts or {}).get("total") or 0)
 
         variant_counts = await db.execute_all(
@@ -162,8 +162,7 @@ async def _check_gates(experiment_id: str, plan: dict, current_step: int,
                FROM decisions
                WHERE experiment_id = $1 AND variant_id IS NOT NULL AND created_at >= $2 AND created_at <= $3
                GROUP BY variant_id""",
-            (experiment_id, since, now),
-        )
+            (experiment_id, since, now))
         min_variant_count = min((r["cnt"] for r in (variant_counts or [])), default=0)
 
     reason = {}
@@ -185,7 +184,9 @@ async def _check_gates(experiment_id: str, plan: dict, current_step: int,
     return True, reason
 
 
-async def _do_step_up(experiment_id: str, from_idx: int, to_idx: int, steps: list, reason: dict) -> None:
+async def _do_step_up(
+    experiment_id: str, from_idx: int, to_idx: int, steps: list, reason: dict
+) -> None:
     async with Database() as db:
         await db.execute(
             """UPDATE experiment_ramp_state SET current_step_index = $1, updated_at = NOW()
@@ -193,4 +194,5 @@ async def _do_step_up(experiment_id: str, from_idx: int, to_idx: int, steps: lis
             (to_idx, experiment_id))
     await apply_ramp_step_to_experiment(experiment_id)
     await log_autopilot_decision(
-        experiment_id, "step_up", from_idx, to_idx, {"reason": "gates_passed", **reason})
+        experiment_id, "step_up", from_idx, to_idx, {"reason": "gates_passed", **reason}
+    )

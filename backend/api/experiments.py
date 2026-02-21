@@ -5,6 +5,7 @@ from pydantic import BaseModel, field_validator, model_validator
 from api import validate
 from core import check_authorization, validate_uuid
 from docs.schems import (
+    RESPONSES_HTTP_ERROR,
     CompleteExperimentSchema,
     ExperimentCreateSchema,
     ExperimentItemSchema,
@@ -12,7 +13,6 @@ from docs.schems import (
     ExperimentUpdateSchema,
     ExperimentVariantSchema,
     GuardrailHistoryResponseSchema,
-    RESPONSES_HTTP_ERROR,
     StatusUpdateSchema,
     VariantCreateSchema,
     VariantUpdateSchema,

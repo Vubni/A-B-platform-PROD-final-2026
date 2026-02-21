@@ -27,7 +27,34 @@ TEST_SECTIONS = {
     "test_events_api.py": "Events",
     "test_reports_api.py": "Reports",
     "test_metrics_catalog_api.py": "Metrics catalog",
+    "test_conflicts_api.py": "Conflict resolution",
     "test_autopilot_ramp_api.py": "Autopilot ramp-up",
+}
+
+CORE_SECTION_ORDER = [
+    "Health",
+    "Users",
+    "Approver groups",
+    "Flags",
+    "Experiments",
+    "Experiments (validation)",
+    "Guardrails",
+    "Decide",
+    "Events",
+    "Reports",
+    "Metrics catalog",
+]
+
+EXTRA_SECTION_ORDER = [
+    "Conflict resolution",
+    "Autopilot ramp-up",
+]
+
+SECTION_ORDER = CORE_SECTION_ORDER + EXTRA_SECTION_ORDER
+
+SECTION_GROUPS = {
+    **dict.fromkeys(CORE_SECTION_ORDER, "CORE FUNCTIONALITY"),
+    **dict.fromkeys(EXTRA_SECTION_ORDER, "EXTRA FEATURES"),
 }
 
 ALL_ENDPOINTS = [
@@ -68,6 +95,16 @@ ALL_ENDPOINTS = [
     ("GET", "/api/v1/guardrails/{metric_key}"),
     ("POST", "/api/v1/guardrails"),
     ("DELETE", "/api/v1/guardrails/{metric_key}"),
+    ("GET", "/api/v1/conflict-domains"),
+    ("POST", "/api/v1/conflict-domains"),
+    ("GET", "/api/v1/conflict-domains/{id}"),
+    ("PATCH", "/api/v1/conflict-domains/{id}"),
+    ("DELETE", "/api/v1/conflict-domains/{id}"),
+    ("GET", "/api/v1/experiments/{id}/conflict-bindings"),
+    ("POST", "/api/v1/experiments/{id}/conflict-bindings"),
+    ("DELETE", "/api/v1/experiments/{id}/conflict-bindings/{domain_id}"),
+    ("GET", "/api/v1/experiments/{id}/conflict-preflight"),
+    ("GET", "/api/v1/experiments/{id}/conflict-log"),
     ("POST", "/api/v1/decide"),
     ("POST", "/api/v1/events"),
     ("GET", "/api/v1/event-types"),
@@ -120,6 +157,16 @@ TESTED_ENDPOINTS = [
     ("GET", "/api/v1/guardrails/{metric_key}"),
     ("POST", "/api/v1/guardrails"),
     ("DELETE", "/api/v1/guardrails/{metric_key}"),
+    ("GET", "/api/v1/conflict-domains"),
+    ("POST", "/api/v1/conflict-domains"),
+    ("GET", "/api/v1/conflict-domains/{id}"),
+    ("PATCH", "/api/v1/conflict-domains/{id}"),
+    ("DELETE", "/api/v1/conflict-domains/{id}"),
+    ("GET", "/api/v1/experiments/{id}/conflict-bindings"),
+    ("POST", "/api/v1/experiments/{id}/conflict-bindings"),
+    ("DELETE", "/api/v1/experiments/{id}/conflict-bindings/{domain_id}"),
+    ("GET", "/api/v1/experiments/{id}/conflict-preflight"),
+    ("GET", "/api/v1/experiments/{id}/conflict-log"),
     ("POST", "/api/v1/decide"),
     ("POST", "/api/v1/events"),
     ("GET", "/api/v1/event-types"),
@@ -148,6 +195,13 @@ def pytest_collection_modifyitems(config, items):
                 item.add_marker(pytest.mark.event_types)
             elif "events_submit" in item.nodeid:
                 item.add_marker(pytest.mark.events_submit)
+    section_rank = {section: idx for idx, section in enumerate(SECTION_ORDER)}
+    items.sort(
+        key=lambda item: (
+            section_rank.get(_section_for_nodeid(item.nodeid), 10_000),
+            item.nodeid,
+        )
+    )
 
 
 def pytest_report_collectionfinish(config, start_path, items):
@@ -155,7 +209,7 @@ def pytest_report_collectionfinish(config, start_path, items):
     for item in items:
         section = _section_for_nodeid(item.nodeid)
         groups.setdefault(section, []).append(item.nodeid.split("::")[-1])
-    order = list(TEST_SECTIONS.values()) + [s for s in sorted(groups) if s not in TEST_SECTIONS.values()]
+    order = SECTION_ORDER + [s for s in sorted(groups) if s not in SECTION_ORDER]
     lines = []
     for section in order:
         if section in groups:
@@ -198,10 +252,18 @@ def pytest_sessionfinish(session, exitstatus):
 
 
 _last_section = [None]
+_last_group = [None]
 
 
 def pytest_runtest_setup(item):
     section = _section_for_nodeid(item.nodeid)
+    group = SECTION_GROUPS.get(section, "OTHER")
+    if _last_group[0] != group:
+        _last_group[0] = group
+        reporter = item.config.pluginmanager.get_plugin("terminalreporter")
+        if reporter is not None:
+            reporter.ensure_newline()
+            reporter.write_line(f"=== {group} ===")
     if _last_section[0] != section:
         _last_section[0] = section
         reporter = item.config.pluginmanager.get_plugin("terminalreporter")

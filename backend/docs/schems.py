@@ -438,7 +438,8 @@ class RampPlanSchema(Schema):
         allow_none=True, description="Когда ramp-план был создан (техническое поле аудита)"
     )
     updated_at = fields.Str(
-        allow_none=True, description="Когда ramp-план в последний раз обновлялся (техническое поле аудита)"
+        allow_none=True,
+        description="Когда ramp-план в последний раз обновлялся (техническое поле аудита)",
     )
 
 
@@ -467,7 +468,9 @@ class RampSafetyActionUpsertSchema(Schema):
 
 
 class RampPlanPutSchema(Schema):
-    observation_window_seconds = fields.Int(required=True, description="Окно наблюдения в секундах (> 0)")
+    observation_window_seconds = fields.Int(
+        required=True, description="Окно наблюдения в секундах (> 0)"
+    )
     steps = fields.List(
         fields.Nested(RampPlanStepUpsertSchema),
         required=True,
@@ -496,7 +499,9 @@ class RampPlanPutSchema(Schema):
 
 
 class RampStateSchema(Schema):
-    experiment_id = fields.Str(description="UUID эксперимента, для которого работает runtime-состояние")
+    experiment_id = fields.Str(
+        description="UUID эксперимента, для которого работает runtime-состояние"
+    )
     ramp_plan_id = fields.Str(description="UUID активного ramp-плана, по которому идёт управление")
     current_step_index = fields.Int(
         description="Текущая применённая ступень (индекс из steps), определяет текущую долю трафика"
@@ -518,7 +523,8 @@ class RampStateSchema(Schema):
         allow_none=True, description="Когда последний раз выполнялось ручное вмешательство"
     )
     updated_at = fields.Str(
-        allow_none=True, description="Последнее обновление записи состояния (техническое поле аудита)"
+        allow_none=True,
+        description="Последнее обновление записи состояния (техническое поле аудита)",
     )
 
 
@@ -540,7 +546,16 @@ class RampDecisionLogItemSchema(Schema):
     decided_at = fields.Str(description="Момент принятия решения (временная ось логов)")
     action = fields.Str(
         validate=mvalidate.OneOf(
-            ("start", "resume", "step_up", "step_back", "pause", "rollback", "override", "no_change")
+            (
+                "start",
+                "resume",
+                "step_up",
+                "step_back",
+                "pause",
+                "rollback",
+                "override",
+                "no_change",
+            )
         ),
         description="Тип решения автопилота",
     )
@@ -548,7 +563,9 @@ class RampDecisionLogItemSchema(Schema):
     to_step_index = fields.Int(
         allow_none=True, description="Индекс ступени после изменения (null для no_change)"
     )
-    reason = fields.Dict(description="Причины/контекст решения: результаты gate-проверок, служебные детали")
+    reason = fields.Dict(
+        description="Причины/контекст решения: результаты gate-проверок, служебные детали"
+    )
     triggered_by = fields.Str(description="Кто инициировал решение: autopilot | manual")
     user_id = fields.Str(
         allow_none=True, description="UUID пользователя для manual-действий, иначе null"
@@ -722,6 +739,14 @@ class DecideFlagItemSchema(Schema):
         DecideExperimentSchema,
         allow_none=True,
         description="Данные эксперимента, если субъект в эксперименте; иначе null",
+    )
+    conflict_lost = fields.Bool(
+        allow_none=True,
+        description="True, если эксперимент по флагу проиграл конфликт в домене",
+    )
+    conflict_domain = fields.Str(
+        allow_none=True,
+        description="Ключ домена конфликта, если conflict_lost=True",
     )
 
 
@@ -1017,6 +1042,105 @@ class ReportExperimentResponseSchema(Schema):
         ReportCompletionSchema,
         allow_none=True,
         description="Финальное решение при status=completed: rollout_winner | rollback | no_effect и комментарий",
+    )
+    conflict_stats = fields.Nested(
+        "ReportConflictStatsSchema",
+        allow_none=True,
+        description="Статистика конфликтов в окне: times_winner, times_loser",
+    )
+
+
+class ReportConflictStatsSchema(Schema):
+    times_winner = fields.Int(
+        description="Число решений, где эксперимент выиграл конфликт в домене"
+    )
+    times_loser = fields.Int(
+        description="Число решений, где эксперимент проиграл конфликт в домене"
+    )
+
+
+class ConflictDomainItemSchema(Schema):
+    id = fields.Str(description="UUID домена")
+    key = fields.Str(description="Уникальный ключ домена (checkout, search_ranking и т.д.)")
+    name = fields.Str(description="Название")
+    description = fields.Str(allow_none=True)
+    default_policy = fields.Str(
+        validate=mvalidate.OneOf(("mutual_exclusion", "bid", "priority")),
+        description="Политика по умолчанию для домена",
+    )
+    config_version = fields.Int()
+    created_at = fields.Str(allow_none=True)
+    updated_at = fields.Str(allow_none=True)
+
+
+class ConflictDomainListResponseSchema(Schema):
+    conflict_domains = fields.List(
+        fields.Nested(ConflictDomainItemSchema),
+        description="Список конфликтных доменов",
+    )
+
+
+class ConflictDomainCreateSchema(Schema):
+    key = fields.Str(required=True, description="Уникальный ключ домена")
+    name = fields.Str(required=True, description="Название")
+    description = fields.Str(allow_none=True)
+    default_policy = fields.Str(
+        load_default="mutual_exclusion",
+        validate=mvalidate.OneOf(("mutual_exclusion", "bid", "priority")),
+    )
+
+
+class ConflictDomainUpdateSchema(Schema):
+    name = fields.Str(required=False)
+    description = fields.Str(required=False, allow_none=True)
+    default_policy = fields.Str(
+        required=False,
+        validate=mvalidate.OneOf(("mutual_exclusion", "bid", "priority")),
+    )
+
+
+class ConflictBindingItemSchema(Schema):
+    experiment_id = fields.Str()
+    domain_id = fields.Str()
+    domain_key = fields.Str(allow_none=True)
+    domain_name = fields.Str(allow_none=True)
+    policy = fields.Str(allow_none=True)
+    priority_tier = fields.Int(allow_none=True)
+    bid_value = fields.Float()
+    is_enabled = fields.Bool()
+    created_at = fields.Str(allow_none=True)
+    updated_at = fields.Str(allow_none=True)
+
+
+class ConflictBindingListResponseSchema(Schema):
+    bindings = fields.List(
+        fields.Nested(ConflictBindingItemSchema),
+        description="Привязки эксперимента к конфликтным доменам",
+    )
+
+
+class ConflictBindingUpsertSchema(Schema):
+    domain_id = fields.Str(required=True, description="UUID домена")
+    policy = fields.Str(
+        allow_none=True,
+        validate=mvalidate.OneOf(("mutual_exclusion", "bid", "priority")),
+    )
+    priority_tier = fields.Int(allow_none=True)
+    bid_value = fields.Float(load_default=0)
+    is_enabled = fields.Bool(load_default=True)
+
+
+class ConflictPreflightItemSchema(Schema):
+    domain_id = fields.Str()
+    domain_key = fields.Str()
+    domain_name = fields.Str()
+    conflicting_experiments = fields.List(fields.Dict())
+
+
+class ConflictPreflightResponseSchema(Schema):
+    conflict_warnings = fields.List(
+        fields.Nested(ConflictPreflightItemSchema),
+        description="Домены, в которых запуск создаст конфликт с уже running экспериментами",
     )
 
 

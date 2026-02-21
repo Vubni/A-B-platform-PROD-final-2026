@@ -9,6 +9,7 @@ from config import (
 from core import serialize_json
 from database.database import Database
 from dsl import evaluate_targeting_rule
+from functions.conflicts import resolve_experiment_conflicts, store_conflict_logs
 from functions.flags import get_flag_by_key
 
 
@@ -39,11 +40,35 @@ async def get_decisions_for_subject(
                 )
             return serialize_json(result)
 
+        (
+            allowed_experiment_ids,
+            conflict_logs,
+            blocked_by_domain,
+        ) = await resolve_experiment_conflicts(
+            db=db, subject_id=subject_id, experiments=experiments
+        )
+        if conflict_logs:
+            await store_conflict_logs(db=db, subject_id=subject_id, logs=conflict_logs)
+
         for experiment in experiments:
+            if str(experiment["id"]) not in allowed_experiment_ids:
+                flag = await get_flag_by_key(experiment["flag_key"])
+                default_value = flag["default_value"] if flag else ""
+                result["flags"].append(
+                    {
+                        "flag_key": experiment["flag_key"],
+                        "flag_value": default_value,
+                        "decision_id": None,
+                        "experiment": None,
+                        "conflict_lost": True,
+                        "conflict_domain": blocked_by_domain.get(str(experiment["id"])),
+                    }
+                )
+                continue
             await sync_and_tick_autopilot(str(experiment["id"]))
             fresh = await db.execute(
-                """SELECT audience_fraction FROM experiments WHERE id = $1""",
-                (experiment["id"],))
+                """SELECT audience_fraction FROM experiments WHERE id = $1""", (experiment["id"],)
+            )
             experiment["audience_fraction"] = fresh["audience_fraction"]
 
             flag = await get_flag_by_key(experiment["flag_key"])

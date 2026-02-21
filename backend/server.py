@@ -10,6 +10,7 @@ from aiohttp_apispec import (
 from api import (
     auth,
     autopilot_ramp_api,
+    conflict_domains,
     decide,
     events,
     experiments,
@@ -128,12 +129,41 @@ if __name__ == "__main__":
         web.get(prefix + "/experiments/{id}/ramp-state", autopilot_ramp_api.ramp_state_get),
         web.post(prefix + "/experiments/{id}/ramp-start", autopilot_ramp_api.ramp_start_post),
         web.patch(prefix + "/experiments/{id}/ramp-mode", autopilot_ramp_api.ramp_mode_patch),
-        web.post(prefix + "/experiments/{id}/ramp-override", autopilot_ramp_api.ramp_override_post),
-        web.get(prefix + "/experiments/{id}/ramp-decision-log", autopilot_ramp_api.ramp_decision_log_get),
+        web.post(
+            prefix + "/experiments/{id}/ramp-override", autopilot_ramp_api.ramp_override_post
+        ),
+        web.get(
+            prefix + "/experiments/{id}/ramp-decision-log",
+            autopilot_ramp_api.ramp_decision_log_get,
+        ),
         web.get(prefix + "/guardrails", guardrails.guardrails_list),
         web.get(prefix + "/guardrails/{metric_key}", guardrails.guardrails_get),
         web.post(prefix + "/guardrails", guardrails.guardrails_upsert),
         web.delete(prefix + "/guardrails/{metric_key}", guardrails.guardrails_delete),
+        web.get(prefix + "/conflict-domains", conflict_domains.conflict_domains_list),
+        web.post(prefix + "/conflict-domains", conflict_domains.conflict_domains_create),
+        web.get(prefix + "/conflict-domains/{id}", conflict_domains.conflict_domains_get),
+        web.patch(prefix + "/conflict-domains/{id}", conflict_domains.conflict_domains_update),
+        web.delete(prefix + "/conflict-domains/{id}", conflict_domains.conflict_domains_delete),
+        web.get(
+            prefix + "/experiments/{id}/conflict-bindings",
+            conflict_domains.experiment_conflict_bindings_list,
+        ),
+        web.post(
+            prefix + "/experiments/{id}/conflict-bindings",
+            conflict_domains.experiment_conflict_binding_upsert,
+        ),
+        web.delete(
+            prefix + "/experiments/{id}/conflict-bindings/{domain_id}",
+            conflict_domains.experiment_conflict_binding_delete,
+        ),
+        web.get(
+            prefix + "/experiments/{id}/conflict-preflight",
+            conflict_domains.experiment_conflict_preflight,
+        ),
+        web.get(
+            prefix + "/experiments/{id}/conflict-log", conflict_domains.experiment_conflict_log
+        ),
         web.post(prefix + "/decide", decide.decide),
         web.post(prefix + "/events", events.events_submit),
         web.get(prefix + "/event-types", events.event_types_list),

@@ -59,7 +59,7 @@
 
 ---
 
-## Доп. фича: Autopilot Ramp-up
+## Доп. фича: Autopilot Ramp-up (п. 10 ТЗ)
 
 Трассировка по реализации и проверке:
 
@@ -74,3 +74,19 @@
 - **Не реализовано / частично:** (1) Применение трафика: при step_up/step_back не обновляются `experiments.audience_fraction` и веса вариантов — фактическая доля трафика по ступеням не меняется без ручного PATCH эксперимента. (2) Gates: не проверяются gate_safety (error_rate_threshold, latency_p95_ms) и gate_data_health (require_no_srm, require_no_mass_rejected); учёт guardrails только через историю срабатываний (safety), без проверки порогов error/latency/DQ в самом проходе gates. (3) Уведомления (notify в safety_actions) не отправляются.
 
 Для полного соответствия описанию 10.1–10.5 необходимо: реализовать в `ramp_apply.apply_ramp_step_to_experiment` обновление `experiments.audience_fraction` и весов вариантов по текущей ступени; при необходимости — проверки error_rate/latency/SRM/rejected в evaluator и расширение safety-триггеров.
+
+--
+
+## Доп. фича: Разруливание конфликтующих экспериментов (п. 11 ТЗ)
+
+Трассировка по реализации и проверке (критерии FX-1, FX-2):
+
+| ID задания | ID критерия | Проблема/риск | Где реализовано | Как проверяется | Какие данные нужны | Статус |
+|------------|-------------|---------------|-----------------|-----------------|--------------------|--------|
+| 52 | FX-1 | Конфликты явны до запуска; детерминированное решение при выдаче; корректная атрибуция и аудит. | **11.2.1** Один флаг — один активный эксперимент: `init.sql` — `idx_experiments_one_active_per_flag` (UNIQUE по flag_id WHERE status IN ('running','paused')); при старте `start_experiment` проверка на занятость флага. **11.2.2/11.2.3** Конфликт «на поверхности» и взаимоисключение: домены в `conflict_domains`, привязки в `experiment_conflict_bindings`. **11.3** Модель доменов: CRUD конфликтных доменов и привязок экспериментов — `backend/api/conflict_domains.py`, `backend/functions/conflicts.py` (list_domains, create_domain, upsert_binding и др.). **11.4** Политики: mutual_exclusion, bid, priority в `_pick_winner_for_domain` (conflicts.py). **11.5** Детерминизм: выбор победителя по `_stable_score` / `_stable_ratio` от seed `subject_id\|domain_key\|config_version\|...`. Preflight: `get_preflight_conflicts` при переходе в running, ответ с `conflict_warnings`. Decide: `resolve_experiment_conflicts` → проигравшие получают `default_value`, в ответе `conflict_lost` и `conflict_domain`. Аудит: `decision_conflict_log`, `store_conflict_logs`, отчёт — `conflict_stats` (times_winner, times_loser), API `GET .../conflict-log`. | Интеграционные автотесты `tests/test_conflicts_api.py`: CRUD доменов/привязок, mutual_exclusion (детерминизм для одного subject), priority (побеждает больший tier), bid (побеждает большая ставка), preflight-видимость и аудит через conflict-log. Дополнительно возможна ручная проверка через POST /decide и GET конфликтных endpoint’ов. | Два эксперимента на разных флагах, оба в одном conflict domain; субъект в таргетинге обоих. | готово |
+| 53 | FX-2 | Границы и прозрачность: что гарантируется, что — только предупреждение, ограничения реализации. | Один активный эксперимент на флаг — жёстко (БД + проверка при start). Конфликты по доменам — при выдаче (decide) проигравшие не применяются; preflight при запуске — только предупреждение (запуск не блокируется). Документация: этот раздел матрицы и backend/README (при наличии раздела по конфликтам). | Сверка с ТЗ: взаимное исключение в домене выполнено; выбор по ставке и по приоритету реализован; детерминизм по subject_id+config_version; аудит и видимость проигравшего (conflict_lost, conflict_log, conflict_stats) обеспечены. | — | готово |
+
+**Ограничения реализации (для FX-1/FX-2):**
+
+- **Реализовано:** конфликт на одном флаге (один активный эксперимент на флаг); конфликтные домены (key, name, description, default_policy); привязки эксперимента к доменам (policy, priority_tier, bid_value, is_enabled); три политики (mutual_exclusion, bid, priority); детерминированный выбор победителя (SHA256-based tie-breaker и взвешенный выбор по bid); preflight при переходе в running (conflict_warnings в ответе); в decide — fallback на default для проигравших, поля conflict_lost и conflict_domain в ответе; лог конфликтов (decision_conflict_log), conflict_stats в отчёте, API conflict-log.
+- **Не реализовано / ограничения:** Preflight не блокирует запуск — только предупреждает; при желании жёсткой блокировки запуска при конфликте в домене нужна отдельная проверка на стороне API.

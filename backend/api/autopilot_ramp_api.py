@@ -19,13 +19,13 @@ from docs.schems import (
     RAMP_DECISION_LOG_RESPONSE_EXAMPLE,
     RAMP_PLAN_RESPONSE_EXAMPLE,
     RAMP_STATE_RESPONSE_EXAMPLE,
+    RESPONSES_HTTP_ERROR,
     RampDecisionLogResponseSchema,
     RampModePatchSchema,
     RampOverridePostSchema,
     RampPlanPutSchema,
     RampPlanSchema,
     RampStateSchema,
-    RESPONSES_HTTP_ERROR,
 )
 from functions.experiments import get_experiment_by_id
 
@@ -35,7 +35,9 @@ def _experiment_id_from_request(request: web.Request) -> str | None:
     return validate_uuid(raw)
 
 
-async def _require_experimenter_access(request: web.Request, experiment_id: str) -> web.Response | None:
+async def _require_experimenter_access(
+    request: web.Request, experiment_id: str
+) -> web.Response | None:
     auth = await check_authorization(request)
     if not auth:
         return validate.format_401_error(request)
@@ -309,7 +311,9 @@ async def ramp_start_post(request: web.Request) -> web.Response:
     if err == "ramp_plan_not_found":
         return validate.format_404_error(request, "Ramp plan not found")
     if err == "experiment_not_running":
-        return web.json_response({"error": "Experiment must be running to start autopilot"}, status=400)
+        return web.json_response(
+            {"error": "Experiment must be running to start autopilot"}, status=400
+        )
     if err == "already_started":
         return web.json_response({"error": "Autopilot already started"}, status=400)
     if err:
@@ -433,7 +437,9 @@ async def ramp_override_post(request: web.Request, parsed: RampOverrideBody) -> 
     if err == "ramp_not_started":
         return validate.format_404_error(request, "Autopilot not started")
     if err == "override_only_in_manual_mode":
-        return web.json_response({"error": "Override is only allowed when mode is manual"}, status=400)
+        return web.json_response(
+            {"error": "Override is only allowed when mode is manual"}, status=400
+        )
     if err == "invalid_step_index":
         return web.json_response({"error": "Invalid step index"}, status=400)
     if err:

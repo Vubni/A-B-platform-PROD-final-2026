@@ -18,7 +18,8 @@ async def get_ramp_plan_by_experiment_id(experiment_id: str) -> dict | None:
                       gate_data_sufficiency, gate_safety, gate_data_health,
                       created_at, updated_at
                FROM ramp_plans WHERE experiment_id = $1""",
-            (experiment_id,))
+            (experiment_id,),
+        )
         if not row:
             return None
         plan = serialize_json(row)
@@ -31,7 +32,8 @@ async def _get_steps_for_plan(db, ramp_plan_id: str) -> list:
     rows = await db.execute_all(
         """SELECT step_index, traffic_fraction
            FROM ramp_steps WHERE ramp_plan_id = $1 ORDER BY step_index""",
-        (ramp_plan_id,))
+        (ramp_plan_id,),
+    )
     return serialize_json(rows)
 
 
@@ -39,17 +41,25 @@ async def _get_safety_actions_for_plan(db, ramp_plan_id: str) -> list:
     rows = await db.execute_all(
         """SELECT trigger_type, action, notify
            FROM ramp_safety_actions WHERE ramp_plan_id = $1""",
-        (ramp_plan_id,))
+        (ramp_plan_id,),
+    )
     return serialize_json(rows)
 
 
-async def create_or_update_ramp_plan(experiment_id: str, observation_window_seconds: int, steps: list[dict],
-    gate_data_sufficiency: dict | None = None, gate_safety: dict | None = None, gate_data_health: dict | None = None,
-    safety_actions: list[dict] | None = None) -> tuple[dict | None, str | None]:
+async def create_or_update_ramp_plan(
+    experiment_id: str,
+    observation_window_seconds: int,
+    steps: list[dict],
+    gate_data_sufficiency: dict | None = None,
+    gate_safety: dict | None = None,
+    gate_data_health: dict | None = None,
+    safety_actions: list[dict] | None = None,
+) -> tuple[dict | None, str | None]:
     if observation_window_seconds <= 0:
         return None, "invalid_observation_window"
     if not steps or not all(
-        isinstance(s.get("traffic_fraction"), (int, float)) and 0 < s.get("traffic_fraction", 0) <= 1
+        isinstance(s.get("traffic_fraction"), (int, float))
+        and 0 < s.get("traffic_fraction", 0) <= 1
         for s in steps
     ):
         return None, "invalid_steps"
@@ -66,9 +76,7 @@ async def create_or_update_ramp_plan(experiment_id: str, observation_window_seco
             return None, "invalid_safety_action"
 
     async with Database() as db:
-        ex = await db.execute(
-            "SELECT id FROM experiments WHERE id = $1", (experiment_id,)
-        )
+        ex = await db.execute("SELECT id FROM experiments WHERE id = $1", (experiment_id,))
         if not ex:
             return None, "experiment_not_found"
         existing = await db.execute(
@@ -93,12 +101,8 @@ async def create_or_update_ramp_plan(experiment_id: str, observation_window_seco
                     plan_id,
                 ),
             )
-            await db.execute(
-                "DELETE FROM ramp_steps WHERE ramp_plan_id = $1", (plan_id,)
-            )
-            await db.execute(
-                "DELETE FROM ramp_safety_actions WHERE ramp_plan_id = $1", (plan_id,)
-            )
+            await db.execute("DELETE FROM ramp_steps WHERE ramp_plan_id = $1", (plan_id,))
+            await db.execute("DELETE FROM ramp_safety_actions WHERE ramp_plan_id = $1", (plan_id,))
         else:
             plan_id = await db.fetchval(
                 """INSERT INTO ramp_plans (

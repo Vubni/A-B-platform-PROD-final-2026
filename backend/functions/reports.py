@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any
 
 from database.database import Database
+from functions.conflicts import get_conflict_stats_for_report
 from functions.event_types import get_event_type_by_key
 from functions.metrics import get_metric_by_key
 
@@ -353,6 +354,7 @@ async def get_experiment_report(experiment: dict, start_iso: str, end_iso: str) 
     event_keys_list = sorted(all_event_keys)
 
     report_variants = []
+    conflict_stats = {"times_winner": 0, "times_loser": 0}
     async with Database() as db:
         for v in variants:
             var_id = v.get("id")
@@ -389,6 +391,9 @@ async def get_experiment_report(experiment: dict, start_iso: str, end_iso: str) 
                     "event_counts": event_counts,
                 }
             )
+        conflict_stats = await get_conflict_stats_for_report(
+            db, experiment["id"], start_ts, end_ts
+        )
 
     metrics_def = []
     primary_metric_key = None
@@ -462,4 +467,5 @@ async def get_experiment_report(experiment: dict, start_iso: str, end_iso: str) 
         "primary_metric_summary": primary_summary,
         "dynamics": None,
         "completion": completion,
+        "conflict_stats": conflict_stats,
     }

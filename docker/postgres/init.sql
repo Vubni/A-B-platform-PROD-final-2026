@@ -5,6 +5,9 @@ DROP TABLE IF EXISTS event_occurrences CASCADE;
 DROP TABLE IF EXISTS event_types CASCADE;
 DROP TABLE IF EXISTS subject_experiment_cooldown CASCADE;
 DROP TABLE IF EXISTS decisions CASCADE;
+DROP TABLE IF EXISTS decision_conflict_log CASCADE;
+DROP TABLE IF EXISTS experiment_conflict_bindings CASCADE;
+DROP TABLE IF EXISTS conflict_domains CASCADE;
 DROP TABLE IF EXISTS experiment_version_snapshots CASCADE;
 DROP TABLE IF EXISTS experiment_ramp_decision_log CASCADE;
 DROP TABLE IF EXISTS experiment_ramp_state CASCADE;
@@ -26,6 +29,7 @@ DROP FUNCTION IF EXISTS check_experiment_audience_fraction() CASCADE;
 DROP FUNCTION IF EXISTS check_experiment_frozen_params() CASCADE;
 DROP FUNCTION IF EXISTS check_experiment_variants_frozen() CASCADE;
 DROP TYPE IF EXISTS experiment_status CASCADE;
+DROP TYPE IF EXISTS conflict_policy_type CASCADE;
 DROP TYPE IF EXISTS flag_value_type CASCADE;
 DROP TYPE IF EXISTS user_role CASCADE;
 
@@ -98,6 +102,12 @@ CREATE TYPE experiment_status AS ENUM (
     'rejected'
 );
 
+CREATE TYPE conflict_policy_type AS ENUM (
+    'mutual_exclusion',
+    'bid',
+    'priority'
+);
+
 CREATE TABLE IF NOT EXISTS experiments (
     id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
     flag_id UUID NOT NULL REFERENCES feature_flags(id) ON DELETE RESTRICT,
@@ -114,6 +124,38 @@ CREATE TABLE IF NOT EXISTS experiments (
 CREATE INDEX IF NOT EXISTS idx_experiments_flag ON experiments(flag_id);
 CREATE INDEX IF NOT EXISTS idx_experiments_status ON experiments(status);
 CREATE INDEX IF NOT EXISTS idx_experiments_created_by ON experiments(created_by);
+
+CREATE TABLE IF NOT EXISTS conflict_domains (
+    id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
+    key VARCHAR NOT NULL UNIQUE,
+    name VARCHAR NOT NULL,
+    description TEXT,
+    default_policy conflict_policy_type NOT NULL DEFAULT 'mutual_exclusion',
+    config_version INTEGER NOT NULL DEFAULT 1 CHECK (config_version >= 1),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_conflict_domains_key ON conflict_domains(key);
+
+CREATE TABLE IF NOT EXISTS experiment_conflict_bindings (
+    experiment_id UUID NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+    domain_id UUID NOT NULL REFERENCES conflict_domains(id) ON DELETE CASCADE,
+    policy conflict_policy_type,
+    priority_tier INTEGER,
+    bid_value NUMERIC(12,4) NOT NULL DEFAULT 0 CHECK (bid_value >= 0),
+    is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (experiment_id, domain_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_experiment_conflict_bindings_domain
+    ON experiment_conflict_bindings(domain_id);
+CREATE INDEX IF NOT EXISTS idx_experiment_conflict_bindings_experiment
+    ON experiment_conflict_bindings(experiment_id);
+CREATE INDEX IF NOT EXISTS idx_experiment_conflict_bindings_enabled
+    ON experiment_conflict_bindings(is_enabled);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_experiments_one_active_per_flag
     ON experiments(flag_id) WHERE status IN ('running', 'paused');
@@ -318,6 +360,25 @@ CREATE INDEX IF NOT EXISTS idx_decisions_subject_id ON decisions(subject_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_flag_id ON decisions(flag_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_experiment_id ON decisions(experiment_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_created_at ON decisions(created_at);
+
+CREATE TABLE IF NOT EXISTS decision_conflict_log (
+    id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
+    subject_id VARCHAR NOT NULL,
+    domain_id UUID NOT NULL REFERENCES conflict_domains(id) ON DELETE CASCADE,
+    policy_used conflict_policy_type NOT NULL,
+    config_version INTEGER NOT NULL,
+    winner_experiment_id UUID NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+    candidates JSONB NOT NULL DEFAULT '[]'::jsonb,
+    losers JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_decision_conflict_log_subject_id
+    ON decision_conflict_log(subject_id);
+CREATE INDEX IF NOT EXISTS idx_decision_conflict_log_domain_id
+    ON decision_conflict_log(domain_id);
+CREATE INDEX IF NOT EXISTS idx_decision_conflict_log_created_at
+    ON decision_conflict_log(created_at);
 
 CREATE TABLE IF NOT EXISTS subject_experiment_cooldown (
     subject_id VARCHAR NOT NULL PRIMARY KEY,

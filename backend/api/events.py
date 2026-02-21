@@ -6,6 +6,7 @@ from api import validate
 from api.system_metrics import record_events_submitted
 from core import check_authorization, validate_uuid
 from docs.schems import (
+    RESPONSES_HTTP_ERROR,
     EventsSubmitRequestSchema,
     EventsSubmitResponseSchema,
     EventTypeCreateSchema,
@@ -13,7 +14,6 @@ from docs.schems import (
     EventTypesListQuerySchema,
     EventTypesListResponseSchema,
     EventTypeUpdateSchema,
-    RESPONSES_HTTP_ERROR,
 )
 from functions.event_types import (
     archive_event_type,

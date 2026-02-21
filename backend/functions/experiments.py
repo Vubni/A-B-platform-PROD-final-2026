@@ -584,7 +584,13 @@ async def start_experiment(experiment_id: str) -> dict | None:
             "UPDATE experiments SET status = 'running', updated_at = NOW() WHERE id = $1",
             (experiment_id,),
         )
-        return await get_experiment_by_id(experiment_id)
+        from functions.conflicts import get_preflight_conflicts
+
+        preflight = await get_preflight_conflicts(db, experiment_id)
+        updated = await get_experiment_by_id(experiment_id)
+        if updated and preflight:
+            updated["conflict_warnings"] = preflight
+        return updated
 
 
 async def pause_experiment(experiment_id: str) -> dict | None:

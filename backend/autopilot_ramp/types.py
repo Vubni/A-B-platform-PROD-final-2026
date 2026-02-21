@@ -2,6 +2,7 @@
 Типы и константы для Autopilot Ramp-up.
 Отдельный модуль — доп. функция умной раскатки по ступеням трафика.
 """
+
 from typing import Any
 
 DATA_SUFFICIENCY_KEYS = (

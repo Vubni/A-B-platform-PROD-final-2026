@@ -7,11 +7,11 @@ from pydantic import BaseModel, field_validator
 from api import validate
 from core import check_authorization, is_valid_email, parse_uuid, validate_uuid
 from docs.schems import (
+    RESPONSES_HTTP_ERROR,
     ApproverGroupItemSchema,
     ApproverGroupListResponseSchema,
     ApproverGroupSetSchema,
     ApproverGroupUpdateSchema,
-    RESPONSES_HTTP_ERROR,
     UserCreateSchema,
     UserListQuerySchema,
     UserListResponseSchema,

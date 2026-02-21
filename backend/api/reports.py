@@ -8,12 +8,12 @@ from api import validate
 from api.system_metrics import record_report_requested
 from core import check_authorization, validate_uuid
 from docs.schems import (
+    RESPONSES_HTTP_ERROR,
     MetricCatalogCreateSchema,
     MetricCatalogItemSchema,
     MetricCatalogUpdateSchema,
     MetricsListResponseSchema,
     ReportExperimentResponseSchema,
-    RESPONSES_HTTP_ERROR,
 )
 from functions.experiments import get_experiment_by_id
 from functions.metrics import create_metric, get_metric_by_key, list_metrics, update_metric
@@ -377,9 +377,7 @@ async def metrics_create(request: web.Request, parsed: MetricsCreate) -> web.Res
             request, parsed.key, "Metric with this key already exists", field="key"
         )
     if err in ("invalid_key", "invalid_name", "invalid_aggregation_rule"):
-        return validate.format_400_error(
-            request, "Invalid metric data", details={"error": err}
-        )
+        return validate.format_400_error(request, "Invalid metric data", details={"error": err})
     if err == "db_error" or not created:
         return validate.format_500_error(request, "Failed to create metric")
     return web.json_response(created, status=201)

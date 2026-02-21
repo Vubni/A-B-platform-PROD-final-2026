@@ -7,7 +7,7 @@ from pydantic import BaseModel, field_validator
 from api import validate
 from config import AUTH_TOKEN_EXPIRATION
 from core import check_token, create_token
-from docs.schems import AuthLoginResponseSchema, AuthLoginSchema, RESPONSES_HTTP_ERROR
+from docs.schems import RESPONSES_HTTP_ERROR, AuthLoginResponseSchema, AuthLoginSchema
 from functions.users import get_user_by_email
 
 

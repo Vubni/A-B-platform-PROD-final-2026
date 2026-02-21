@@ -118,7 +118,11 @@ def format_409_error(
     request: web.Request, value, message: str = "Токен отсутствует или невалиден", field="email"
 ) -> web.Response:
     return format_http_error(
-        request, 409, f"{field.upper()}_ALREADY_EXISTS", message, details={"field": field, "value": value}
+        request,
+        409,
+        f"{field.upper()}_ALREADY_EXISTS",
+        message,
+        details={"field": field, "value": value},
     )
 
 
@@ -134,9 +138,7 @@ def format_422_error(
     message: str = "Некоторые поля не прошли валидацию",
     field_errors: list | None = None,
 ) -> web.Response:
-    return format_http_error(
-        request, 422, code, message, field_errors=field_errors
-    )
+    return format_http_error(request, 422, code, message, field_errors=field_errors)
 
 
 def format_423_error(

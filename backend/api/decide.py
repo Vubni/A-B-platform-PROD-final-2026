@@ -7,7 +7,7 @@ from pydantic import BaseModel, field_validator
 from api import validate
 from api.system_metrics import record_decide
 from core import validate_uuid
-from docs.schems import DecideRequestSchema, DecideResponseSchema, RESPONSES_HTTP_ERROR
+from docs.schems import RESPONSES_HTTP_ERROR, DecideRequestSchema, DecideResponseSchema
 from functions.decide import get_decisions_for_subject
 from functions.flags import get_flag_by_id
 
