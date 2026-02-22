@@ -39,14 +39,17 @@ test:
   timeout: 25m
   before_script:
     - mkdir -p .ci-artifacts
+  script:
     - echo "=== Building images ==="
     - docker compose --profile test build backend tests
     - echo "=== Starting postgres + backend ==="
     - docker compose --profile test up -d postgres backend
     - *wait-for-ready
-  script:
     - echo "=== Running tests (output below) ==="
-    - docker compose --profile test run --rm -e PYTHONUNBUFFERED=1 -v "$CI_PROJECT_DIR/.ci-artifacts:/ci-artifacts" tests sh -c "python /app/tests/seed_test_data.py && pytest /app/tests/ -s -vv --junitxml=/ci-artifacts/junit.xml -o junit_family=xunit1"
+    - |
+      docker compose --profile test run --rm -e PYTHONUNBUFFERED=1 \
+        -v "$CI_PROJECT_DIR/.ci-artifacts:/ci-artifacts" tests \
+        sh -c "python /app/tests/seed_test_data.py && pytest /app/tests/ -s -vv --junitxml=/ci-artifacts/junit.xml -o junit_family=xunit1"
   after_script:
     - docker compose --profile test logs backend || true
     - docker compose --profile test down -v
