@@ -1,17 +1,14 @@
-# Сборка и автотесты после каждого push в main/dev
-# Результат виден в CI/CD → Pipelines
+variables:
+  DOCKER_TLS_CERTDIR: "/certs"
 
 default:
   image: docker:24
   services:
     - docker:24-dind
-  variables:
-    DOCKER_TLS_CERTDIR: "/certs"
 
 stages:
   - test
 
-# Ждём /ready через exec в контейнер backend (в dind localhost с раннера недоступен)
 .wait-for-ready: &wait-for-ready |
   echo "Waiting for backend /ready (max 180s)..."
   for i in $(seq 1 36); do
