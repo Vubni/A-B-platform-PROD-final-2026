@@ -100,7 +100,7 @@
      -H "Content-Type: application/json" \
      -d '{"subject_id": "u42", "attributes": {}, "flags": ["<UUID флага button_color из GET /api/v1/flags>"]}'
    ```
-   В ответе — `flags` (массив решений) и для каждого флага `decision_id` для атрибуции событий.
+   В ответе — `flags` (массив решений) и для каждого флага **`decision_id`** для привязки событий (выдаётся всегда, в т.ч. при отсутствии эксперимента или при default).
 
 4. **Событие** (в каждом элементе массива `events` указывайте **event_type_key** — ключ типа события из каталога `GET /api/v1/event-types`):
    ```bash

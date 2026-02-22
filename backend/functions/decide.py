@@ -1,9 +1,11 @@
 import uuid
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
 from autopilot_ramp.ramp_evaluator import sync_and_tick_autopilot
 from config import (
+    EXPERIMENT_COOLDOWN_SECONDS,
     MAX_ACTIVE_EXPERIMENTS_PER_SUBJECT,
 )
 from core import serialize_json
@@ -28,13 +30,24 @@ async def get_decisions_for_subject(
             (flags,),
         )
         if not experiments:
-            for flag_id in flags:
-                flag = await get_flag_by_key(flag_id)
+            for flag_key in flags:
+                flag = await get_flag_by_key(flag_key)
+                if not flag:
+                    continue
+                decision_id = uuid.uuid4()
+                flag_uuid = (
+                    uuid.UUID(flag["id"]) if isinstance(flag["id"], str) else flag["id"]
+                )
+                await db.execute(
+                    """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
+                       VALUES ($1, $2, $3, $4, NULL, NULL)""",
+                    (decision_id, subject_id, flag_uuid, flag["default_value"]),
+                )
                 result["flags"].append(
                     {
                         "flag_key": flag["key"],
                         "flag_value": flag["default_value"],
-                        "decision_id": None,
+                        "decision_id": str(decision_id),
                         "experiment": None,
                     }
                 )
@@ -54,11 +67,17 @@ async def get_decisions_for_subject(
             if str(experiment["id"]) not in allowed_experiment_ids:
                 flag = await get_flag_by_key(experiment["flag_key"])
                 default_value = flag["default_value"] if flag else ""
+                decision_id = uuid.uuid4()
+                await db.execute(
+                    """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
+                       VALUES ($1, $2, $3, $4, NULL, NULL)""",
+                    (decision_id, subject_id, experiment["flag_id"], default_value),
+                )
                 result["flags"].append(
                     {
                         "flag_key": experiment["flag_key"],
                         "flag_value": default_value,
-                        "decision_id": None,
+                        "decision_id": str(decision_id),
                         "experiment": None,
                         "conflict_lost": True,
                         "conflict_domain": blocked_by_domain.get(str(experiment["id"])),
@@ -178,6 +197,19 @@ async def get_decisions_for_subject(
                 target_in_experiment = (total + 1) * audience_fraction
                 assign_to_experiment = in_experiment < target_in_experiment
 
+            if assign_to_experiment:
+                cooldown_row = await db.execute(
+                    "SELECT entered_at FROM subject_experiment_cooldown WHERE subject_id = $1",
+                    (subject_id,),
+                )
+                if cooldown_row and cooldown_row.get("entered_at"):
+                    entered_at = cooldown_row["entered_at"]
+                    if getattr(entered_at, "tzinfo", None) is None:
+                        entered_at = entered_at.replace(tzinfo=timezone.utc)
+                    now_utc = datetime.now(timezone.utc)
+                    if (now_utc - entered_at).total_seconds() < EXPERIMENT_COOLDOWN_SECONDS:
+                        assign_to_experiment = False
+
             decision_id = str(uuid.uuid4())
             if not assign_to_experiment:
                 await db.execute(
@@ -268,15 +300,24 @@ async def get_decisions_for_subject(
             )
 
         added_keys = {r["flag_key"] for r in result["flags"]}
-        for flag_id in flags:
-            flag = await get_flag_by_key(flag_id)
+        for flag_key in flags:
+            flag = await get_flag_by_key(flag_key)
             if not flag or flag["key"] in added_keys:
                 continue
+            decision_id = uuid.uuid4()
+            flag_uuid = (
+                uuid.UUID(flag["id"]) if isinstance(flag["id"], str) else flag["id"]
+            )
+            await db.execute(
+                """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
+                   VALUES ($1, $2, $3, $4, NULL, NULL)""",
+                (decision_id, subject_id, flag_uuid, flag["default_value"]),
+            )
             result["flags"].append(
                 {
                     "flag_key": flag["key"],
                     "flag_value": flag["default_value"],
-                    "decision_id": None,
+                    "decision_id": str(decision_id),
                     "experiment": None,
                 }
             )
