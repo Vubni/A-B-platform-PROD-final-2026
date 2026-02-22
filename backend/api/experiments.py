@@ -3,6 +3,7 @@ from aiohttp_apispec import docs, request_schema
 from pydantic import BaseModel, field_validator, model_validator
 
 from api import validate
+from config import LEARNINGS_REQUIRED_ON_COMPLETE
 from core import check_authorization, validate_uuid
 from docs.schems import (
     RESPONSES_HTTP_ERROR,
@@ -31,6 +32,7 @@ from functions.experiments import (
     update_experiment_status,
     update_experiment_variant,
 )
+from functions.learnings import get_learning_by_experiment_id
 
 VALID_STATUSES = (
     "draft",
@@ -603,6 +605,19 @@ async def experiments_complete(request: web.Request, parsed: CompleteExperiment)
             },
             status=400,
         )
+    if LEARNINGS_REQUIRED_ON_COMPLETE:
+        learning = await get_learning_by_experiment_id(exp_id)
+        if not learning or not bool(learning.get("is_completed")):
+            return web.json_response(
+                {
+                    "error": (
+                        "Learning is required before completion "
+                        "(LEARNINGS_REQUIRED_ON_COMPLETE=true)"
+                    ),
+                    "required": "completed_learning",
+                },
+                status=409,
+            )
     if parsed.completion_outcome == "rollout_winner":
         variant_ids = [str(v.get("id")) for v in (experiment.get("variants") or []) if v.get("id")]
         if parsed.completion_winner_variant_id not in variant_ids:

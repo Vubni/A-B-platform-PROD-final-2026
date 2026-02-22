@@ -29,6 +29,7 @@
 | `MAX_ACTIVE_EXPERIMENTS_PER_SUBJECT` | `MAX_ACTIVE_EXPERIMENTS_PER_SUBJECT` | `2` | Максимум одновременных экспериментов на одного субъекта (subject_id) |
 | `EXPERIMENT_COOLDOWN_SECONDS` | `EXPERIMENT_COOLDOWN_SECONDS` | `604800` (7 сут) | Пауза в секундах перед повторным попаданием субъекта в эксперимент по тому же флагу |
 | `EVENTS_DEPENDENCY_MAX_DELAY_DAYS` | `EVENTS_DEPENDENCY_MAX_DELAY_DAYS` | `7` | Максимальная задержка в днях: события старше этого срока не привязываются к решению (decision) |
+| `LEARNINGS_REQUIRED_ON_COMPLETE` | `LEARNINGS_REQUIRED_ON_COMPLETE` | `false` | Если `true`, завершение эксперимента (`POST .../complete`) разрешено только при наличии заполненного learning (`is_completed=true`) |
 
 ### Логирование
 
@@ -73,6 +74,12 @@
 | **Event types** | GET, POST | `/api/v1/event-types` |
 | | GET, PATCH, DELETE | `/api/v1/event-types/{id}` |
 | **Reports** | GET | `/api/v1/experiments/{id}/report` |
+| **Learnings** | GET | `/api/v1/learnings` |
+| | GET | `/api/v1/learnings/{id}` |
+| | GET | `/api/v1/learnings/{id}/audit` |
+| | GET | `/api/v1/learnings/{id}/similar` |
+| | GET | `/api/v1/experiments/{id}/learning` |
+| | PUT | `/api/v1/experiments/{id}/learning` |
 | **Metrics** | GET, POST | `/api/v1/metrics` |
 | | GET, PATCH | `/api/v1/metrics/{key}` |
 

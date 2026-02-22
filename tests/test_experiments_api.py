@@ -1,6 +1,24 @@
-
+import os
 import pytest
 from conftest import create_experiment_in_running
+
+
+async def _ensure_learning_completed(http_session, base_url, auth_headers_experimenter, exp_id):
+    """Создаёт completed learning для эксперимента, чтобы complete не возвращал 409 при LEARNINGS_REQUIRED_ON_COMPLETE=true."""
+    payload = {
+        "hypothesis": "Test learning for completion",
+        "primary_metric_key": "conversion_rate",
+        "result_outcome": "no_effect",
+        "result_action": "repeat",
+        "notes": "Required for complete",
+        "is_completed": True,
+    }
+    async with http_session.put(
+        f"{base_url}/api/v1/experiments/{exp_id}/learning",
+        headers=auth_headers_experimenter,
+        json=payload,
+    ) as r:
+        assert r.status == 200, await r.text()
 
 
 @pytest.mark.asyncio
@@ -591,6 +609,7 @@ async def test_experiments_complete_rollout_winner_invalid_variant_returns_400(
         http_session, base_url, auth_headers_experimenter, auth_headers_approver, auth_headers_admin,
         key_prefix="complete_invalid_var",
     )
+    await _ensure_learning_completed(http_session, base_url, auth_headers_experimenter, exp_id)
     complete_url = f"{base_url}/api/v1/experiments/{exp_id}/complete"
     async with http_session.post(
         complete_url,
@@ -616,6 +635,7 @@ async def test_experiments_complete_success_rollback(
         http_session, base_url, auth_headers_experimenter, auth_headers_approver, auth_headers_admin,
         key_prefix="complete_rollback",
     )
+    await _ensure_learning_completed(http_session, base_url, auth_headers_experimenter, exp_id)
     complete_url = f"{base_url}/api/v1/experiments/{exp_id}/complete"
     async with http_session.post(
         complete_url,
@@ -637,6 +657,7 @@ async def test_experiments_complete_success_no_effect(
         http_session, base_url, auth_headers_experimenter, auth_headers_approver, auth_headers_admin,
         key_prefix="complete_no_effect",
     )
+    await _ensure_learning_completed(http_session, base_url, auth_headers_experimenter, exp_id)
     complete_url = f"{base_url}/api/v1/experiments/{exp_id}/complete"
     async with http_session.post(
         complete_url,
@@ -667,6 +688,7 @@ async def test_experiments_complete_success_rollout_winner(
             None,
         )
         assert treatment_id is not None
+    await _ensure_learning_completed(http_session, base_url, auth_headers_experimenter, exp_id)
     complete_url = f"{base_url}/api/v1/experiments/{exp_id}/complete"
     async with http_session.post(
         complete_url,
@@ -681,3 +703,50 @@ async def test_experiments_complete_success_rollout_winner(
         data = await resp.json()
         assert data["status"] == "completed"
         assert data["id"] == exp_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    str(os.getenv("LEARNINGS_REQUIRED_ON_COMPLETE", "false")).strip().lower() != "true",
+    reason="Policy-disabled environment",
+)
+async def test_experiments_complete_requires_completed_learning_when_policy_enabled(
+    http_session, base_url, auth_headers_experimenter, auth_headers_approver, auth_headers_admin
+):
+    exp_id = await create_experiment_in_running(
+        http_session,
+        base_url,
+        auth_headers_experimenter,
+        auth_headers_approver,
+        auth_headers_admin,
+        key_prefix="complete_requires_learning",
+    )
+    complete_url = f"{base_url}/api/v1/experiments/{exp_id}/complete"
+    async with http_session.post(
+        complete_url,
+        headers=auth_headers_experimenter,
+        json={"completion_outcome": "rollback", "comment": "Policy check"},
+    ) as resp:
+        assert resp.status == 409, await resp.text()
+
+    learning_payload = {
+        "hypothesis": "Политика требует completion learning",
+        "primary_metric_key": "conversion_rate",
+        "result_outcome": "no_effect",
+        "result_action": "repeat",
+        "notes": "Заполняем обязательное learning перед complete",
+        "is_completed": True,
+    }
+    async with http_session.put(
+        f"{base_url}/api/v1/experiments/{exp_id}/learning",
+        headers=auth_headers_experimenter,
+        json=learning_payload,
+    ) as lr:
+        assert lr.status == 200, await lr.text()
+
+    async with http_session.post(
+        complete_url,
+        headers=auth_headers_experimenter,
+        json={"completion_outcome": "rollback", "comment": "Now allowed"},
+    ) as resp:
+        assert resp.status == 200, await resp.text()

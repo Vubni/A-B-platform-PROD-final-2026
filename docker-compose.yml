@@ -10,6 +10,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./docker/postgres/learnings_library.sql:/docker-entrypoint-initdb.d/02-learnings_library.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U user -d prod"]
       interval: 5s
@@ -31,6 +32,7 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
       ADMIN_FIRST_NAME: ${ADMIN_FIRST_NAME:-Admin}
+      LEARNINGS_REQUIRED_ON_COMPLETE: ${LEARNINGS_REQUIRED_ON_COMPLETE:-true}
     ports:
       - "80:80"
     volumes:
@@ -46,6 +48,7 @@ services:
       DB_USER: user
       DB_PASSWORD: prod_secret
       DB_NAME: prod
+      LEARNINGS_REQUIRED_ON_COMPLETE: ${LEARNINGS_REQUIRED_ON_COMPLETE:-true}
     depends_on:
       backend:
         condition: service_started

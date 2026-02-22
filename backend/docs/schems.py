@@ -341,6 +341,138 @@ class GuardrailHistoryResponseSchema(Schema):
     triggers = fields.List(fields.Dict(), description="История срабатываний guardrail")
 
 
+class LearningGuardrailItemSchema(Schema):
+    metric_key = fields.Str(description="Ключ guardrail-метрики")
+    threshold_value = fields.Float(allow_none=True, description="Порог guardrail, если задан")
+    trigger_count = fields.Int(description="Сколько раз guardrail срабатывал")
+    details = fields.Dict(allow_none=True, description="Дополнительный контекст")
+    created_at = fields.Str(allow_none=True)
+
+
+class LearningUpsertSchema(Schema):
+    owner_user_id = fields.Str(allow_none=True, description="UUID владельца записи")
+    owner_team = fields.Str(allow_none=True, description="Команда-владелец")
+    hypothesis = fields.Str(required=True, description="Гипотеза эксперимента")
+    primary_metric_key = fields.Str(required=True, description="Ключ основной метрики")
+    result_outcome = fields.Str(
+        required=True,
+        validate=mvalidate.OneOf(("rollout_winner", "rollback", "no_effect", "worse")),
+        description="Итог эксперимента",
+    )
+    result_action = fields.Str(
+        required=True,
+        validate=mvalidate.OneOf(("rollout", "rollback", "continue", "repeat")),
+        description="Что сделали после эксперимента",
+    )
+    effect_summary = fields.Str(allow_none=True, description="Краткий эффект по основной метрике")
+    targeting_summary = fields.Str(allow_none=True, description="Краткое описание таргетинга")
+    platforms = fields.List(fields.Str(), load_default=list, description="Платформы")
+    countries = fields.List(fields.Str(), load_default=list, description="Страны")
+    app_versions = fields.List(fields.Str(), load_default=list, description="Версии приложения")
+    product_tags = fields.List(fields.Str(), load_default=list, description="Теги продуктовой зоны")
+    change_type = fields.Str(allow_none=True, description="Тип изменения")
+    variant_structure = fields.Dict(
+        load_default=dict,
+        description="Структура вариантов (A/B/n, rollout, веса и т.д.)",
+    )
+    report_url = fields.Str(allow_none=True, description="Ссылка на отчёт/дашборд")
+    ticket_url = fields.Str(allow_none=True, description="Ссылка на тикет/PRD")
+    notes = fields.Str(required=True, description="Короткие выводы why/why not")
+    is_completed = fields.Bool(
+        load_default=False, description="Признак, что learning заполнен полностью"
+    )
+    guardrails = fields.List(
+        fields.Nested(LearningGuardrailItemSchema),
+        load_default=list,
+        description="Guardrail-сводка по эксперименту",
+    )
+
+
+class LearningItemSchema(Schema):
+    id = fields.Str(description="UUID learning")
+    experiment_id = fields.Str(description="UUID эксперимента")
+    experiment_name = fields.Str(allow_none=True)
+    experiment_status = fields.Str(allow_none=True)
+    flag_key = fields.Str()
+    owner_user_id = fields.Str(allow_none=True)
+    owner_team = fields.Str(allow_none=True)
+    hypothesis = fields.Str()
+    primary_metric_key = fields.Str()
+    result_outcome = fields.Str()
+    result_action = fields.Str()
+    effect_summary = fields.Str(allow_none=True)
+    guardrail_triggers_count = fields.Int()
+    targeting_summary = fields.Str(allow_none=True)
+    platforms = fields.List(fields.Str())
+    countries = fields.List(fields.Str())
+    app_versions = fields.List(fields.Str())
+    product_tags = fields.List(fields.Str())
+    change_type = fields.Str(allow_none=True)
+    variant_structure = fields.Dict()
+    report_url = fields.Str(allow_none=True)
+    ticket_url = fields.Str(allow_none=True)
+    notes = fields.Str()
+    is_completed = fields.Bool()
+    created_by = fields.Str(allow_none=True)
+    updated_by = fields.Str(allow_none=True)
+    created_at = fields.Str(allow_none=True)
+    updated_at = fields.Str(allow_none=True)
+    guardrails = fields.List(fields.Nested(LearningGuardrailItemSchema), allow_none=True)
+
+
+class LearningListResponseSchema(Schema):
+    learnings = fields.List(fields.Nested(LearningItemSchema), description="Список learnings")
+
+
+class LearningListQuerySchema(Schema):
+    q = fields.Str(required=False, description="Полнотекстовый поиск")
+    flag_key = fields.Str(required=False)
+    owner_user_id = fields.Str(required=False)
+    owner_team = fields.Str(required=False)
+    result_outcome = fields.Str(
+        required=False,
+        validate=mvalidate.OneOf(("rollout_winner", "rollback", "no_effect", "worse")),
+    )
+    primary_metric_key = fields.Str(required=False)
+    countries = fields.Str(required=False, description="CSV стран: RU,US")
+    platforms = fields.Str(required=False, description="CSV платформ: ios,android,web")
+    tags = fields.Str(required=False, description="CSV тегов продуктовой зоны")
+    date_from = fields.Str(required=False, description="ISO дата начала фильтра")
+    date_to = fields.Str(required=False, description="ISO дата конца фильтра")
+    limit = fields.Int(required=False, load_default=20)
+    offset = fields.Int(required=False, load_default=0)
+
+
+class LearningAuditItemSchema(Schema):
+    id = fields.Str()
+    learning_id = fields.Str(allow_none=True)
+    action = fields.Str()
+    changed_by = fields.Str(allow_none=True)
+    changed_at = fields.Str(allow_none=True)
+    before_state = fields.Dict(allow_none=True)
+    after_state = fields.Dict(allow_none=True)
+
+
+class LearningAuditListResponseSchema(Schema):
+    learning_id = fields.Str()
+    audit = fields.List(fields.Nested(LearningAuditItemSchema))
+
+
+class LearningSimilarItemSchema(Schema):
+    score = fields.Float(description="Итоговый similarity-score (0..1)")
+    reasons = fields.List(
+        fields.Str(),
+        allow_none=True,
+        description="Краткие причины похожести (совпадающие признаки)",
+    )
+    learning = fields.Nested(LearningItemSchema)
+
+
+class LearningSimilarResponseSchema(Schema):
+    learning_id = fields.Str()
+    similar = fields.List(fields.Nested(LearningSimilarItemSchema))
+
+
 class ExperimentGuardrailItemSchema(Schema):
     metric_key = fields.Str(description="Ключ guardrail-метрики из каталога")
     threshold = fields.Float(description="Порог, при превышении которого срабатывает guardrail")

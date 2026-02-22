@@ -29,6 +29,7 @@ TEST_SECTIONS = {
     "test_metrics_catalog_api.py": "Metrics catalog",
     "test_conflicts_api.py": "Conflict resolution",
     "test_autopilot_ramp_api.py": "Autopilot ramp-up",
+    "test_learnings_api.py": "Learnings library",
 }
 
 CORE_SECTION_ORDER = [
@@ -48,6 +49,7 @@ CORE_SECTION_ORDER = [
 EXTRA_SECTION_ORDER = [
     "Conflict resolution",
     "Autopilot ramp-up",
+    "Learnings library",
 ]
 
 SECTION_ORDER = CORE_SECTION_ORDER + EXTRA_SECTION_ORDER
@@ -113,6 +115,12 @@ ALL_ENDPOINTS = [
     ("PATCH", "/api/v1/event-types/{id}"),
     ("DELETE", "/api/v1/event-types/{id}"),
     ("GET", "/api/v1/experiments/{id}/report"),
+    ("GET", "/api/v1/learnings"),
+    ("GET", "/api/v1/learnings/{id}"),
+    ("GET", "/api/v1/learnings/{id}/audit"),
+    ("GET", "/api/v1/learnings/{id}/similar"),
+    ("GET", "/api/v1/experiments/{id}/learning"),
+    ("PUT", "/api/v1/experiments/{id}/learning"),
     ("GET", "/api/v1/metrics"),
     ("GET", "/api/v1/metrics/{key}"),
     ("POST", "/api/v1/metrics"),
@@ -175,6 +183,12 @@ TESTED_ENDPOINTS = [
     ("PATCH", "/api/v1/event-types/{id}"),
     ("DELETE", "/api/v1/event-types/{id}"),
     ("GET", "/api/v1/experiments/{id}/report"),
+    ("GET", "/api/v1/learnings"),
+    ("GET", "/api/v1/learnings/{id}"),
+    ("GET", "/api/v1/learnings/{id}/audit"),
+    ("GET", "/api/v1/learnings/{id}/similar"),
+    ("GET", "/api/v1/experiments/{id}/learning"),
+    ("PUT", "/api/v1/experiments/{id}/learning"),
     ("GET", "/api/v1/metrics"),
     ("GET", "/api/v1/metrics/{key}"),
     ("POST", "/api/v1/metrics"),

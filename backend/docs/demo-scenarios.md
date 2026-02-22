@@ -216,6 +216,46 @@
 
 ---
 
+## 4. Доп. фича: Learnings Library
+
+### 4.1 Заполнение learning и проверка похожих кейсов
+
+**Цель:** зафиксировать выводы по эксперименту и получить список похожих кейсов перед новым запуском.
+
+**Шаги:**
+
+1. Иметь созданный эксперимент (`exp_id`) и токен experimenter-владельца.
+2. Заполнить learning:
+   `PUT /api/v1/experiments/{exp_id}/learning` с телом:
+   ```json
+   {
+     "hypothesis": "Новый вариант выдачи ускорит поиск",
+     "primary_metric_key": "conversion_rate",
+     "result_outcome": "no_effect",
+     "result_action": "repeat",
+     "targeting_summary": "web, RU, новые пользователи",
+     "platforms": ["web"],
+     "countries": ["RU"],
+     "app_versions": ["web-2026.02"],
+     "product_tags": ["search", "ranking"],
+     "change_type": "search_algorithm",
+     "variant_structure": {"kind": "ab", "weights": [0.5, 0.5]},
+     "notes": "Эффекта по primary нет, guardrail стабильный",
+     "is_completed": true,
+     "guardrails": [{"metric_key": "latency_p95", "threshold_value": 500, "trigger_count": 0}]
+   }
+   ```
+3. Проверить запись:
+   `GET /api/v1/experiments/{exp_id}/learning` и `GET /api/v1/learnings/{learning_id}`.
+4. Найти похожие:
+   `GET /api/v1/learnings/{learning_id}/similar?limit=5`.
+5. Посмотреть аудит:
+   `GET /api/v1/learnings/{learning_id}/audit`.
+
+**Ожидаемый результат:** learning сохранён, в `similar` возвращаются похожие кейсы с `score` и `reasons`, в `audit` есть история изменений learning и guardrails.
+
+---
+
 ## Связь с тестами и критериями
 
 | Сценарий | Тесты / критерий |
@@ -232,5 +272,6 @@
 | 3.2 Таргетинг | B2-2; тесты decide с targeting_rule |
 | 3.3 Пустое окно отчёта | test_report_* (период) |
 | 3.4 Зависимость событий | B4-5; event types requires_show, events_submit |
+| 4.1 Learnings library | tests/test_learnings_api.py; FX-1/FX-2 (доп. фича п.9) |
 
 Данные для автоматических тестов создаются сидом `tests/seed_test_data.py` и при необходимости фикстурами в `tests/conftest.py` (например, уникальные флаги/эксперименты на тест).
