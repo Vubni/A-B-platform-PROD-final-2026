@@ -70,7 +70,8 @@ run-tests:
   when: always
   needs: ["run-tests"]
   script:
-    - python - <<'PY'
+    - |
+      python - <<'PY'
       import os
       import xml.etree.ElementTree as ET
 
