@@ -5,13 +5,13 @@ from pydantic import BaseModel, Field, field_validator
 from api import validate
 from core import check_authorization, validate_uuid
 from docs.schems import (
+    RESPONSES_HTTP_ERROR,
     LearningAuditListResponseSchema,
     LearningItemSchema,
     LearningListQuerySchema,
     LearningListResponseSchema,
     LearningSimilarResponseSchema,
     LearningUpsertSchema,
-    RESPONSES_HTTP_ERROR,
 )
 from functions.experiments import get_experiment_by_id
 from functions.learnings import (
@@ -284,8 +284,8 @@ class SimilarQuery(BaseModel):
 @docs(
     tags=["Learnings"],
     summary="Поиск learnings",
-    responses={200: {"description": "Список learnings", "schema": LearningListResponseSchema}, 
-    401: RESPONSES_HTTP_ERROR[401], 
+    responses={200: {"description": "Список learnings", "schema": LearningListResponseSchema},
+    401: RESPONSES_HTTP_ERROR[401],
     422: RESPONSES_HTTP_ERROR[422],
     404: RESPONSES_HTTP_ERROR[404],
     500: RESPONSES_HTTP_ERROR[500],
@@ -318,8 +318,8 @@ async def learnings_list(request: web.Request, parsed: LearningListQuery) -> web
 @docs(
     tags=["Learnings"],
     summary="Получить learning по id",
-    responses={200: {"description": "Learning", "schema": LearningItemSchema}, 
-    401: RESPONSES_HTTP_ERROR[401], 
+    responses={200: {"description": "Learning", "schema": LearningItemSchema},
+    401: RESPONSES_HTTP_ERROR[401],
     404: RESPONSES_HTTP_ERROR[404],
     422: RESPONSES_HTTP_ERROR[422],
     500: RESPONSES_HTTP_ERROR[500],
@@ -343,8 +343,8 @@ async def learnings_get(request: web.Request) -> web.Response:
 @docs(
     tags=["Learnings"],
     summary="Получить learning по эксперименту",
-    responses={200: {"description": "Learning", "schema": LearningItemSchema}, 
-    401: RESPONSES_HTTP_ERROR[401], 
+    responses={200: {"description": "Learning", "schema": LearningItemSchema},
+    401: RESPONSES_HTTP_ERROR[401],
     404: RESPONSES_HTTP_ERROR[404],
     422: RESPONSES_HTTP_ERROR[422],
     500: RESPONSES_HTTP_ERROR[500],
@@ -368,10 +368,10 @@ async def learning_by_experiment_get(request: web.Request) -> web.Response:
 @docs(
     tags=["Learnings"],
     summary="Создать или обновить learning для эксперимента",
-    responses={200: {"description": "Learning", "schema": LearningItemSchema}, 
-    401: RESPONSES_HTTP_ERROR[401], 
-    403: RESPONSES_HTTP_ERROR[403], 
-    404: RESPONSES_HTTP_ERROR[404], 
+    responses={200: {"description": "Learning", "schema": LearningItemSchema},
+    401: RESPONSES_HTTP_ERROR[401],
+    403: RESPONSES_HTTP_ERROR[403],
+    404: RESPONSES_HTTP_ERROR[404],
     422: RESPONSES_HTTP_ERROR[422],
     500: RESPONSES_HTTP_ERROR[500],
     },
@@ -433,8 +433,8 @@ async def learning_upsert_for_experiment(request: web.Request, parsed: LearningU
 @docs(
     tags=["Learnings"],
     summary="История изменений learning",
-    responses={200: {"description": "Аудит", "schema": LearningAuditListResponseSchema}, 
-    401: RESPONSES_HTTP_ERROR[401], 
+    responses={200: {"description": "Аудит", "schema": LearningAuditListResponseSchema},
+    401: RESPONSES_HTTP_ERROR[401],
     404: RESPONSES_HTTP_ERROR[404],
     422: RESPONSES_HTTP_ERROR[422],
     500: RESPONSES_HTTP_ERROR[500],
@@ -461,9 +461,9 @@ async def learnings_audit(request: web.Request, parsed: LearningAuditQuery) -> w
 @docs(
     tags=["Learnings"],
     summary="Похожие эксперименты для learning",
-    responses={200: {"description": "Похожие learnings", "schema": LearningSimilarResponseSchema}, 
-    401: RESPONSES_HTTP_ERROR[401], 
-    404: RESPONSES_HTTP_ERROR[404], 
+    responses={200: {"description": "Похожие learnings", "schema": LearningSimilarResponseSchema},
+    401: RESPONSES_HTTP_ERROR[401],
+    404: RESPONSES_HTTP_ERROR[404],
     422: RESPONSES_HTTP_ERROR[422],
     500: RESPONSES_HTTP_ERROR[500],
     },

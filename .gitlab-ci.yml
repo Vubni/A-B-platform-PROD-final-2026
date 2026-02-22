@@ -13,7 +13,6 @@ default:
 stages:
   - build
   - test
-  - report
 
 .pipeline-rules: &pipeline-rules
   rules:
@@ -62,82 +61,6 @@ run-tests:
     expire_in: 7 days
     paths:
       - .ci-artifacts/junit.xml
+    reports:
+      junit: .ci-artifacts/junit.xml
   <<: *pipeline-rules
-
-.report-template:
-  stage: report
-  image: python:3.12-alpine
-  when: always
-  needs: ["run-tests"]
-  script:
-    - |
-      python - <<'PY'
-      import os
-      import xml.etree.ElementTree as ET
-
-      shard = int(os.environ["REPORT_SHARD"])
-      total_shards = 3
-      junit_path = ".ci-artifacts/junit.xml"
-
-      if not os.path.isfile(junit_path):
-          print("No junit.xml artifact (run-tests may have failed before producing it). Skipping report.")
-          raise SystemExit(0)
-
-      tree = ET.parse(junit_path)
-      root = tree.getroot()
-
-      tests = []
-      for suite in root.iter("testsuite"):
-          for case in suite.findall("testcase"):
-              tests.append(case)
-
-      if not tests:
-          print("No tests found in junit report.")
-          raise SystemExit(1)
-
-      print(f"Report shard {shard + 1}/{total_shards}")
-      print("-" * 70)
-
-      selected = 0
-      failed = 0
-      for idx, case in enumerate(tests):
-          if idx % total_shards != shard:
-              continue
-          selected += 1
-          classname = case.attrib.get("classname", "")
-          name = case.attrib.get("name", "unknown_test")
-          title = f"{classname}::{name}" if classname else name
-          failure = case.find("failure")
-          error = case.find("error")
-          skipped = case.find("skipped")
-          if failure is not None or error is not None:
-              failed += 1
-              reason = (failure or error).attrib.get("message", "failed")
-              reason = reason.replace("\n", " ").strip()
-              print(f"[FAIL] {title} | {reason}")
-          elif skipped is not None:
-              reason = skipped.attrib.get("message", "skipped").replace("\n", " ").strip()
-              print(f"[SKIP] {title} | {reason}")
-          else:
-              print(f"[PASS] {title}")
-
-      print("-" * 70)
-      print(f"Shard tests: {selected}")
-      print(f"Shard failures: {failed}")
-      PY
-  <<: *pipeline-rules
-
-report-tests-1:
-  extends: .report-template
-  variables:
-    REPORT_SHARD: "0"
-
-report-tests-2:
-  extends: .report-template
-  variables:
-    REPORT_SHARD: "1"
-
-report-tests-3:
-  extends: .report-template
-  variables:
-    REPORT_SHARD: "2"

@@ -12,12 +12,12 @@ from api import (
     autopilot_ramp_api,
     conflict_domains,
     decide,
-    learnings,
     events,
     experiments,
     flags,
     guardrails,
     health,
+    learnings,
     reports,
     system_metrics,
     users,
@@ -178,7 +178,7 @@ if __name__ == "__main__":
         web.get(prefix + "/event-types/{id}", events.event_types_get),
         web.patch(prefix + "/event-types/{id}", events.event_types_update),
         web.delete(prefix + "/event-types/{id}", events.event_types_archive),
-        
+
         web.get(prefix + "/experiments/{id}/report", reports.reports_experiment),
         web.get(prefix + "/learnings", learnings.learnings_list),
         web.get(prefix + "/learnings/{id}", learnings.learnings_get),
