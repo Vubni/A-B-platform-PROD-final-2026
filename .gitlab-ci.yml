@@ -11,7 +11,6 @@ default:
       command: ["--tls=false"]
 
 stages:
-  - build
   - test
 
 .pipeline-rules: &pipeline-rules
@@ -35,29 +34,23 @@ stages:
   docker compose --profile test logs backend || true
   exit 1
 
-build-images:
-  stage: build
-  timeout: 10m
-  script:
-    - docker compose --profile test build backend tests
-  <<: *pipeline-rules
-
-run-tests:
+test:
   stage: test
-  timeout: 20m
-  needs: ["build-images"]
+  timeout: 25m
   before_script:
     - mkdir -p .ci-artifacts
+    - echo "=== Building images ==="
+    - docker compose --profile test build backend tests
+    - echo "=== Starting postgres + backend ==="
     - docker compose --profile test up -d postgres backend
     - *wait-for-ready
   script:
-    - docker compose --profile test run --name ci_tests_runner -v "$CI_PROJECT_DIR/.ci-artifacts:/ci-artifacts" tests sh -c "python /app/tests/seed_test_data.py && pytest /app/tests/ -s -vv --junitxml=/ci-artifacts/junit.xml -o junit_family=xunit1"
+    - echo "=== Running tests (output below) ==="
+    - docker compose --profile test run --rm -e PYTHONUNBUFFERED=1 -v "$CI_PROJECT_DIR/.ci-artifacts:/ci-artifacts" tests sh -c "python /app/tests/seed_test_data.py && pytest /app/tests/ -s -vv --junitxml=/ci-artifacts/junit.xml -o junit_family=xunit1"
   after_script:
     - docker compose --profile test logs backend || true
-    - docker rm -f ci_tests_runner || true
     - docker compose --profile test down -v
   # Unit test reports: GitLab shows Test summary in MRs and Tests tab in pipeline
-  # (https://docs.gitlab.com/ee/ci/yaml/index.html#artifactsreportsjunit)
   artifacts:
     when: always
     expire_in: 7 days
