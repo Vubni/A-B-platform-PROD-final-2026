@@ -520,7 +520,6 @@ class RampSafetyActionSchema(Schema):
         validate=mvalidate.OneOf(("pause", "rollback_to_control", "step_back")),
         description="Какой защитный шаг выполнить при срабатывании триггера",
     )
-    notify = fields.Bool(description="Отправлять ли уведомление ответственным после срабатывания")
 
 
 class RampPlanGateDataSufficiencySchema(Schema):
@@ -596,7 +595,6 @@ class RampSafetyActionUpsertSchema(Schema):
         validate=mvalidate.OneOf(("pause", "rollback_to_control", "step_back")),
         description="Действие при триггере",
     )
-    notify = fields.Bool(load_default=True, description="Нужно ли отправлять уведомление")
 
 
 class RampPlanPutSchema(Schema):
@@ -644,6 +642,10 @@ class RampStateSchema(Schema):
     )
     started_at = fields.Str(
         allow_none=True, description="Когда автопилот был впервые запущен для эксперимента"
+    )
+    step_entered_at = fields.Str(
+        allow_none=True,
+        description="Когда вошли на текущую ступень (для gate min_minutes_on_step)",
     )
     last_eval_at = fields.Str(
         allow_none=True, description="Время последней автоматической/ручной оценки состояния"
@@ -784,6 +786,7 @@ RAMP_STATE_RESPONSE_EXAMPLE = {
     "current_step_index": 1,
     "mode": "autopilot",
     "started_at": "2026-02-20T11:20:00Z",
+    "step_entered_at": "2026-02-20T11:45:00Z",
     "last_eval_at": "2026-02-20T12:00:00Z",
     "manual_override_by_user_id": None,
     "manual_override_at": None,

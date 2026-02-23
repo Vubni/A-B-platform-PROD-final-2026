@@ -10,7 +10,7 @@ async def get_ramp_state(experiment_id: str) -> dict | None:
     async with Database() as db:
         row = await db.execute(
             """SELECT experiment_id, ramp_plan_id, current_step_index, mode,
-                      started_at, last_eval_at, manual_override_by_user_id, manual_override_at, updated_at
+                      started_at, step_entered_at, last_eval_at, manual_override_by_user_id, manual_override_at, updated_at
                FROM experiment_ramp_state WHERE experiment_id = $1""",
             (experiment_id,),
         )
@@ -35,8 +35,8 @@ async def start_autopilot(experiment_id: str) -> tuple[dict | None, str | None]:
             return None, "already_started"
 
         await db.execute(
-            """INSERT INTO experiment_ramp_state (experiment_id, ramp_plan_id, current_step_index, mode)
-               VALUES ($1, $2, 0, 'autopilot')""",
+            """INSERT INTO experiment_ramp_state (experiment_id, ramp_plan_id, current_step_index, mode, step_entered_at)
+               VALUES ($1, $2, 0, 'autopilot', NOW())""",
             (experiment_id, plan["id"]),
         )
         await _log_decision(
@@ -107,6 +107,7 @@ async def override_step(
         await db.execute(
             """UPDATE experiment_ramp_state SET
                    current_step_index = $1,
+                   step_entered_at = NOW(),
                    last_eval_at = NOW(),
                    manual_override_by_user_id = $2,
                    manual_override_at = NOW(),

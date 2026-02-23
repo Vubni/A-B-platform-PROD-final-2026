@@ -18,8 +18,8 @@
 |--------|-------------|
 | **ramp_plans** | План раскатки на эксперимент: окно наблюдения, gate_data_sufficiency, gate_safety, gate_data_health (JSONB). |
 | **ramp_steps** | Ступени трафика (step_index, traffic_fraction), например 1% → 5% → 10% → 25% → 50% → 100%. |
-| **ramp_safety_actions** | При каком триггере (guardrail_triggered, error_rate_high, latency_high, data_quality_critical) какое действие (pause, rollback_to_control, step_back) и уведомлять ли. |
-| **experiment_ramp_state** | Текущее состояние: план, текущая ступень, режим (autopilot / manual / paused), время последней оценки, кто вручную переопределил. |
+| **ramp_safety_actions** | При каком триггере (guardrail_triggered, error_rate_high, latency_high, data_quality_critical) какое действие (pause, rollback_to_control, step_back). |
+| **experiment_ramp_state** | Текущее состояние: план, текущая ступень, режим (autopilot / manual / paused), step_entered_at (вход на ступень для min_minutes_on_step), время последней оценки, кто вручную переопределил. |
 | **experiment_ramp_decision_log** | История решений: действие (step_up, step_back, pause, rollback, override, …), from/to step, reason (JSONB), triggered_by (autopilot/manual), user_id. |
 
 ---
@@ -57,7 +57,7 @@
 
 В ramp_safety_actions задаётся для каждого типа триггера:
 
-- **pause** — поставить эксперимент на паузу (status → paused), записать в лог, при необходимости уведомить (notify).
+- **pause** — поставить эксперимент на паузу (status → paused), записать в лог.
 - **rollback_to_control** — откатить эксперимент к контролю (если поддерживается: все пользователи получают контрольный вариант).
 - **step_back** — откатить трафик на предыдущую ступень (current_step_index -= 1, audience_fraction и веса вариантов пересчитать по ramp_steps), обновить experiment и experiment_ramp_state, дать время стабилизироваться.
 

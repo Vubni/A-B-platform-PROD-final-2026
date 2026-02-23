@@ -200,10 +200,14 @@ BEGIN
         RAISE EXCEPTION 'Experiment must have exactly one control variant (is_control = true). Currently: %', control_count;
     END IF;
     IF variant_count >= 2 THEN
-        SELECT audience_fraction INTO af FROM experiments WHERE id = eid;
-        SELECT COALESCE(SUM(weight), 0) INTO total_weight FROM experiment_variants WHERE experiment_id = eid;
-        IF total_weight IS NULL OR total_weight <> af THEN
-            RAISE EXCEPTION 'The sum of variant weights (%s) must match the experiment audience fraction (%s)', total_weight, af;
+        IF current_setting('app.allow_ramp_apply', true) = '1' THEN
+            NULL;
+        ELSE
+            SELECT audience_fraction INTO af FROM experiments WHERE id = eid;
+            SELECT COALESCE(SUM(weight), 0) INTO total_weight FROM experiment_variants WHERE experiment_id = eid;
+            IF total_weight IS NULL OR total_weight <> af THEN
+                RAISE EXCEPTION 'The sum of variant weights (%s) must match the experiment audience fraction (%s)', total_weight, af;
+            END IF;
         END IF;
     END IF;
     RETURN COALESCE(NEW, OLD);
@@ -237,6 +241,12 @@ CREATE TRIGGER tr_check_experiment_audience_fraction
 CREATE OR REPLACE FUNCTION check_experiment_frozen_params()
 RETURNS TRIGGER AS $$
 BEGIN
+    IF current_setting('app.allow_ramp_apply', true) = '1' THEN
+        IF NEW.targeting_rule IS DISTINCT FROM OLD.targeting_rule THEN
+            RAISE EXCEPTION 'Ramp apply may only change audience_fraction, not targeting_rule';
+        END IF;
+        RETURN NEW;
+    END IF;
     IF OLD.status IN ('running', 'paused') AND (
         NEW.audience_fraction IS DISTINCT FROM OLD.audience_fraction
         OR NEW.targeting_rule IS DISTINCT FROM OLD.targeting_rule
@@ -256,6 +266,9 @@ RETURNS TRIGGER AS $$
 DECLARE
     s experiment_status;
 BEGIN
+    IF current_setting('app.allow_ramp_apply', true) = '1' THEN
+        RETURN COALESCE(NEW, OLD);
+    END IF;
     s := (SELECT status FROM experiments WHERE id = COALESCE(NEW.experiment_id, OLD.experiment_id));
     IF s IN ('running', 'paused') THEN
         RAISE EXCEPTION 'Cannot change experiment variants in status %', s;
@@ -477,11 +490,14 @@ CREATE TABLE IF NOT EXISTS experiment_ramp_state (
     current_step_index INTEGER NOT NULL CHECK (current_step_index >= 0),
     mode VARCHAR(32) NOT NULL DEFAULT 'autopilot' CHECK (mode IN ('autopilot', 'manual', 'paused')),
     started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    step_entered_at TIMESTAMPTZ,
     last_eval_at TIMESTAMPTZ,
     manual_override_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     manual_override_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+ALTER TABLE experiment_ramp_state ADD COLUMN IF NOT EXISTS step_entered_at TIMESTAMPTZ;
+UPDATE experiment_ramp_state SET step_entered_at = started_at WHERE step_entered_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS experiment_ramp_decision_log (
     id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -90,6 +90,8 @@ async def _apply_safety_action(
     experiment_id: str, plan: dict, current_step: int, safety: dict
 ) -> None:
     action = (safety or {}).get("action")
+    trigger_type = (safety or {}).get("trigger_type")
+
     if action == "pause":
         await pause_experiment(experiment_id)
         await log_autopilot_decision(
@@ -99,7 +101,7 @@ async def _apply_safety_action(
             None,
             {
                 "reason": "safety",
-                "trigger_type": safety.get("trigger_type"),
+                "trigger_type": trigger_type,
                 "metric_key": safety.get("metric_key"),
             },
         )
@@ -110,14 +112,14 @@ async def _apply_safety_action(
             "rollback",
             current_step,
             None,
-            {"reason": "safety", "trigger_type": safety.get("trigger_type")},
+            {"reason": "safety", "trigger_type": trigger_type},
         )
     elif action == "step_back":
         if current_step > 0:
             new_step = current_step - 1
             async with Database() as db:
                 await db.execute(
-                    """UPDATE experiment_ramp_state SET current_step_index = $1, updated_at = NOW()
+                    """UPDATE experiment_ramp_state SET current_step_index = $1, step_entered_at = NOW(), updated_at = NOW()
                        WHERE experiment_id = $2""",
                     (new_step, experiment_id))
             await apply_ramp_step_to_experiment(experiment_id)
@@ -126,7 +128,7 @@ async def _apply_safety_action(
                 "step_back",
                 current_step,
                 new_step,
-                {"reason": "safety", "trigger_type": safety.get("trigger_type")},
+                {"reason": "safety", "trigger_type": trigger_type},
             )
 
 
@@ -140,9 +142,9 @@ async def _check_gates(
 
     async with Database() as db:
         state = await db.execute(
-            "SELECT started_at, last_eval_at FROM experiment_ramp_state WHERE experiment_id = $1",
+            "SELECT started_at, step_entered_at, last_eval_at FROM experiment_ramp_state WHERE experiment_id = $1",
             (experiment_id,))
-        step_start = state.get("last_eval_at") or state.get("started_at") if state else None
+        step_start = (state.get("step_entered_at") or state.get("started_at")) if state else None
         if step_start and isinstance(step_start, str):
             try:
                 step_start = datetime.fromisoformat(step_start.replace("Z", "+00:00"))
@@ -189,7 +191,7 @@ async def _do_step_up(
 ) -> None:
     async with Database() as db:
         await db.execute(
-            """UPDATE experiment_ramp_state SET current_step_index = $1, updated_at = NOW()
+            """UPDATE experiment_ramp_state SET current_step_index = $1, step_entered_at = NOW(), updated_at = NOW()
                WHERE experiment_id = $2""",
             (to_idx, experiment_id))
     await apply_ramp_step_to_experiment(experiment_id)
