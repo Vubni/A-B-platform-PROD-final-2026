@@ -40,11 +40,11 @@ export BASE_URL="http://localhost:80"
 | **Метрики** | `demo_impressions`, `demo_conversions`, `demo_conversion_rate` (ratio) |
 | **Группа аппруверов** | Для experimenter: min_approvals=1, в группе approver@test.com |
 
-Для сценариев нужны: **UUID флага** (из `GET /api/v1/flags`) и **токены** (из `POST /api/v1/auth`).
+Для сценариев нужны: **ключ флага** (например, `test_feature_flag`) и при необходимости его **UUID** (из `GET /api/v1/flags`), а также **токены** (из `POST /api/v1/auth`).
 
 ---
 
-## 3. Получение токенов и ID флага
+## 3. Получение токенов и данных флага
 
 Выполните по очереди и сохраните вывод в переменные.
 
@@ -76,7 +76,7 @@ curl -s -X POST "$BASE_URL/api/v1/auth" \
   -d '{"email":"approver@test.com","password":"app123"}' | jq -r '.token'
 ```
 
-**UUID флага** (ищем по ключу `test_feature_flag`):
+**UUID флага** (ищем по ключу `test_feature_flag`, нужен для `flag_id` при создании эксперимента):
 ```bash
 curl -s -X GET "$BASE_URL/api/v1/flags" \
   -H "Authorization: Bearer $ADMIN_TOKEN" | jq '.flags[] | select(.key=="test_feature_flag") | .id' -r
@@ -88,7 +88,8 @@ export ADMIN_TOKEN="<вставьте токен>"
 export EXPERIMENTER_TOKEN="<вставьте токен>"
 export VIEWER_TOKEN="<вставьте токен>"
 export APPROVER_TOKEN="<вставьте токен>"
-export FLAG_ID="<вставьте UUID флага>"
+export FLAG_ID="<вставьте UUID флага>"        # используется как flag_id при создании эксперимента
+export FLAG_KEY="test_feature_flag"           # ключ флага, используется в /decide
 ```
 
 ---
@@ -146,7 +147,7 @@ curl -s -w "\nHTTP_CODE:%{http_code}" -X PATCH "$BASE_URL/api/v1/experiments/$EX
 ```
 Ожидаемо: **200**.
 
-**Шаг 5 — Запустить (experimenter или approver):**
+**Шаг 5 — Запустить (experimenter, владелец эксперимента):**
 ```bash
 curl -s -w "\nHTTP_CODE:%{http_code}" -X PATCH "$BASE_URL/api/v1/experiments/$EXP_ID/status" \
   -H "Authorization: Bearer $EXPERIMENTER_TOKEN" \
@@ -160,7 +161,7 @@ curl -s -w "\nHTTP_CODE:%{http_code}" -X PATCH "$BASE_URL/api/v1/experiments/$EX
 curl -s -X POST "$BASE_URL/api/v1/decide" \
   -H "Authorization: Bearer $VIEWER_TOKEN" \
   -H "Content-Type: application/json" \
-  -d "{\"subject_id\":\"u42\",\"attributes\":{},\"flags\":[\"$FLAG_ID\"]}"
+  -d "{\"subject_id\":\"u42\",\"attributes\":{},\"flags\":[\"$FLAG_KEY\"]}"
 ```
 Ожидаемо: **200**, в `flags[0]` есть `flag_value` ("c" или "t"), `decision_id`, `experiment`. Сохраните `decision_id` как `DECISION_ID`.
 
@@ -215,12 +216,12 @@ curl -s -X GET "$BASE_URL/api/v1/experiments/$EXP_ID/report?start=2026-02-01&end
 curl -s -X POST "$BASE_URL/api/v1/decide" \
   -H "Authorization: Bearer $VIEWER_TOKEN" \
   -H "Content-Type: application/json" \
-  -d "{\"subject_id\":\"sub-fixed\",\"attributes\":{},\"flags\":[\"$FLAG_ID\"]}"
+  -d "{\"subject_id\":\"sub-fixed\",\"attributes\":{},\"flags\":[\"$FLAG_KEY\"]}"
 
 curl -s -X POST "$BASE_URL/api/v1/decide" \
   -H "Authorization: Bearer $VIEWER_TOKEN" \
   -H "Content-Type: application/json" \
-  -d "{\"subject_id\":\"sub-fixed\",\"attributes\":{},\"flags\":[\"$FLAG_ID\"]}"
+  -d "{\"subject_id\":\"sub-fixed\",\"attributes\":{},\"flags\":[\"$FLAG_KEY\"]}"
 ```
 Сравните в обоих ответах: `flags[0].flag_value` и наличие `experiment` — они должны совпадать.
 
@@ -228,13 +229,13 @@ curl -s -X POST "$BASE_URL/api/v1/decide" \
 
 ## 6. Сценарий 3.1 — Default при отсутствии эксперимента (B2-1)
 
-Используйте флаг, у которого нет активного эксперимента (например, создайте новый флаг через admin и возьмите его `id`, либо проверьте до шага 5 сценария 1.1).
+Используйте флаг, у которого нет активного эксперимента (например, создайте новый флаг через admin и возьмите его `key`, либо проверьте до шага 5 сценария 1.1).
 
 ```bash
 curl -s -X POST "$BASE_URL/api/v1/decide" \
   -H "Authorization: Bearer $VIEWER_TOKEN" \
   -H "Content-Type: application/json" \
-  -d "{\"subject_id\":\"u99\",\"attributes\":{},\"flags\":[\"$FLAG_ID\"]}"
+  -d "{\"subject_id\":\"u99\",\"attributes\":{},\"flags\":[\"$FLAG_KEY\"]}"
 ```
 Ожидаемо: **200**, в `flags[0]`: `flag_value` равен `default_value` флага, `experiment` отсутствует или null.
 

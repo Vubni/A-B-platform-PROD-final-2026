@@ -31,7 +31,7 @@
 
 **Шаги:**
 
-1. Взять `flag_id` флага `test_feature_flag`: `GET /api/v1/flags` (с заголовком `Authorization: Bearer <admin_token>`) → в ответе найти объект с `"key": "test_feature_flag"`, скопировать `id`.
+1. Взять `flag_id` и `flag_key` флага `test_feature_flag`: `GET /api/v1/flags` (с заголовком `Authorization: Bearer <admin_token>`) → в ответе найти объект с `"key": "test_feature_flag"`, скопировать `id` (для `flag_id`) и использовать `"key"` как `flag_key` в `/decide`.
 2. Создать эксперимент от experimenter:  
    `POST /api/v1/experiments` с телом:
    ```json
@@ -54,7 +54,7 @@
 4. Отправить на ревью: `PATCH /api/v1/experiments/{id}/status` с `{"new_status": "on_review"}`. Ожидаемо: **200**.
 5. Одобрить от approver: `PATCH /api/v1/experiments/{id}/status` с `{"new_status": "approved"}` (от имени approver). Ожидаемо: **200**.
 6. Запустить: `PATCH /api/v1/experiments/{id}/status` с `{"new_status": "running"}`. Ожидаемо: **200**.
-7. Выдать вариант: `POST /api/v1/decide` с `{"subject_id": "u42", "attributes": {}, "flags": ["<flag_id>"]}`.  
+7. Выдать вариант: `POST /api/v1/decide` с `{"subject_id": "u42", "attributes": {}, "flags": ["test_feature_flag"]}` (или соответствующим `flag_key`).  
    Ожидаемо: **200**, в `flags` один элемент с `flag_value` ("c" или "t"), `decision_id`, `experiment_id`, `variant_id`.
 8. Отправить экспозицию: `POST /api/v1/events` с телом:
    ```json
@@ -83,7 +83,7 @@
 
 **Шаги:**
 
-1. Вызвать `POST /api/v1/decide` с `{"subject_id": "sub-fixed", "attributes": {}, "flags": ["<flag_id>"]}` дважды (при активном эксперименте на флаге).
+1. Вызвать `POST /api/v1/decide` с `{"subject_id": "sub-fixed", "attributes": {}, "flags": ["test_feature_flag"]}` дважды (при активном эксперименте на флаге).
 
 **Ожидаемый результат:** оба ответа содержат одинаковый `flag_value` и один и тот же `decision_id` (или повторное использование существующего решения).
 
@@ -179,7 +179,7 @@
 
 **Шаги:**  
 Использовать флаг, для которого нет эксперимента в статусе running/paused (или новый флаг без экспериментов).  
-`POST /api/v1/decide` с `{"subject_id": "u99", "attributes": {}, "flags": ["<flag_id>"]}`.
+`POST /api/v1/decide` с `{"subject_id": "u99", "attributes": {}, "flags": ["<flag_key>"]}` (ключ флага).
 
 **Ожидаемый результат:** **200**, в `flags` элемент с `flag_value` равным `default_value` флага, без привязки к эксперименту (или `experiment_id: null`).
 

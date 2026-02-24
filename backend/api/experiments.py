@@ -21,6 +21,7 @@ from docs.schems import (
 from dsl import validate_targeting_rule
 from functions.experiments import (
     add_experiment_variant,
+    archive_experiment,
     check_access_to_experiment,
     complete_experiment,
     create_experiment,
@@ -415,7 +416,7 @@ async def experiments_update(request: web.Request, parsed: ExperimentUpdate) -> 
         return validate.format_404_error(request, "Experiment not found")
     created_by = experiment.get("created_by")
     if str(created_by) != str(auth_payload.get("id")):
-        return validate.format_403_error(request, "Only owner or admin can update this experiment")
+        return validate.format_403_error(request, "Only owner can update this experiment")
 
     status = experiment.get("status")
 
@@ -803,3 +804,47 @@ async def experiments_guardrail_history(request: web.Request) -> web.Response:
             "triggers": triggers or [],
         }
     )
+
+
+@docs(
+    tags=["Experiments"],
+    summary="Архивировать эксперимент",
+    responses={
+        200: {"description": "Эксперимент архивирован", "schema": ExperimentItemSchema},
+        400: RESPONSES_HTTP_ERROR[400],
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
+    },
+)
+async def experiments_archive(request: web.Request) -> web.Response:
+    auth_payload = await check_authorization(request)
+    if not auth_payload:
+        return validate.format_401_error(request, "Token is required")
+    if auth_payload.get("role") != "experimenter":
+        return validate.format_403_error(
+            request, "Only experimenters can archive experiments"
+        )
+
+    exp_id = _experiment_id_from_request(request)
+    if not exp_id:
+        return validate.format_404_error(request, "Invalid experiment id")
+
+    experiment = await get_experiment_by_id(exp_id)
+    if not experiment:
+        return validate.format_404_error(request, "Experiment not found")
+    if str(experiment.get("created_by")) != str(auth_payload.get("id")):
+        return validate.format_403_error(request, "Only owner can archive this experiment")
+    if experiment.get("status") != "completed":
+        return web.json_response(
+            {
+                "error": "Experiment can be archived only when status is completed",
+                "status": experiment.get("status"),
+            },
+            status=400,
+        )
+
+    updated = await archive_experiment(exp_id)
+    if not updated:
+        return web.json_response({"error": "Failed to archive experiment"}, status=400)
+    return web.json_response(updated)

@@ -7,19 +7,23 @@ from database.database import Database
 FLAG_VALUE_TYPES = ("string", "number", "bool")
 
 
-def _cast_default_value(value_type: str, default_value: str) -> Any:
+def cast_flag_value(value_type: str, raw_value: str) -> Any:
+    """
+    Приводит строковое значение флага к типу, объявленному в value_type.
+    Используется при выдаче значений флагов (default и вариант эксперимента).
+    """
     if value_type == "string":
-        return default_value
+        return raw_value
     if value_type == "number":
         try:
-            if "." in default_value:
-                return float(default_value)
-            return int(default_value)
+            if "." in raw_value:
+                return float(raw_value)
+            return int(raw_value)
         except ValueError:
-            return default_value
+            return raw_value
     if value_type == "bool":
-        return default_value.lower() in ("true", "1", "yes")
-    return default_value
+        return raw_value.lower() in ("true", "1", "yes")
+    return raw_value
 
 
 async def get_flag_by_key(key: str) -> dict | None:
@@ -106,7 +110,7 @@ async def resolve_flag_value(
 
     value_type = flag.get("value_type") or "string"
     default_value_raw = flag.get("default_value") or ""
-    effective_value = _cast_default_value(value_type, default_value_raw)
+    effective_value = cast_flag_value(value_type, str(default_value_raw))
     decision_id = str(uuid.uuid4())
 
     experiment_id = None

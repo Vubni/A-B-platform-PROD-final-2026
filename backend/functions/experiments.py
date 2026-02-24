@@ -527,6 +527,7 @@ STATUS_TRANSITIONS = {
     "approved": ("running",),
     "running": ("paused",),
     "paused": ("running",),
+    "completed": ("archived",),
 }
 
 
@@ -560,6 +561,9 @@ async def update_experiment_status(
         return (updated, None)
     if new_status == "paused":
         updated = await pause_experiment(experiment_id)
+        return (updated, None)
+    if new_status == "archived":
+        updated = await archive_experiment(experiment_id)
         return (updated, None)
     return (None, None)
 
@@ -624,6 +628,20 @@ async def rollback_experiment_to_control(experiment_id: str) -> dict | None:
         await db.execute("DELETE FROM decisions WHERE experiment_id = $1", (experiment_id,))
         await db.execute(
             "UPDATE experiments SET status = 'paused', updated_at = NOW() WHERE id = $1",
+            (experiment_id,),
+        )
+        return await get_experiment_by_id(experiment_id)
+
+
+async def archive_experiment(experiment_id: str) -> dict | None:
+    async with Database() as db:
+        row = await db.execute(
+            "SELECT id, status FROM experiments WHERE id = $1", (experiment_id,)
+        )
+        if not row or row["status"] != "completed":
+            return None
+        await db.execute(
+            "UPDATE experiments SET status = 'archived', updated_at = NOW() WHERE id = $1",
             (experiment_id,),
         )
         return await get_experiment_by_id(experiment_id)

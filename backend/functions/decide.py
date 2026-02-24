@@ -12,7 +12,7 @@ from core import serialize_json
 from database.database import Database
 from dsl import evaluate_targeting_rule
 from functions.conflicts import resolve_experiment_conflicts, store_conflict_logs
-from functions.flags import get_flag_by_key
+from functions.flags import cast_flag_value, get_flag_by_key
 
 
 async def get_decisions_for_subject(
@@ -21,12 +21,19 @@ async def get_decisions_for_subject(
     async with Database() as db:
         result = {"flags": []}
         experiments = await db.execute_all(
-            """SELECT e.id, e.name, e.status::text, e.version,
-                    e.audience_fraction, e.targeting_rule,
-                    e.created_by, f.id AS flag_id, f.key AS flag_key
-            FROM experiments e
-            JOIN feature_flags f ON e.flag_id = f.id
-            WHERE e.status = 'running' AND f.key = ANY($1)""",
+            """SELECT e.id,
+                      e.name,
+                      e.status::text,
+                      e.version,
+                      e.audience_fraction,
+                      e.targeting_rule,
+                      e.created_by,
+                      f.id AS flag_id,
+                      f.key AS flag_key,
+                      f.value_type::text AS value_type
+               FROM experiments e
+               JOIN feature_flags f ON e.flag_id = f.id
+               WHERE e.status = 'running' AND f.key = ANY($1)""",
             (flags,),
         )
         if not experiments:
@@ -36,15 +43,18 @@ async def get_decisions_for_subject(
                     continue
                 decision_id = uuid.uuid4()
                 flag_uuid = uuid.UUID(flag["id"]) if isinstance(flag["id"], str) else flag["id"]
+                raw_default = flag["default_value"]
+                value_type = flag.get("value_type") or "string"
+                flag_value = cast_flag_value(value_type, str(raw_default))
                 await db.execute(
                     """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
                        VALUES ($1, $2, $3, $4, NULL, NULL)""",
-                    (decision_id, subject_id, flag_uuid, flag["default_value"]),
+                    (decision_id, subject_id, flag_uuid, raw_default),
                 )
                 result["flags"].append(
                     {
                         "flag_key": flag["key"],
-                        "flag_value": flag["default_value"],
+                        "flag_value": flag_value,
                         "decision_id": str(decision_id),
                         "experiment": None,
                     }
@@ -64,17 +74,19 @@ async def get_decisions_for_subject(
         for experiment in experiments:
             if str(experiment["id"]) not in allowed_experiment_ids:
                 flag = await get_flag_by_key(experiment["flag_key"])
-                default_value = flag["default_value"] if flag else ""
+                raw_default = flag["default_value"] if flag else ""
+                value_type = (flag or {}).get("value_type") or experiment.get("value_type") or "string"
+                flag_value = cast_flag_value(value_type, str(raw_default))
                 decision_id = uuid.uuid4()
                 await db.execute(
                     """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
                        VALUES ($1, $2, $3, $4, NULL, NULL)""",
-                    (decision_id, subject_id, experiment["flag_id"], default_value),
+                    (decision_id, subject_id, experiment["flag_id"], raw_default),
                 )
                 result["flags"].append(
                     {
                         "flag_key": experiment["flag_key"],
-                        "flag_value": default_value,
+                        "flag_value": flag_value,
                         "decision_id": str(decision_id),
                         "experiment": None,
                         "conflict_lost": True,
@@ -90,19 +102,21 @@ async def get_decisions_for_subject(
 
             flag = await get_flag_by_key(experiment["flag_key"])
             flag_id = experiment["flag_id"]
-            default_value = flag["default_value"]
+            raw_default = flag["default_value"]
+            value_type = flag.get("value_type") or experiment.get("value_type") or "string"
+            default_value_typed = cast_flag_value(value_type, str(raw_default))
 
             if not evaluate_targeting_rule(experiment["targeting_rule"], attributes):
                 decision_id = uuid.uuid4()
                 await db.execute(
                     """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
                        VALUES ($1, $2, $3, $4, $5, NULL)""",
-                    (decision_id, subject_id, flag_id, default_value, experiment["id"]),
+                    (decision_id, subject_id, flag_id, raw_default, experiment["id"]),
                 )
                 result["flags"].append(
                     {
                         "flag_key": experiment["flag_key"],
-                        "flag_value": default_value,
+                        "flag_value": default_value_typed,
                         "decision_id": str(decision_id),
                         "experiment": None,
                     }
@@ -129,12 +143,12 @@ async def get_decisions_for_subject(
                 await db.execute(
                     """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
                        VALUES ($1, $2, $3, $4, NULL, NULL)""",
-                    (decision_id, subject_id, flag_id, default_value),
+                    (decision_id, subject_id, flag_id, raw_default),
                 )
                 result["flags"].append(
                     {
                         "flag_key": experiment["flag_key"],
-                        "flag_value": default_value,
+                        "flag_value": default_value_typed,
                         "decision_id": str(decision_id),
                         "experiment": None,
                     }
@@ -142,9 +156,12 @@ async def get_decisions_for_subject(
                 continue
 
             if existing:
-                out_value = existing["value"]
+                existing_raw_value = existing["value"]
                 out_experiment_id = (
                     str(existing["experiment_id"]) if existing.get("experiment_id") else None
+                )
+                out_flag_value = cast_flag_value(
+                    value_type, str(existing_raw_value)
                 )
                 out_variant = None
                 if existing.get("variant_id"):
@@ -164,12 +181,12 @@ async def get_decisions_for_subject(
                 await db.execute(
                     """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
                        VALUES ($1, $2, $3, $4, $5, $6)""",
-                    (decision_id, subject_id, flag_id, out_value, exp_id, var_id),
+                    (decision_id, subject_id, flag_id, existing_raw_value, exp_id, var_id),
                 )
                 result["flags"].append(
                     {
                         "flag_key": experiment["flag_key"],
-                        "flag_value": out_value,
+                        "flag_value": out_flag_value,
                         "decision_id": str(decision_id),
                         "experiment": {"experiment_id": out_experiment_id, "variant": out_variant},
                     }
@@ -213,12 +230,12 @@ async def get_decisions_for_subject(
                 await db.execute(
                     """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
                        VALUES ($1, $2, $3, $4, NULL, NULL)""",
-                    (uuid.UUID(decision_id), subject_id, flag_id, default_value),
+                    (uuid.UUID(decision_id), subject_id, flag_id, raw_default),
                 )
                 result["flags"].append(
                     {
                         "flag_key": experiment["flag_key"],
-                        "flag_value": default_value,
+                        "flag_value": default_value_typed,
                         "decision_id": decision_id,
                         "experiment": None,
                     }
@@ -257,8 +274,9 @@ async def get_decisions_for_subject(
                     best_deficit = deficit
                     best_variant = v
 
-            variant_value = best_variant["variant_value"]
+            raw_variant_value = best_variant["variant_value"]
             variant_id = best_variant["id"]
+            flag_value = cast_flag_value(value_type, str(raw_variant_value))
 
             await db.execute(
                 """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
@@ -267,7 +285,7 @@ async def get_decisions_for_subject(
                     uuid.UUID(decision_id),
                     subject_id,
                     flag_id,
-                    variant_value,
+                    raw_variant_value,
                     experiment["id"],
                     variant_id,
                 ),
@@ -288,7 +306,7 @@ async def get_decisions_for_subject(
             result["flags"].append(
                 {
                     "flag_key": experiment["flag_key"],
-                    "flag_value": variant_value,
+                    "flag_value": flag_value,
                     "decision_id": decision_id,
                     "experiment": {
                         "experiment_id": str(experiment["id"]),
@@ -304,15 +322,18 @@ async def get_decisions_for_subject(
                 continue
             decision_id = uuid.uuid4()
             flag_uuid = uuid.UUID(flag["id"]) if isinstance(flag["id"], str) else flag["id"]
+            raw_default = flag["default_value"]
+            value_type = flag.get("value_type") or "string"
+            flag_value = cast_flag_value(value_type, str(raw_default))
             await db.execute(
                 """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
                    VALUES ($1, $2, $3, $4, NULL, NULL)""",
-                (decision_id, subject_id, flag_uuid, flag["default_value"]),
+                (decision_id, subject_id, flag_uuid, raw_default),
             )
             result["flags"].append(
                 {
                     "flag_key": flag["key"],
-                    "flag_value": flag["default_value"],
+                    "flag_value": flag_value,
                     "decision_id": str(decision_id),
                     "experiment": None,
                 }
