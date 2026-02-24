@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 import aiohttp_cors
@@ -27,7 +28,6 @@ from database.database import Database
 from database.functions import init_reference_data
 from database.seed_demo import seed_demo_data
 from functions.users import create_approver_group, create_user, get_user_by_email
-import asyncio
 
 
 async def init_first_admin():
@@ -121,7 +121,7 @@ async def start_kafka_if_enabled(app: web.Application) -> None:
     if not EVENTS_USE_KAFKA or not KAFKA_BOOTSTRAP_SERVERS:
         return
 
-    for attempt in range(5):
+    for _attempt in range(5):
         if await _start_kafka_consumer_once(app):
             break
         await asyncio.sleep(2)

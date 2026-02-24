@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -75,7 +75,9 @@ async def get_decisions_for_subject(
             if str(experiment["id"]) not in allowed_experiment_ids:
                 flag = await get_flag_by_key(experiment["flag_key"])
                 raw_default = flag["default_value"] if flag else ""
-                value_type = (flag or {}).get("value_type") or experiment.get("value_type") or "string"
+                value_type = (
+                    (flag or {}).get("value_type") or experiment.get("value_type") or "string"
+                )
                 flag_value = cast_flag_value(value_type, str(raw_default))
                 decision_id = uuid.uuid4()
                 await db.execute(
@@ -160,9 +162,7 @@ async def get_decisions_for_subject(
                 out_experiment_id = (
                     str(existing["experiment_id"]) if existing.get("experiment_id") else None
                 )
-                out_flag_value = cast_flag_value(
-                    value_type, str(existing_raw_value)
-                )
+                out_flag_value = cast_flag_value(value_type, str(existing_raw_value))
                 out_variant = None
                 if existing.get("variant_id"):
                     vrow = await db.execute(
@@ -220,8 +220,8 @@ async def get_decisions_for_subject(
                 if cooldown_row and cooldown_row.get("entered_at"):
                     entered_at = cooldown_row["entered_at"]
                     if getattr(entered_at, "tzinfo", None) is None:
-                        entered_at = entered_at.replace(tzinfo=timezone.utc)
-                    now_utc = datetime.now(timezone.utc)
+                        entered_at = entered_at.replace(tzinfo=UTC)
+                    now_utc = datetime.now(UTC)
                     if (now_utc - entered_at).total_seconds() < EXPERIMENT_COOLDOWN_SECONDS:
                         assign_to_experiment = False
 

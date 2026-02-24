@@ -33,8 +33,8 @@ from functions.experiments import (
     update_experiment_status,
     update_experiment_variant,
 )
-from functions.learnings import get_learning_by_experiment_id
 from functions.flags import get_flag_by_id, validate_flag_value_by_type
+from functions.learnings import get_learning_by_experiment_id
 
 VALID_STATUSES = (
     "draft",
@@ -675,7 +675,9 @@ async def experiments_variant_create(request: web.Request, parsed: VariantCreate
     if flag:
         value_type = flag.get("value_type", "string")
         try:
-            validate_flag_value_by_type(value_type, parsed.variant_value, field_name="variant_value")
+            validate_flag_value_by_type(
+                value_type, parsed.variant_value, field_name="variant_value"
+            )
         except ValueError as e:
             return web.json_response({"error": str(e)}, status=400)
 
@@ -842,9 +844,7 @@ async def experiments_archive(request: web.Request) -> web.Response:
     if not auth_payload:
         return validate.format_401_error(request, "Token is required")
     if auth_payload.get("role") != "experimenter":
-        return validate.format_403_error(
-            request, "Only experimenters can archive experiments"
-        )
+        return validate.format_403_error(request, "Only experimenters can archive experiments")
 
     exp_id = _experiment_id_from_request(request)
     if not exp_id:

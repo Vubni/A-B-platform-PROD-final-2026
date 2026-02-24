@@ -324,7 +324,7 @@ async def process_events_batch(events: list[Any]) -> dict[str, Any]:
                 show_pairs.append((parsed.decision_id, rid))
         show_exists_set: set[tuple[str, str]] = await _batch_show_event_exists(db, show_pairs)
 
-        for index, raw, parsed, ev_id, err in parsed_list:
+        for index, _raw, parsed, ev_id, err in parsed_list:
             if err is not None:
                 rejected += 1
                 errors.append({"index": index, "event_id": ev_id, "message": err})

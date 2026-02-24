@@ -7,7 +7,9 @@ from database.database import Database
 FLAG_VALUE_TYPES = ("string", "number", "bool")
 
 
-def validate_flag_value_by_type(value_type: str, raw_value: str, field_name: str = "value") -> None:
+def validate_flag_value_by_type(
+    value_type: str, raw_value: str, field_name: str = "value"
+) -> None:
     if value_type == "string":
         return
     if value_type == "number":
@@ -17,9 +19,7 @@ def validate_flag_value_by_type(value_type: str, raw_value: str, field_name: str
             else:
                 int(raw_value)
         except ValueError as err:
-            raise ValueError(
-                f"{field_name} must be a valid number for value_type=number"
-            ) from err
+            raise ValueError(f"{field_name} must be a valid number for value_type=number") from err
         return
     if value_type == "bool":
         if raw_value.lower() not in ("true", "false", "1", "0", "yes", "no"):

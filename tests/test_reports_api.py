@@ -1,6 +1,6 @@
 import asyncio
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -283,7 +283,7 @@ async def test_report_after_decide_and_events_shows_user_share_and_real_conclusi
     if n_control == 0 or n_treatment == 0:
         pytest.skip("All subjects landed in one variant (unlucky split); need both for report conclusions")
 
-    now_ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    now_ts = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     events_via_kafka = False
     exposure_events = []
     for val in ("control", "treatment"):
