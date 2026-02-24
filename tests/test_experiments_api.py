@@ -1,4 +1,5 @@
 import os
+import uuid
 
 import pytest
 from conftest import create_experiment_in_running
@@ -402,6 +403,48 @@ async def test_experiments_variant_add_and_list(
 
 
 @pytest.mark.asyncio
+async def test_experiments_variant_rejects_invalid_type_for_flag(
+    http_session, base_url, auth_headers_experimenter
+):
+    flags_url = f"{base_url}/api/v1/flags"
+    flag_key = f"type_test_flag_number_{uuid.uuid4().hex[:8]}"
+    async with http_session.post(
+        flags_url,
+        json={"key": flag_key, "value_type": "number", "default_value": "0"},
+        headers=auth_headers_experimenter,
+    ) as fr:
+        assert fr.status == 201, await fr.text()
+        flag = await fr.json()
+        flag_id = flag["id"]
+
+    create_url = f"{base_url}/api/v1/experiments"
+    async with http_session.post(
+        create_url,
+        json={
+            "flag_id": flag_id,
+            "name": "Type validation experiment",
+            "audience_fraction": 0.5,
+        },
+        headers=auth_headers_experimenter,
+    ) as cr:
+        assert cr.status == 201, await cr.text()
+        exp_id = (await cr.json())["id"]
+
+    var_url = f"{base_url}/api/v1/experiments/{exp_id}/variants"
+    async with http_session.post(
+        var_url,
+        json={
+            "variant_name": "bad_variant",
+            "variant_value": "not_a_number",
+            "weight": 0.5,
+            "is_control": True,
+        },
+        headers=auth_headers_experimenter,
+    ) as vr:
+        assert vr.status == 400
+
+
+@pytest.mark.asyncio
 async def test_experiments_status_transition_to_on_review(
     http_session, base_url, auth_headers_experimenter, flag_id
 ):
@@ -695,6 +738,74 @@ async def test_experiments_complete_success_rollout_winner(
         data = await resp.json()
         assert data["status"] == "completed"
         assert data["id"] == exp_id
+
+
+@pytest.mark.asyncio
+async def test_experiments_rejected_can_be_edited_and_resubmitted(
+    http_session, base_url, auth_headers_experimenter, auth_headers_approver, auth_headers_admin, flag_id
+):
+    create_url = f"{base_url}/api/v1/experiments"
+    async with http_session.post(
+        create_url,
+        json={"flag_id": flag_id, "name": "To be rejected", "audience_fraction": 0.5},
+        headers=auth_headers_experimenter,
+    ) as cr:
+        assert cr.status == 201, await cr.text()
+        exp_id = (await cr.json())["id"]
+
+    var_url = f"{base_url}/api/v1/experiments/{exp_id}/variants"
+    for name, value, weight, control in [
+        ("control", "c", 0.25, True),
+        ("treatment", "t", 0.25, False),
+    ]:
+        async with http_session.post(
+            var_url,
+            json={
+                "variant_name": name,
+                "variant_value": value,
+                "weight": weight,
+                "is_control": control,
+            },
+            headers=auth_headers_experimenter,
+        ) as vr:
+            assert vr.status == 201, await vr.text()
+
+    status_url = f"{base_url}/api/v1/experiments/{exp_id}/status"
+    async with http_session.patch(
+        status_url,
+        json={"status": "on_review"},
+        headers=auth_headers_experimenter,
+    ) as resp:
+        assert resp.status == 200, await resp.text()
+
+    async with http_session.patch(
+        status_url,
+        json={"status": "rejected", "comment": "Not good enough"},
+        headers=auth_headers_approver,
+    ) as resp:
+        assert resp.status == 200, await resp.text()
+        data = await resp.json()
+        assert data["status"] == "rejected"
+
+    patch_url = f"{base_url}/api/v1/experiments/{exp_id}"
+    async with http_session.patch(
+        patch_url,
+        json={"name": "Updated after rejection"},
+        headers=auth_headers_experimenter,
+    ) as resp:
+        assert resp.status == 200, await resp.text()
+        data = await resp.json()
+        assert data["status"] == "draft"
+        assert data["name"] == "Updated after rejection"
+
+    async with http_session.patch(
+        status_url,
+        json={"status": "on_review"},
+        headers=auth_headers_experimenter,
+    ) as resp:
+        assert resp.status == 200, await resp.text()
+        data = await resp.json()
+        assert data["status"] == "on_review"
 
 
 @pytest.mark.asyncio

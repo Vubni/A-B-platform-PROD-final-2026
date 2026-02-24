@@ -19,28 +19,8 @@ from functions.flags import (
     get_flag_by_key,
     get_flags_list,
     update_flag_default_value,
+    validate_flag_value_by_type,
 )
-
-
-def _validate_default_value_by_type(value_type: str, default_value: str) -> None:
-    if value_type == "string":
-        return
-    if value_type == "number":
-        try:
-            if "." in default_value:
-                float(default_value)
-            else:
-                int(default_value)
-        except ValueError as err:
-            raise ValueError("default_value must be a valid number for value_type=number") from err
-        return
-    if value_type == "bool":
-        if default_value.lower() not in ("true", "false", "1", "0", "yes", "no"):
-            raise ValueError(
-                "default_value for value_type=bool must be one of: true, false, 1, 0, yes, no"
-            )
-        return
-    raise ValueError(f"value_type must be one of {FLAG_VALUE_TYPES}")
 
 
 class FlagCreate(BaseModel):
@@ -83,7 +63,7 @@ class FlagCreate(BaseModel):
             raise ValueError("default_value must be at most 2048 characters")
         value_type = info.data.get("value_type") if hasattr(info, "data") else None
         if value_type:
-            _validate_default_value_by_type(value_type, v)
+            validate_flag_value_by_type(value_type, v, field_name="default_value")
         return v
 
     @field_validator("description")
@@ -233,7 +213,7 @@ async def flags_update(request: web.Request, parsed: FlagUpdate) -> web.Response
 
     value_type = flag.get("value_type", "string")
     try:
-        _validate_default_value_by_type(value_type, parsed.default_value)
+        validate_flag_value_by_type(value_type, parsed.default_value, field_name="default_value")
     except ValueError as e:
         return web.json_response({"error": str(e)}, status=400)
 

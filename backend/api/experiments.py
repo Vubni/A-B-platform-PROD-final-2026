@@ -34,6 +34,7 @@ from functions.experiments import (
     update_experiment_variant,
 )
 from functions.learnings import get_learning_by_experiment_id
+from functions.flags import get_flag_by_id, validate_flag_value_by_type
 
 VALID_STATUSES = (
     "draft",
@@ -432,7 +433,7 @@ async def experiments_update(request: web.Request, parsed: ExperimentUpdate) -> 
             status=400,
         )
 
-    if status == "draft":
+    if status in ("draft", "rejected"):
         metrics_payload = None
         if parsed.metrics is not None:
             metrics_payload = [
@@ -472,7 +473,7 @@ async def experiments_update(request: web.Request, parsed: ExperimentUpdate) -> 
         return web.json_response(updated)
 
     return web.json_response(
-        {"error": "Experiment can be updated only in draft status", "status": status},
+        {"error": "Experiment can be updated only in draft or rejected status", "status": status},
         status=400,
     )
 
@@ -670,6 +671,14 @@ async def experiments_variant_create(request: web.Request, parsed: VariantCreate
     if str(experiment["created_by"]) != str(auth_payload.get("id")):
         return validate.format_403_error(request, "Only owner can add variants")
 
+    flag = await get_flag_by_id(str(experiment["flag_id"]))
+    if flag:
+        value_type = flag.get("value_type", "string")
+        try:
+            validate_flag_value_by_type(value_type, parsed.variant_value, field_name="variant_value")
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+
     variant = await add_experiment_variant(
         experiment_id=exp_id,
         variant_name=parsed.variant_name,
@@ -721,6 +730,17 @@ async def experiments_variant_update(request: web.Request, parsed: VariantUpdate
         )
     if str(experiment.get("created_by")) != str(auth_payload.get("id")):
         return validate.format_403_error(request, "Only owner can update variants")
+
+    if parsed.variant_value is not None:
+        flag = await get_flag_by_id(str(experiment["flag_id"]))
+        if flag:
+            value_type = flag.get("value_type", "string")
+            try:
+                validate_flag_value_by_type(
+                    value_type, parsed.variant_value, field_name="variant_value"
+                )
+            except ValueError as e:
+                return web.json_response({"error": str(e)}, status=400)
 
     variant = await update_experiment_variant(
         experiment_id=exp_id,

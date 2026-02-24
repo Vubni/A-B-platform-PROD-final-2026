@@ -7,11 +7,30 @@ from database.database import Database
 FLAG_VALUE_TYPES = ("string", "number", "bool")
 
 
+def validate_flag_value_by_type(value_type: str, raw_value: str, field_name: str = "value") -> None:
+    if value_type == "string":
+        return
+    if value_type == "number":
+        try:
+            if "." in raw_value:
+                float(raw_value)
+            else:
+                int(raw_value)
+        except ValueError as err:
+            raise ValueError(
+                f"{field_name} must be a valid number for value_type=number"
+            ) from err
+        return
+    if value_type == "bool":
+        if raw_value.lower() not in ("true", "false", "1", "0", "yes", "no"):
+            raise ValueError(
+                f"{field_name} for value_type=bool must be one of: true, false, 1, 0, yes, no"
+            )
+        return
+    raise ValueError(f"value_type must be one of {FLAG_VALUE_TYPES}")
+
+
 def cast_flag_value(value_type: str, raw_value: str) -> Any:
-    """
-    Приводит строковое значение флага к типу, объявленному в value_type.
-    Используется при выдаче значений флагов (default и вариант эксперимента).
-    """
     if value_type == "string":
         return raw_value
     if value_type == "number":

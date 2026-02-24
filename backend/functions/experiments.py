@@ -182,12 +182,15 @@ async def update_experiment(
         )
         if not row:
             return (None, "experiment_not_found", None)
-        is_draft = row.get("status") == "draft"
-        if not is_draft and (
+        status = row.get("status")
+        is_editable = status in ("draft", "rejected")
+        if not is_editable and (
             audience_fraction is not None or targeting_rule is not None or metrics is not None
         ):
             return (None, "experiment_not_found", None)
         updates = ["updated_at = NOW()"]
+        if status == "rejected":
+            updates.append("status = 'draft'")
         params = []
         idx = 1
         if name is not None:

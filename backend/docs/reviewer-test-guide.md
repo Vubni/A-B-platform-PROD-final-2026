@@ -134,7 +134,7 @@ curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "$BASE_URL/api/v1/experiments/$EXP
 curl -s -w "\nHTTP_CODE:%{http_code}" -X PATCH "$BASE_URL/api/v1/experiments/$EXP_ID/status" \
   -H "Authorization: Bearer $EXPERIMENTER_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"new_status":"on_review"}'
+  -d '{"status":"on_review"}'
 ```
 Ожидаемо: **200**.
 
@@ -143,7 +143,7 @@ curl -s -w "\nHTTP_CODE:%{http_code}" -X PATCH "$BASE_URL/api/v1/experiments/$EX
 curl -s -w "\nHTTP_CODE:%{http_code}" -X PATCH "$BASE_URL/api/v1/experiments/$EXP_ID/status" \
   -H "Authorization: Bearer $APPROVER_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"new_status":"approved"}'
+  -d '{"status":"approved"}'
 ```
 Ожидаемо: **200**.
 
@@ -152,7 +152,7 @@ curl -s -w "\nHTTP_CODE:%{http_code}" -X PATCH "$BASE_URL/api/v1/experiments/$EX
 curl -s -w "\nHTTP_CODE:%{http_code}" -X PATCH "$BASE_URL/api/v1/experiments/$EXP_ID/status" \
   -H "Authorization: Bearer $EXPERIMENTER_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"new_status":"running"}'
+  -d '{"status":"running"}'
 ```
 Ожидаемо: **200**.
 
@@ -280,7 +280,7 @@ curl -s -X POST "$BASE_URL/api/v1/events" \
 curl -s -w "\nHTTP_CODE:%{http_code}" -X PATCH "$BASE_URL/api/v1/experiments/$EXP_DRAFT/status" \
   -H "Authorization: Bearer $EXPERIMENTER_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"new_status":"running"}'
+  -d '{"status":"running"}'
 ```
 Ожидаемо: **400** или **409**, статус остаётся `draft`.
 

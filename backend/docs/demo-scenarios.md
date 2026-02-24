@@ -51,7 +51,7 @@
    - `{"variant_name": "control", "variant_value": "c", "weight": 0.5, "is_control": true}`
    - `{"variant_name": "treatment", "variant_value": "t", "weight": 0.5, "is_control": false}`  
    Ожидаемо: **201** на каждый.
-4. Отправить на ревью: `PATCH /api/v1/experiments/{id}/status` с `{"new_status": "on_review"}`. Ожидаемо: **200**.
+4. Отправить на ревью: `PATCH /api/v1/experiments/{id}/status` с `{"status": "on_review"}`. Ожидаемо: **200**.
 5. Одобрить от approver: `PATCH /api/v1/experiments/{id}/status` с `{"new_status": "approved"}` (от имени approver). Ожидаемо: **200**.
 6. Запустить: `PATCH /api/v1/experiments/{id}/status` с `{"new_status": "running"}`. Ожидаемо: **200**.
 7. Выдать вариант: `POST /api/v1/decide` с `{"subject_id": "u42", "attributes": {}, "flags": ["test_feature_flag"]}` (или соответствующим `flag_key`).  
