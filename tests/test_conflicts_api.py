@@ -64,13 +64,13 @@ async def _decide_for_flags(
     base_url,
     auth_headers_viewer,
     subject_id: str,
-    flag_ids: list[str],
+    flag_keys: list[str],
 ) -> dict:
     url = f"{base_url}/api/v1/decide"
     payload = {
         "subject_id": subject_id,
         "attributes": {},
-        "flags": flag_ids,
+        "flags": flag_keys,
     }
     async with http_session.post(url, headers=auth_headers_viewer, json=payload) as resp:
         assert resp.status == 200, await resp.text()
@@ -203,14 +203,14 @@ async def test_conflicts_mutual_exclusion_deterministic_with_audit(
         base_url,
         auth_headers_viewer,
         subject_id=subject_id,
-        flag_ids=[ctx_a["flag_id"], ctx_b["flag_id"]],
+        flag_keys=[ctx_a["flag_key"], ctx_b["flag_key"]],
     )
     second = await _decide_for_flags(
         http_session,
         base_url,
         auth_headers_viewer,
         subject_id=subject_id,
-        flag_ids=[ctx_a["flag_id"], ctx_b["flag_id"]],
+        flag_keys=[ctx_a["flag_key"], ctx_b["flag_key"]],
     )
 
     lost_first = [item for item in first["flags"] if item.get("conflict_lost") is True]
@@ -275,7 +275,7 @@ async def test_conflicts_priority_policy_prefers_higher_tier(
         base_url,
         auth_headers_viewer,
         subject_id="conflict-priority-user",
-        flag_ids=[low_ctx["flag_id"], high_ctx["flag_id"]],
+        flag_keys=[low_ctx["flag_key"], high_ctx["flag_key"]],
     )
     by_key = {item["flag_key"]: item for item in decision["flags"]}
     assert by_key[low_ctx["flag_key"]]["conflict_lost"] is True
@@ -336,7 +336,7 @@ async def test_conflicts_bid_policy_and_preflight_visibility(
         base_url,
         auth_headers_viewer,
         subject_id="conflict-bid-user",
-        flag_ids=[low_ctx["flag_id"], high_ctx["flag_id"]],
+        flag_keys=[low_ctx["flag_key"], high_ctx["flag_key"]],
     )
     by_key = {item["flag_key"]: item for item in decision["flags"]}
     assert by_key[low_ctx["flag_key"]]["conflict_lost"] is True

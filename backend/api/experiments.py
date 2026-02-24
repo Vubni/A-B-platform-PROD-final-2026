@@ -557,12 +557,7 @@ async def experiments_update_status(request: web.Request, parsed: StatusUpdate) 
 
 @docs(
     tags=["Experiments"],
-    summary="Завершить эксперимент (финальное решение)",
-    description=(
-        "Experimenter явно завершает эксперимент и фиксирует решение: rollout_winner (раскатить победителя), "
-        "rollback (откат к контролю) или no_effect (эффект не выявлен). Комментарий обязателен. "
-        "Доступно только при статусе running или paused. Viewer затем может просмотреть результат по отчёту (GET report)."
-    ),
+    summary="Завершить эксперимент",
     parameters=[
         {
             "name": "id",
@@ -573,7 +568,7 @@ async def experiments_update_status(request: web.Request, parsed: StatusUpdate) 
         }
     ],
     responses={
-        200: {"description": "Эксперимент завершён", "schema": ExperimentItemSchema},
+        200: {"schema": ExperimentItemSchema},
         400: RESPONSES_HTTP_ERROR[400],
         401: RESPONSES_HTTP_ERROR[401],
         403: RESPONSES_HTTP_ERROR[403],

@@ -210,13 +210,6 @@ class MetricsUpdate(BaseModel):
 @docs(
     tags=["Reports"],
     summary="Отчёт по эксперименту",
-    description=(
-        "Сводный отчёт по эксперименту для оценки эффекта вариантов на целевые метрики. "
-        "Метрики считаются в заданном временном окне: от start (включительно) до end (не включительно). "
-        "Для каждого варианта возвращаются значения выбранных метрик (основная, дополнительные, guardrail), "
-        "контекст расчёта (окно, атрибуция, единица агрегации). "
-        "События атрибутируются к эксперименту/варианту через идентификатор решения (decision_id)."
-    ),
     parameters=[
         {
             "name": "id",
@@ -242,10 +235,7 @@ class MetricsUpdate(BaseModel):
         },
     ],
     responses={
-        200: {
-            "description": "Отчёт с метриками по вариантам",
-            "schema": ReportExperimentResponseSchema,
-        },
+        200: {"schema": ReportExperimentResponseSchema},
         400: RESPONSES_HTTP_ERROR[400],
         401: RESPONSES_HTTP_ERROR[401],
         404: RESPONSES_HTTP_ERROR[404],
@@ -273,14 +263,8 @@ async def reports_experiment(request: web.Request, parsed: ReportsExperiment) ->
 @docs(
     tags=["Reports"],
     summary="Каталог метрик",
-    description=(
-        "Список настраиваемых метрик каталога. Метрики задаются аналитиком в админке: "
-        "уникальный идентификатор (key), название, назначение, правило вычисления по событиям "
-        "(какие события и как агрегируются), условия атрибуции (например, требовать подтверждённый факт показа). "
-        "В отчёте по эксперименту используются метрики, выбранные для этого эксперимента (основная и дополнительные)."
-    ),
     responses={
-        200: {"description": "Список метрик каталога", "schema": MetricsListResponseSchema},
+        200: {"schema": MetricsListResponseSchema},
         401: RESPONSES_HTTP_ERROR[401],
         403: RESPONSES_HTTP_ERROR[403],
     },
@@ -299,7 +283,6 @@ async def metrics_list(request: web.Request) -> web.Response:
 @docs(
     tags=["Reports"],
     summary="Получить метрику по ключу",
-    description="Получить одну метрику из каталога по уникальному ключу (идентификатору).",
     parameters=[
         {
             "name": "key",
@@ -310,7 +293,7 @@ async def metrics_list(request: web.Request) -> web.Response:
         },
     ],
     responses={
-        200: {"description": "Метрика из каталога", "schema": MetricCatalogItemSchema},
+        200: {"schema": MetricCatalogItemSchema},
         401: RESPONSES_HTTP_ERROR[401],
         403: RESPONSES_HTTP_ERROR[403],
         404: RESPONSES_HTTP_ERROR[404],
@@ -335,13 +318,8 @@ async def metrics_get(request: web.Request) -> web.Response:
 @docs(
     tags=["Reports"],
     summary="Создать метрику в каталоге",
-    description=(
-        "Создать настраиваемую метрику (Experimenter). Задаются: ключ, название, назначение, "
-        "правило вычисления по событиям (aggregation_rule: count_events, ratio, avg, percentile), "
-        "условия атрибуции (attribution_rule), единица измерения (unit)."
-    ),
     responses={
-        201: {"description": "Метрика создана", "schema": MetricCatalogItemSchema},
+        201: {"schema": MetricCatalogItemSchema},
         400: RESPONSES_HTTP_ERROR[400],
         401: RESPONSES_HTTP_ERROR[401],
         403: RESPONSES_HTTP_ERROR[403],
@@ -386,7 +364,6 @@ async def metrics_create(request: web.Request, parsed: MetricsCreate) -> web.Res
 @docs(
     tags=["Reports"],
     summary="Обновить метрику в каталоге",
-    description="Обновить метрику по ключу (Админ). Передаются только изменяемые поля.",
     parameters=[
         {
             "name": "key",
@@ -397,7 +374,7 @@ async def metrics_create(request: web.Request, parsed: MetricsCreate) -> web.Res
         },
     ],
     responses={
-        200: {"description": "Метрика обновлена", "schema": MetricCatalogItemSchema},
+        200: {"schema": MetricCatalogItemSchema},
         400: RESPONSES_HTTP_ERROR[400],
         401: RESPONSES_HTTP_ERROR[401],
         403: RESPONSES_HTTP_ERROR[403],

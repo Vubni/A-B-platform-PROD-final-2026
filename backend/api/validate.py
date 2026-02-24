@@ -51,7 +51,6 @@ def format_error_response(
     details: dict[str, Any] | None = None,
     field_errors: list | None = None,
 ) -> dict[str, Any]:
-    """Единый шаблон тела ответа для всех HTTP-ошибок (4xx, 5xx)."""
     response = {
         "code": code,
         "message": message,
@@ -74,7 +73,6 @@ def format_http_error(
     details: dict[str, Any] | None = None,
     field_errors: list | None = None,
 ) -> web.Response:
-    """Единая точка формирования ответа об ошибке для любого HTTP-статуса."""
     body = format_error_response(
         code=code,
         message=message,

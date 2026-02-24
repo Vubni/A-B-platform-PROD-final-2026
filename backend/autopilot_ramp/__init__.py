@@ -1,11 +1,3 @@
-"""
-Autopilot Ramp-up — умная автопилот-раскатка по ступеням трафика.
-
-Доп. функция: план раскатки (ramp_plan) с gates и safety actions,
-состояние (experiment_ramp_state), лог решений (experiment_ramp_decision_log).
-Логика оценки и шагов описана в LOGIC.md.
-"""
-
 from autopilot_ramp.ramp_plan import (
     create_or_update_ramp_plan,
     delete_ramp_plan,

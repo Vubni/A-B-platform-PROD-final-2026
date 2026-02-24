@@ -127,9 +127,8 @@ class FlagUpdate(BaseModel):
 @docs(
     tags=["Feature Flags"],
     summary="Создать feature flag",
-    description="Создание нового feature flag с ключом, типом значения и значением по умолчанию.",
     responses={
-        201: {"description": "Флаг создан", "schema": FlagItemSchema},
+        201: {"schema": FlagItemSchema},
         400: RESPONSES_HTTP_ERROR[400],
         401: RESPONSES_HTTP_ERROR[401],
         403: RESPONSES_HTTP_ERROR[403],
@@ -164,9 +163,8 @@ async def flags_create(request: web.Request, parsed: FlagCreate) -> web.Response
 @docs(
     tags=["Feature Flags"],
     summary="Список feature flags",
-    description="Получить список всех feature flags",
     responses={
-        200: {"description": "Список флагов", "schema": FlagListResponseSchema},
+        200: {"schema": FlagListResponseSchema},
         401: RESPONSES_HTTP_ERROR[401],
     },
 )
@@ -182,9 +180,8 @@ async def flags_list(request: web.Request) -> web.Response:
 @docs(
     tags=["Feature Flags"],
     summary="Получить feature flag",
-    description="Получить feature flag по ключу.",
     responses={
-        200: {"description": "Данные флага", "schema": FlagItemSchema},
+        200: {"schema": FlagItemSchema},
         400: RESPONSES_HTTP_ERROR[400],
         401: RESPONSES_HTTP_ERROR[401],
         404: RESPONSES_HTTP_ERROR[404],
@@ -208,9 +205,8 @@ async def flags_get(request: web.Request) -> web.Response:
 @docs(
     tags=["Feature Flags"],
     summary="Обновить значение по умолчанию feature flag",
-    description="Обновить только значение по умолчанию существующего флага. Варианты и эксперименты не меняются.",
     responses={
-        200: {"description": "Флаг обновлён", "schema": FlagItemSchema},
+        200: {"schema": FlagItemSchema},
         400: RESPONSES_HTTP_ERROR[400],
         401: RESPONSES_HTTP_ERROR[401],
         403: RESPONSES_HTTP_ERROR[403],

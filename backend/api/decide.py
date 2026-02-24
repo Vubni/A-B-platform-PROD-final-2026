@@ -6,10 +6,9 @@ from pydantic import BaseModel, field_validator
 
 from api import validate
 from api.system_metrics import record_decide
-from core import validate_uuid
 from docs.schems import RESPONSES_HTTP_ERROR, DecideRequestSchema, DecideResponseSchema
 from functions.decide import get_decisions_for_subject
-from functions.flags import get_flag_by_id
+from functions.flags import get_flag_by_key
 
 
 class DecideRequest(BaseModel):
@@ -43,38 +42,32 @@ class DecideRequest(BaseModel):
             raise ValueError("At least one flag is required")
         result = []
         for i, item in enumerate(v):
-            u = validate_uuid(str(item)) if item is not None else None
-            if not u:
-                raise ValueError(f"Invalid UUID for flag at index {i}")
-            result.append(u)
+            if item is None or not isinstance(item, str) or not item.strip():
+                raise ValueError(f"Flag key at index {i} must be a non-empty string")
+            key = item.strip()
+            if len(key) > 255:
+                raise ValueError(f"Flag key at index {i} must be at most 255 characters")
+            result.append(key)
         return result
 
 
 @docs(
     tags=["Runtime Decide"],
     summary="Получить значения флагов для субъекта",
-    description=(
-        "Возвращает значения feature flags для указанного субъекта (пользователь, устройство, сессия). "
-        "Передайте **subject_id**, **attributes** (для таргетинга) и список **flags** (UUID флагов). "
-        "В ответе по каждому флагу: **flag_key**, **flag_value** (что показывать), **decision_id** (для привязки событий к решению), "
-        "**experiment** — если субъект в эксперименте: experiment_id и variant (control/treatment и т.д.). "
-        "Требуется роль **viewer** (JWT в заголовке Authorization)."
-    ),
     responses={
         200: {
-            "description": "Решения по каждому запрошенному флагу (массив flags)",
             "schema": DecideResponseSchema,
             "examples": {
                 "application/json": {
                     "flags": [
                         {
-                            "flag_key": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                            "flag_key": "new_recommendations",
                             "flag_value": True,
                             "decision_id": "f7e6d5c4-b3a2-1098-7654-3210fedcba98",
                             "experiment": None,
                         },
                         {
-                            "flag_key": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+                            "flag_key": "button_color",
                             "flag_value": "treatment_value",
                             "decision_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
                             "experiment": {
@@ -103,12 +96,10 @@ async def decide(request: web.Request, parsed: DecideRequest) -> web.Response:
     elif auth_payload["role"] != "viewer":
         return validate.format_403_error(request)
 
-    flag_keys = []
-    for flag_id in parsed.flags:
-        flag = await get_flag_by_id(flag_id)
+    for flag_key in parsed.flags:
+        flag = await get_flag_by_key(flag_key)
         if not flag:
-            return validate.format_404_error(request, f"Flag {flag_id} not found")
-        flag_keys.append(flag["key"])
+            return validate.format_404_error(request, f"Flag {flag_key!r} not found")
 
-    result = await get_decisions_for_subject(parsed.subject_id, parsed.attributes, flag_keys)
+    result = await get_decisions_for_subject(parsed.subject_id, parsed.attributes, parsed.flags)
     return web.json_response(result, status=200)

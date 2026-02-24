@@ -4,6 +4,7 @@ from pydantic import BaseModel, field_validator
 
 from api import validate
 from api.system_metrics import record_events_submitted
+from config import EVENTS_USE_KAFKA, KAFKA_BOOTSTRAP_SERVERS
 from core import check_authorization, validate_uuid
 from docs.schems import (
     RESPONSES_HTTP_ERROR,
@@ -22,7 +23,7 @@ from functions.event_types import (
     list_event_types,
     update_event_type,
 )
-from functions.events_submit import process_events_batch
+from functions.events_submit import process_events_batch, validate_events_batch
 
 
 class EventsSubmitInput(BaseModel):
@@ -127,22 +128,57 @@ def _event_type_id_from_request(request: web.Request) -> str | None:
 @docs(
     tags=["Events"],
     summary="Отправить пакет событий",
-    description=(
-        "Принять пакет событий от продукта. Каждое событие связано с decision_id. "
-        "Возвращает: количество принятых, дубликатов, отклонённых и ошибки по отклонённым."
-    ),
     responses={
-        200: {
-            "description": "Пакет обработан. См. счётчики accepted/duplicates/rejected.",
-            "schema": EventsSubmitResponseSchema,
-        },
+        200: {"schema": EventsSubmitResponseSchema},
+        202: {},
         400: RESPONSES_HTTP_ERROR[400],
         422: RESPONSES_HTTP_ERROR[422],
     },
 )
+def _kafka_consumer_ready(app: web.Application) -> bool:
+    task = app.get("kafka_consumer_task")
+    return task is not None and not task.done()
+
+
 @request_schema(EventsSubmitRequestSchema(), location="json", put_into="data")
 @validate.validate(EventsSubmitInput)
 async def events_submit(request: web.Request, parsed: EventsSubmitInput) -> web.Response:
+    if EVENTS_USE_KAFKA and KAFKA_BOOTSTRAP_SERVERS:
+        pre = await validate_events_batch(parsed.events)
+        if pre["rejected"] > 0:
+            result = await process_events_batch(parsed.events)
+            record_events_submitted(accepted=result["accepted"])
+            return web.json_response(
+                {
+                    "accepted": result["accepted"],
+                    "duplicates": result["duplicates"],
+                    "rejected": result["rejected"],
+                    "errors": result["errors"],
+                    "status": "ok",
+                },
+                status=200,
+            )
+        if not _kafka_consumer_ready(request.app):
+            result = await process_events_batch(parsed.events)
+            record_events_submitted(accepted=result["accepted"])
+            return web.json_response(
+                {
+                    "accepted": result["accepted"],
+                    "duplicates": result["duplicates"],
+                    "rejected": result["rejected"],
+                    "errors": result["errors"],
+                    "status": "ok",
+                },
+                status=200,
+            )
+        from kafka_events import produce_events_batch
+
+        await produce_events_batch(parsed.events)
+        record_events_submitted(accepted=len(parsed.events))
+        return web.json_response(
+            {"status": "accepted", "message": "events queued for processing"},
+            status=202,
+        )
     result = await process_events_batch(parsed.events)
     record_events_submitted(accepted=result["accepted"])
     return web.json_response(
@@ -159,10 +195,9 @@ async def events_submit(request: web.Request, parsed: EventsSubmitInput) -> web.
 
 @docs(
     tags=["Events"],
-    summary="Список типов событий (каталог)",
-    description="Получить каталог типов событий. Админ создаёт/редактирует типы с метаданными и правилами валидации.",
+    summary="Список типов событий",
     responses={
-        200: {"description": "Список типов событий", "schema": EventTypesListResponseSchema},
+        200: {"schema": EventTypesListResponseSchema},
         401: RESPONSES_HTTP_ERROR[401],
     },
 )
@@ -181,9 +216,8 @@ async def event_types_list(request: web.Request) -> web.Response:
 @docs(
     tags=["Events"],
     summary="Создать тип события",
-    description="Создать тип события в каталоге (Админ).",
     responses={
-        201: {"description": "Тип события создан", "schema": EventTypeItemSchema},
+        201: {"schema": EventTypeItemSchema},
         400: RESPONSES_HTTP_ERROR[400],
         401: RESPONSES_HTTP_ERROR[401],
         403: RESPONSES_HTTP_ERROR[403],
@@ -228,9 +262,8 @@ async def event_types_create(request: web.Request, parsed: EventTypeCreate) -> w
 @docs(
     tags=["Events"],
     summary="Получить тип события",
-    description="Получить тип события по id.",
     responses={
-        200: {"description": "Данные типа события", "schema": EventTypeItemSchema},
+        200: {"schema": EventTypeItemSchema},
         401: RESPONSES_HTTP_ERROR[401],
         404: RESPONSES_HTTP_ERROR[404],
     },
@@ -251,9 +284,8 @@ async def event_types_get(request: web.Request) -> web.Response:
 @docs(
     tags=["Events"],
     summary="Обновить тип события",
-    description="Обновить тип события (Админ).",
     responses={
-        200: {"description": "Обновлено", "schema": EventTypeItemSchema},
+        200: {"schema": EventTypeItemSchema},
         400: RESPONSES_HTTP_ERROR[400],
         401: RESPONSES_HTTP_ERROR[401],
         403: RESPONSES_HTTP_ERROR[403],
@@ -302,9 +334,8 @@ async def event_types_update(request: web.Request, parsed: EventTypeUpdate) -> w
 @docs(
     tags=["Events"],
     summary="Архивировать тип события",
-    description="Архивировать тип события (мягкое удаление).",
     responses={
-        200: {"description": "Архивировано", "schema": EventTypeItemSchema},
+        200: {"schema": EventTypeItemSchema},
         401: RESPONSES_HTTP_ERROR[401],
         403: RESPONSES_HTTP_ERROR[403],
         404: RESPONSES_HTTP_ERROR[404],

@@ -1,3 +1,4 @@
+import os
 from datetime import UTC, datetime, timedelta
 
 from autopilot_ramp.ramp_apply import apply_ramp_step_to_experiment
@@ -6,7 +7,7 @@ from autopilot_ramp.ramp_state import log_autopilot_decision
 from database.database import Database
 from functions.experiments import pause_experiment, rollback_experiment_to_control
 
-EVAL_INTERVAL_SECONDS = 60
+EVAL_INTERVAL_SECONDS = int(os.getenv("AUTOPILOT_EVAL_INTERVAL_SECONDS", "60"))
 
 
 async def sync_and_tick_autopilot(experiment_id: str) -> None:
@@ -19,7 +20,8 @@ async def evaluate_autopilot_tick(experiment_id: str) -> None:
         state = await db.execute(
             """SELECT ramp_plan_id, current_step_index, mode, last_eval_at
                FROM experiment_ramp_state WHERE experiment_id = $1""",
-            (experiment_id,))
+            (experiment_id,),
+        )
         if not state or state["mode"] != "autopilot":
             return
         ex = await db.execute("SELECT id, status FROM experiments WHERE id = $1", (experiment_id,))
@@ -48,7 +50,8 @@ async def evaluate_autopilot_tick(experiment_id: str) -> None:
 
         await db.execute(
             "UPDATE experiment_ramp_state SET last_eval_at = $1, updated_at = NOW() WHERE experiment_id = $2",
-            (now, experiment_id))
+            (now, experiment_id),
+        )
 
     safety_action = await _check_safety(experiment_id, plan, since, now)
     if safety_action:
@@ -71,7 +74,8 @@ async def _check_safety(
         triggered = await db.execute_all(
             """SELECT metric_key, action, triggered_at FROM experiment_guardrail_history
                WHERE experiment_id = $1 AND triggered_at >= $2 AND triggered_at <= $3""",
-            (experiment_id, since, now))
+            (experiment_id, since, now),
+        )
     if not triggered:
         return None
     actions = {sa["trigger_type"]: sa for sa in plan.get("safety_actions") or []}
@@ -121,7 +125,8 @@ async def _apply_safety_action(
                 await db.execute(
                     """UPDATE experiment_ramp_state SET current_step_index = $1, step_entered_at = NOW(), updated_at = NOW()
                        WHERE experiment_id = $2""",
-                    (new_step, experiment_id))
+                    (new_step, experiment_id),
+                )
             await apply_ramp_step_to_experiment(experiment_id)
             await log_autopilot_decision(
                 experiment_id,
@@ -143,7 +148,8 @@ async def _check_gates(
     async with Database() as db:
         state = await db.execute(
             "SELECT started_at, step_entered_at, last_eval_at FROM experiment_ramp_state WHERE experiment_id = $1",
-            (experiment_id,))
+            (experiment_id,),
+        )
         step_start = (state.get("step_entered_at") or state.get("started_at")) if state else None
         if step_start and isinstance(step_start, str):
             try:
@@ -156,7 +162,8 @@ async def _check_gates(
             """SELECT COUNT(*) AS total
                FROM decisions
                WHERE experiment_id = $1 AND created_at >= $2 AND created_at <= $3""",
-            (experiment_id, since, now))
+            (experiment_id, since, now),
+        )
         total = int((counts or {}).get("total") or 0)
 
         variant_counts = await db.execute_all(
@@ -164,7 +171,8 @@ async def _check_gates(
                FROM decisions
                WHERE experiment_id = $1 AND variant_id IS NOT NULL AND created_at >= $2 AND created_at <= $3
                GROUP BY variant_id""",
-            (experiment_id, since, now))
+            (experiment_id, since, now),
+        )
         min_variant_count = min((r["cnt"] for r in (variant_counts or [])), default=0)
 
     reason = {}
@@ -193,7 +201,8 @@ async def _do_step_up(
         await db.execute(
             """UPDATE experiment_ramp_state SET current_step_index = $1, step_entered_at = NOW(), updated_at = NOW()
                WHERE experiment_id = $2""",
-            (to_idx, experiment_id))
+            (to_idx, experiment_id),
+        )
     await apply_ramp_step_to_experiment(experiment_id)
     await log_autopilot_decision(
         experiment_id, "step_up", from_idx, to_idx, {"reason": "gates_passed", **reason}

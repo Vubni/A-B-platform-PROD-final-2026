@@ -6,6 +6,7 @@ aiosignal==1.4.0
 aiosmtplib==4.0.1
 annotated-types==0.7.0
 apispec==3.3.2
+aiokafka==0.10.0
 asyncpg==0.30.0
 attrs==25.4.0
 cffi==2.0.0

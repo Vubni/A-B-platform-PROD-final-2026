@@ -369,7 +369,9 @@ class LearningUpsertSchema(Schema):
     platforms = fields.List(fields.Str(), load_default=list, description="Платформы")
     countries = fields.List(fields.Str(), load_default=list, description="Страны")
     app_versions = fields.List(fields.Str(), load_default=list, description="Версии приложения")
-    product_tags = fields.List(fields.Str(), load_default=list, description="Теги продуктовой зоны")
+    product_tags = fields.List(
+        fields.Str(), load_default=list, description="Теги продуктовой зоны"
+    )
     change_type = fields.Str(allow_none=True, description="Тип изменения")
     variant_structure = fields.Dict(
         load_default=dict,
@@ -852,7 +854,7 @@ class DecideRequestSchema(Schema):
         description="Атрибуты субъекта для таргетинга (произвольные ключ-значение)",
     )
     flags = fields.List(
-        fields.Str(), required=True, description="Список UUID флагов (минимум один)"
+        fields.Str(), required=True, description="Список ключей флагов (минимум один)"
     )
 
 
@@ -862,7 +864,7 @@ class DecideExperimentSchema(Schema):
 
 
 class DecideFlagItemSchema(Schema):
-    flag_key = fields.Str(description="Ключ (UUID) флага")
+    flag_key = fields.Str(description="Ключ флага (строка, например button_color)")
     flag_value = fields.Raw(
         description="Значение флага для этого субъекта (bool, число, строка — по типу флага)"
     )
@@ -1061,6 +1063,12 @@ class ReportVariantRowSchema(Schema):
     variant_id = fields.Str(description="UUID варианта")
     variant_name = fields.Str(description="Имя варианта (control, treatment и т.д.)")
     is_control = fields.Bool(description="Является ли контрольным")
+    subjects_count = fields.Int(
+        description="Число пользователей (subject_id), получивших этот вариант"
+    )
+    share_pct = fields.Float(
+        description="Доля пользователей варианта в эксперименте, % (сумма по вариантам = 100)"
+    )
     metric_values = fields.List(
         fields.Nested(ReportMetricValueSchema),
         description="Значения метрик для этого варианта",
@@ -1117,7 +1125,10 @@ class ReportContextSchema(Schema):
     window_start = fields.Str(description="Начало окна (включительно)")
     window_end = fields.Str(description="Конец окна (не включительно)")
     aggregation_unit = fields.Str(
-        allow_none=True, description="Единица агрегации (subject | event) по метрикам"
+        allow_none=True, description="Единица агрегации primary-метрики (subject | event)"
+    )
+    attribution = fields.Str(
+        description="Атрибуция событий к эксперименту/варианту (by_decision_id)"
     )
 
 

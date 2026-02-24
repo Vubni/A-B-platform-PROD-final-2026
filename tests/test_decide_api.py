@@ -11,7 +11,7 @@ async def test_decide_requires_auth(http_session, base_url):
     payload = {
         "subject_id": "user-123",
         "attributes": {},
-        "flags": ["00000000-0000-0000-0000-000000000001"],
+        "flags": ["some_flag_key"],
     }
     async with http_session.post(url, json=payload) as resp:
         assert resp.status == 401
@@ -20,12 +20,12 @@ async def test_decide_requires_auth(http_session, base_url):
 
 
 @pytest.mark.asyncio
-async def test_decide_forbidden_for_admin(http_session, base_url, auth_headers_admin, flag_id):
+async def test_decide_forbidden_for_admin(http_session, base_url, auth_headers_admin, flag_key):
     url = f"{base_url}{DECIDE_URL_SUFFIX}"
     payload = {
         "subject_id": "user-123",
         "attributes": {},
-        "flags": [flag_id],
+        "flags": [flag_key],
     }
     async with http_session.post(url, json=payload, headers=auth_headers_admin) as resp:
         assert resp.status == 403
@@ -34,12 +34,12 @@ async def test_decide_forbidden_for_admin(http_session, base_url, auth_headers_a
 
 
 @pytest.mark.asyncio
-async def test_decide_forbidden_for_experimenter(http_session, base_url, auth_headers_experimenter, flag_id):
+async def test_decide_forbidden_for_experimenter(http_session, base_url, auth_headers_experimenter, flag_key):
     url = f"{base_url}{DECIDE_URL_SUFFIX}"
     payload = {
         "subject_id": "user-123",
         "attributes": {},
-        "flags": [flag_id],
+        "flags": [flag_key],
     }
     async with http_session.post(url, json=payload, headers=auth_headers_experimenter) as resp:
         assert resp.status == 403
@@ -48,12 +48,12 @@ async def test_decide_forbidden_for_experimenter(http_session, base_url, auth_he
 
 
 @pytest.mark.asyncio
-async def test_decide_success_viewer(http_session, base_url, auth_headers_viewer, flag_id):
+async def test_decide_success_viewer(http_session, base_url, auth_headers_viewer, flag_key):
     url = f"{base_url}{DECIDE_URL_SUFFIX}"
     payload = {
         "subject_id": "subject-test-001",
         "attributes": {"country": "RU"},
-        "flags": [flag_id],
+        "flags": [flag_key],
     }
     async with http_session.post(url, json=payload, headers=auth_headers_viewer) as resp:
         assert resp.status == 200
@@ -74,23 +74,22 @@ async def test_decide_success_viewer(http_session, base_url, auth_headers_viewer
 
 @pytest.mark.asyncio
 async def test_decide_returns_default_value_when_no_experiment(
-    http_session, base_url, auth_headers_viewer, auth_headers_admin, flag_id
+    http_session, base_url, auth_headers_viewer, auth_headers_admin, flag_key
 ):
-    """Decide возвращает default_value флага, когда субъект не в эксперименте."""
     url = f"{base_url}{DECIDE_URL_SUFFIX}"
     flags_list_url = f"{base_url}/api/v1/flags"
     async with http_session.get(flags_list_url, headers=auth_headers_admin) as r:
         if r.status != 200:
             pytest.skip("Need to list flags")
         flags_data = await r.json()
-        flag = next((f for f in (flags_data.get("flags") or []) if f.get("id") == flag_id), None)
+        flag = next((f for f in (flags_data.get("flags") or []) if f.get("key") == flag_key), None)
     if not flag:
         pytest.skip("Flag not found")
     expected_default = flag.get("default_value") or "control"
     payload = {
         "subject_id": "user-default-check",
         "attributes": {},
-        "flags": [flag_id],
+        "flags": [flag_key],
     }
     async with http_session.post(url, json=payload, headers=auth_headers_viewer) as resp:
         assert resp.status == 200
@@ -102,13 +101,13 @@ async def test_decide_returns_default_value_when_no_experiment(
 
 @pytest.mark.asyncio
 async def test_decide_same_subject_same_value(
-    http_session, base_url, auth_headers_viewer, flag_id
+    http_session, base_url, auth_headers_viewer, flag_key
 ):
     url = f"{base_url}{DECIDE_URL_SUFFIX}"
     payload = {
         "subject_id": "consistent-user-42",
         "attributes": {"region": "eu"},
-        "flags": [flag_id],
+        "flags": [flag_key],
     }
     values = []
     for _ in range(5):
@@ -131,7 +130,6 @@ async def test_decide_returns_default_when_targeting_rule_not_matched(
     auth_headers_experimenter,
     auth_headers_approver,
 ):
-    """B2-2: при непрохождении правила участия (таргетинг) возвращается default, не вариант эксперимента."""
     flags_url = f"{base_url}/api/v1/flags"
     exp_url = f"{base_url}/api/v1/experiments"
     decide_url = f"{base_url}{DECIDE_URL_SUFFIX}"
@@ -147,12 +145,12 @@ async def test_decide_returns_default_when_targeting_rule_not_matched(
         pytest.skip("Need experimenter and approver in seed")
     experimenter_id, approver_id = experimenter["id"], approver_user["id"]
 
-    flag_key = f"decide_targeting_{uuid.uuid4().hex[:12]}"
+    targeting_flag_key = f"decide_targeting_{uuid.uuid4().hex[:12]}"
     async with http_session.post(
         flags_url,
         headers=auth_headers_admin,
         json={
-            "key": flag_key,
+            "key": targeting_flag_key,
             "value_type": "string",
             "default_value": "default_outside",
         },
@@ -164,7 +162,7 @@ async def test_decide_returns_default_when_targeting_rule_not_matched(
 
     async with http_session.post(
         f"{base_url}/api/v1/approver-groups",
-        headers=auth_headers_approver,
+        headers=auth_headers_admin,
         json={
             "experimenter_id": experimenter_id,
             "min_approvals": 1,
@@ -211,7 +209,7 @@ async def test_decide_returns_default_when_targeting_rule_not_matched(
     payload = {
         "subject_id": "user-outside-targeting",
         "attributes": {"country": "BY"},
-        "flags": [flag_id],
+        "flags": [targeting_flag_key],
     }
     async with http_session.post(decide_url, json=payload, headers=auth_headers_viewer) as resp:
         assert resp.status == 200
@@ -223,7 +221,7 @@ async def test_decide_returns_default_when_targeting_rule_not_matched(
     payload_match = {
         "subject_id": "user-inside-targeting",
         "attributes": {"country": "RU"},
-        "flags": [flag_id],
+        "flags": [targeting_flag_key],
     }
     async with http_session.post(decide_url, json=payload_match, headers=auth_headers_viewer) as resp:
         assert resp.status == 200
@@ -240,12 +238,12 @@ async def test_decide_returns_default_when_targeting_rule_not_matched(
 
 
 @pytest.mark.asyncio
-async def test_decide_validation_empty_subject_id(http_session, base_url, auth_headers_viewer, flag_id):
+async def test_decide_validation_empty_subject_id(http_session, base_url, auth_headers_viewer, flag_key):
     url = f"{base_url}{DECIDE_URL_SUFFIX}"
     payload = {
         "subject_id": "   ",
         "attributes": {},
-        "flags": [flag_id],
+        "flags": [flag_key],
     }
     async with http_session.post(url, json=payload, headers=auth_headers_viewer) as resp:
         assert resp.status == 422
@@ -268,12 +266,12 @@ async def test_decide_validation_empty_flags(http_session, base_url, auth_header
 
 
 @pytest.mark.asyncio
-async def test_decide_validation_invalid_flag_uuid(http_session, base_url, auth_headers_viewer):
+async def test_decide_validation_empty_flag_key(http_session, base_url, auth_headers_viewer):
     url = f"{base_url}{DECIDE_URL_SUFFIX}"
     payload = {
         "subject_id": "user-1",
         "attributes": {},
-        "flags": ["not-a-uuid"],
+        "flags": [""],
     }
     async with http_session.post(url, json=payload, headers=auth_headers_viewer) as resp:
         assert resp.status == 422
@@ -287,7 +285,7 @@ async def test_decide_flag_not_found(http_session, base_url, auth_headers_viewer
     payload = {
         "subject_id": "user-1",
         "attributes": {},
-        "flags": ["00000000-0000-0000-0000-000000000099"],
+        "flags": ["nonexistent_flag_key_12345"],
     }
     async with http_session.post(url, json=payload, headers=auth_headers_viewer) as resp:
         assert resp.status == 404
@@ -297,7 +295,7 @@ async def test_decide_flag_not_found(http_session, base_url, auth_headers_viewer
 
 @pytest.mark.asyncio
 async def test_decide_response_order_matches_request(
-    http_session, base_url, auth_headers_viewer, auth_headers_admin, flag_id
+    http_session, base_url, auth_headers_viewer, auth_headers_admin, flag_key
 ):
     url_flags = f"{base_url}/api/v1/flags"
     url_decide = f"{base_url}{DECIDE_URL_SUFFIX}"
@@ -313,12 +311,11 @@ async def test_decide_response_order_matches_request(
     ) as resp:
         if resp.status not in (200, 201):
             pytest.skip("Could not create second flag")
-        second = await resp.json()
-        second_id = second["id"]
+        await resp.json()
     payload = {
         "subject_id": "order-check",
         "attributes": {},
-        "flags": [flag_id, second_id],
+        "flags": [flag_key, second_key],
     }
     async with http_session.post(
         url_decide, json=payload, headers=auth_headers_viewer
@@ -356,12 +353,12 @@ async def test_decide_audience_fraction_about_20_percent(
         pytest.skip("Need experimenter and approver in seed")
     experimenter_id, approver_id = experimenter["id"], approver_user["id"]
 
-    flag_key = f"decide_audience_{uuid.uuid4().hex[:12]}"
+    audience_flag_key = f"decide_audience_{uuid.uuid4().hex[:12]}"
     async with http_session.post(
         flags_url,
         headers=auth_headers_admin,
         json={
-            "key": flag_key,
+            "key": audience_flag_key,
             "value_type": "string",
             "default_value": "default",
         },
@@ -373,7 +370,7 @@ async def test_decide_audience_fraction_about_20_percent(
 
     async with http_session.post(
         f"{base_url}/api/v1/approver-groups",
-        headers=auth_headers_approver,
+        headers=auth_headers_admin,
         json={
             "experimenter_id": experimenter_id,
             "min_approvals": 1,
@@ -414,11 +411,11 @@ async def test_decide_audience_fraction_about_20_percent(
     if not await transition_experiment_to_running(
         http_session, base_url, exp_id, auth_headers_experimenter, auth_headers_approver
     ):
-        flag_key = f"decide_audience_{uuid.uuid4().hex[:12]}"
+        audience_flag_key = f"decide_audience_{uuid.uuid4().hex[:12]}"
         async with http_session.post(
             flags_url,
             headers=auth_headers_admin,
-            json={"key": flag_key, "value_type": "string", "default_value": "default"},
+            json={"key": audience_flag_key, "value_type": "string", "default_value": "default"},
         ) as resp:
             if resp.status not in (200, 201):
                 pytest.skip("Could not create second flag for audience test")
@@ -454,7 +451,7 @@ async def test_decide_audience_fraction_about_20_percent(
         payload = {
             "subject_id": f"audience-subject-{i}",
             "attributes": {},
-            "flags": [flag_id],
+            "flags": [audience_flag_key],
         }
         async with http_session.post(decide_url, json=payload, headers=auth_headers_viewer) as resp:
             assert resp.status == 200

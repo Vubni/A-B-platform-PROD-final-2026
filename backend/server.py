@@ -22,10 +22,12 @@ from api import (
     system_metrics,
     users,
 )
-from config import logger
+from config import EVENTS_USE_KAFKA, KAFKA_BOOTSTRAP_SERVERS, logger
 from database.database import Database
 from database.functions import init_reference_data
-from functions.users import create_user
+from database.seed_demo import seed_demo_data
+from functions.users import create_approver_group, create_user, get_user_by_email
+import asyncio
 
 
 async def init_first_admin():
@@ -39,6 +41,34 @@ async def init_first_admin():
         logger.info(f"Создан первый админ: {email}")
 
 
+DEMO_USERS = [
+    ("admin@test.com", "TestAdmin", "admin123", "admin"),
+    ("experimenter@test.com", "TestExperimenter", "exp123", "experimenter"),
+    ("viewer@test.com", "TestViewer", "view123", "viewer"),
+    ("approver@test.com", "TestApprover", "app123", "approver"),
+]
+
+
+async def init_demo_users():
+    if not os.environ.get("SEED_DEMO_USERS", "").strip():
+        return
+    for email, first_name, password, role in DEMO_USERS:
+        user = await create_user(email=email, first_name=first_name, password=password, role=role)
+        if user:
+            logger.info(f"Демо-пользователь: {email} ({role})")
+    experimenter = await get_user_by_email("experimenter@test.com")
+    approver = await get_user_by_email("approver@test.com")
+    if experimenter and approver:
+        group = await create_approver_group(
+            experimenter_id=str(experimenter["id"]),
+            min_approvals=1,
+            approver_ids=[str(approver["id"])],
+        )
+        if group:
+            logger.info("Демо: группа аппруверов для experimenter создана")
+    await seed_demo_data()
+
+
 async def check_readiness(app):
     health.set_ready(False)
     try:
@@ -46,6 +76,7 @@ async def check_readiness(app):
             if db and await db.execute("SELECT 1"):
                 await init_reference_data()
                 await init_first_admin()
+                await init_demo_users()
                 health.set_ready(True)
                 logger.info("Readiness: все зависимости и данные готовы.")
             else:
@@ -54,9 +85,73 @@ async def check_readiness(app):
         logger.warning(f"Readiness: ошибка проверки — {e}")
 
 
+async def _start_kafka_consumer_once(app: web.Application) -> bool:
+    from kafka_events import ensure_topic, start_consumer
+
+    if not await ensure_topic():
+        return False
+    task = await start_consumer()
+    if not task:
+        return False
+    app["kafka_consumer_task"] = task
+    logger.info("Kafka: приём событий через очередь включён.")
+    return True
+
+
+async def _kafka_retry_loop(app: web.Application) -> None:
+    if not EVENTS_USE_KAFKA or not KAFKA_BOOTSTRAP_SERVERS:
+        return
+    while True:
+        await asyncio.sleep(10)
+        task = app.get("kafka_consumer_task")
+        if task is not None and not task.done():
+            continue
+        if task is not None and task.done():
+            app["kafka_consumer_task"] = None
+        try:
+            if await _start_kafka_consumer_once(app):
+                break
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.debug("Kafka retry: %s", e)
+
+
+async def start_kafka_if_enabled(app: web.Application) -> None:
+    if not EVENTS_USE_KAFKA or not KAFKA_BOOTSTRAP_SERVERS:
+        return
+
+    for attempt in range(5):
+        if await _start_kafka_consumer_once(app):
+            break
+        await asyncio.sleep(2)
+    else:
+        logger.warning(
+            "Kafka: топик недоступен после нескольких попыток, повторные попытки в фоне."
+        )
+        app["kafka_retry_task"] = asyncio.create_task(_kafka_retry_loop(app))
+
+
+async def cleanup_kafka(app: web.Application) -> None:
+    from kafka_events import stop_consumer, stop_producer
+
+    retry_task = app.get("kafka_retry_task")
+    if retry_task is not None and not retry_task.done():
+        retry_task.cancel()
+        try:
+            await retry_task
+        except asyncio.CancelledError:
+            pass
+        app["kafka_retry_task"] = None
+    await stop_consumer()
+    await stop_producer()
+
+
 if __name__ == "__main__":
     app = web.Application()
     app.on_startup.append(check_readiness)
+    app.on_startup.append(start_kafka_if_enabled)
+    app.on_cleanup.append(cleanup_kafka)
 
     cors = aiohttp_cors.setup(
         app,
@@ -76,13 +171,11 @@ if __name__ == "__main__":
         version="v1",
         url="/swagger.json",
         swagger_path="/",
-        description="A/B экспериментальная платформа.",
         security_definitions={
             "Bearer": {
                 "type": "apiKey",
                 "name": "Authorization",
                 "in": "header",
-                "description": "Авторизация токеном",
             }
         },
     )
@@ -101,12 +194,10 @@ if __name__ == "__main__":
         web.get(prefix + "/approver-groups", users.approver_groups_list),
         web.post(prefix + "/approver-groups", users.approver_groups_create),
         web.patch(prefix + "/approver-groups/{id}", users.approver_groups_update),
-
         web.post(prefix + "/flags", flags.flags_create),
         web.get(prefix + "/flags", flags.flags_list),
         web.get(prefix + "/flags/{key}", flags.flags_get),
         web.patch(prefix + "/flags/{key}", flags.flags_update),
-
         web.post(prefix + "/experiments", experiments.experiments_create),
         web.get(prefix + "/experiments", experiments.experiments_list),
         web.get(prefix + "/experiments/{id}", experiments.experiments_get),
@@ -139,12 +230,10 @@ if __name__ == "__main__":
             prefix + "/experiments/{id}/ramp-decision-log",
             autopilot_ramp_api.ramp_decision_log_get,
         ),
-
         web.get(prefix + "/guardrails", guardrails.guardrails_list),
         web.get(prefix + "/guardrails/{metric_key}", guardrails.guardrails_get),
         web.post(prefix + "/guardrails", guardrails.guardrails_upsert),
         web.delete(prefix + "/guardrails/{metric_key}", guardrails.guardrails_delete),
-
         web.get(prefix + "/conflict-domains", conflict_domains.conflict_domains_list),
         web.post(prefix + "/conflict-domains", conflict_domains.conflict_domains_create),
         web.get(prefix + "/conflict-domains/{id}", conflict_domains.conflict_domains_get),
@@ -169,16 +258,13 @@ if __name__ == "__main__":
         web.get(
             prefix + "/experiments/{id}/conflict-log", conflict_domains.experiment_conflict_log
         ),
-
         web.post(prefix + "/decide", decide.decide),
-
         web.post(prefix + "/events", events.events_submit),
         web.get(prefix + "/event-types", events.event_types_list),
         web.post(prefix + "/event-types", events.event_types_create),
         web.get(prefix + "/event-types/{id}", events.event_types_get),
         web.patch(prefix + "/event-types/{id}", events.event_types_update),
         web.delete(prefix + "/event-types/{id}", events.event_types_archive),
-
         web.get(prefix + "/experiments/{id}/report", reports.reports_experiment),
         web.get(prefix + "/learnings", learnings.learnings_list),
         web.get(prefix + "/learnings/{id}", learnings.learnings_get),

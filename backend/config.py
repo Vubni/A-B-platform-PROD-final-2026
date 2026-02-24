@@ -14,7 +14,7 @@ LOG_BACKUP_COUNT = 3
 os.makedirs(LOG_DIR, exist_ok=True)
 
 DATE_BASE_CONNECT = {
-    "host": os.getenv("DB_HOST", "0.0.0.0"),
+    "host": os.getenv("DB_HOST", "postgres"),
     "user": os.getenv("DB_USER", "user"),
     "password": os.getenv("DB_PASSWORD"),
     "database": os.getenv("DB_NAME", "prod"),
@@ -28,7 +28,15 @@ MAX_ACTIVE_EXPERIMENTS_PER_SUBJECT = int(os.getenv("MAX_ACTIVE_EXPERIMENTS_PER_S
 EXPERIMENT_COOLDOWN_SECONDS = int(os.getenv("EXPERIMENT_COOLDOWN_SECONDS", 7 * 24 * 3600))
 
 EVENTS_DEPENDENCY_MAX_DELAY_DAYS = int(os.getenv("EVENTS_DEPENDENCY_MAX_DELAY_DAYS", 7))
-LEARNINGS_REQUIRED_ON_COMPLETE = (os.getenv("LEARNINGS_REQUIRED_ON_COMPLETE", "true")) == "true"
+LEARNINGS_REQUIRED_ON_COMPLETE = (
+    os.getenv("LEARNINGS_REQUIRED_ON_COMPLETE", "true").lower() == "true"
+)
+
+KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "").strip()
+KAFKA_EVENTS_TOPIC = os.getenv("KAFKA_EVENTS_TOPIC", "lotty-events")
+EVENTS_USE_KAFKA = os.getenv("EVENTS_USE_KAFKA", "false").lower() == "true"
+
+FALLBACK_APPROVAL_PERCENT = float(os.getenv("FALLBACK_APPROVAL_PERCENT", "0.6"))
 
 
 def _utc_iso_timestamp(record: logging.LogRecord) -> str:

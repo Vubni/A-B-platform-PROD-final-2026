@@ -57,11 +57,6 @@ async def _require_experimenter_access(
 @docs(
     tags=["Autopilot Ramp-up"],
     summary="Получить план раскатки",
-    description=(
-        "Возвращает актуальный plan автопилот-раскатки для эксперимента: ступени трафика, "
-        "условия gates и safety actions. Доступно пользователю с ролью experimenter, "
-        "который имеет доступ к эксперименту."
-    ),
     parameters=[
         {
             "name": "id",
@@ -73,7 +68,6 @@ async def _require_experimenter_access(
     ],
     responses={
         200: {
-            "description": "План раскатки",
             "schema": RampPlanSchema,
             "examples": {"application/json": RAMP_PLAN_RESPONSE_EXAMPLE},
         },
@@ -140,11 +134,6 @@ class RampPlanPutBody(BaseModel):
 @docs(
     tags=["Autopilot Ramp-up"],
     summary="Создать или обновить план раскатки",
-    description=(
-        "Создаёт новый или обновляет существующий ramp plan: observation window, ступени трафика, "
-        "gates и safety actions. При обновлении текущие steps/safety_actions пересоздаются. "
-        "Доступно пользователю с ролью experimenter."
-    ),
     parameters=[
         {
             "name": "id",
@@ -156,7 +145,6 @@ class RampPlanPutBody(BaseModel):
     ],
     responses={
         200: {
-            "description": "План раскатки создан/обновлён",
             "schema": RampPlanSchema,
             "examples": {"application/json": RAMP_PLAN_RESPONSE_EXAMPLE},
         },
@@ -196,10 +184,6 @@ async def ramp_plan_put(request: web.Request, parsed: RampPlanPutBody) -> web.Re
 @docs(
     tags=["Autopilot Ramp-up"],
     summary="Удалить план раскатки",
-    description=(
-        "Удаляет ramp plan эксперимента (включая связанные ступени и safety actions через каскад БД). "
-        "Доступно пользователю с ролью experimenter."
-    ),
     parameters=[
         {
             "name": "id",
@@ -210,7 +194,7 @@ async def ramp_plan_put(request: web.Request, parsed: RampPlanPutBody) -> web.Re
         }
     ],
     responses={
-        204: {"description": "План удалён"},
+        204: {},
         401: RESPONSES_HTTP_ERROR[401],
         403: RESPONSES_HTTP_ERROR[403],
         404: RESPONSES_HTTP_ERROR[404],
@@ -233,10 +217,6 @@ async def ramp_plan_delete(request: web.Request) -> web.Response:
 @docs(
     tags=["Autopilot Ramp-up"],
     summary="Получить состояние автопилота",
-    description=(
-        "Возвращает текущее runtime-состояние автопилота: активная ступень, режим "
-        "(autopilot/manual/paused), время последней оценки и признаки manual override."
-    ),
     parameters=[
         {
             "name": "id",
@@ -248,7 +228,6 @@ async def ramp_plan_delete(request: web.Request) -> web.Response:
     ],
     responses={
         200: {
-            "description": "Состояние раскатки",
             "schema": RampStateSchema,
             "examples": {"application/json": RAMP_STATE_RESPONSE_EXAMPLE},
         },
@@ -274,10 +253,6 @@ async def ramp_state_get(request: web.Request) -> web.Response:
 @docs(
     tags=["Autopilot Ramp-up"],
     summary="Запустить автопилот",
-    description=(
-        "Запускает автопилот для эксперимента: создаёт ramp_state в режиме autopilot с current_step_index=0 "
-        "и применяет первую ступень к трафику эксперимента. Эксперимент должен быть в статусе running."
-    ),
     parameters=[
         {
             "name": "id",
@@ -289,7 +264,6 @@ async def ramp_state_get(request: web.Request) -> web.Response:
     ],
     responses={
         200: {
-            "description": "Состояние раскатки после запуска",
             "schema": RampStateSchema,
             "examples": {"application/json": RAMP_STATE_RESPONSE_EXAMPLE},
         },
@@ -335,10 +309,6 @@ class RampModeBody(BaseModel):
 @docs(
     tags=["Autopilot Ramp-up"],
     summary="Установить режим автопилота",
-    description=(
-        "Переключает режим автопилота: autopilot | manual | paused. "
-        "В режиме manual разрешён ручной override ступени, в paused override запрещён."
-    ),
     parameters=[
         {
             "name": "id",
@@ -350,7 +320,6 @@ class RampModeBody(BaseModel):
     ],
     responses={
         200: {
-            "description": "Обновлённое состояние раскатки",
             "schema": RampStateSchema,
             "examples": {"application/json": RAMP_STATE_RESPONSE_EXAMPLE},
         },
@@ -394,10 +363,6 @@ class RampOverrideBody(BaseModel):
 @docs(
     tags=["Autopilot Ramp-up"],
     summary="Ручной переход на ступень",
-    description=(
-        "Ручной перевод автопилота на указанную ступень. Допустимо только в режиме manual; "
-        "после успешного override трафик эксперимента синхронизируется с выбранной ступенью."
-    ),
     parameters=[
         {
             "name": "id",
@@ -409,7 +374,6 @@ class RampOverrideBody(BaseModel):
     ],
     responses={
         200: {
-            "description": "Обновлённое состояние раскатки",
             "schema": RampStateSchema,
             "examples": {"application/json": RAMP_STATE_RESPONSE_EXAMPLE},
         },
@@ -450,10 +414,6 @@ async def ramp_override_post(request: web.Request, parsed: RampOverrideBody) -> 
 @docs(
     tags=["Autopilot Ramp-up"],
     summary="История решений автопилота",
-    description=(
-        "Возвращает лог решений автопилота: start/step_up/step_back/pause/rollback/override и т.д. "
-        "Записи отсортированы от новых к старым. Поддерживается query-параметр limit."
-    ),
     parameters=[
         {
             "name": "id",

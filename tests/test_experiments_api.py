@@ -5,7 +5,6 @@ from conftest import create_experiment_in_running
 
 
 async def _ensure_learning_completed(http_session, base_url, auth_headers_experimenter, exp_id):
-    """Создаёт completed learning для эксперимента, чтобы complete не возвращал 409 при LEARNINGS_REQUIRED_ON_COMPLETE=true."""
     payload = {
         "hypothesis": "Test learning for completion",
         "primary_metric_key": "conversion_rate",
@@ -527,7 +526,6 @@ async def test_experiments_guardrail_history_not_found(
 
 @pytest.mark.asyncio
 async def test_experiments_complete_requires_auth(http_session, base_url):
-    """POST .../complete без токена возвращает 401."""
     url = f"{base_url}/api/v1/experiments/00000000-0000-0000-0000-000000000001/complete"
     async with http_session.post(
         url,
@@ -541,7 +539,6 @@ async def test_experiments_complete_forbidden_for_viewer(
     http_session, base_url, auth_headers_viewer, auth_headers_experimenter,
     auth_headers_approver, auth_headers_admin
 ):
-    """POST .../complete от viewer возвращает 403."""
     exp_id = await create_experiment_in_running(
         http_session, base_url, auth_headers_experimenter, auth_headers_approver, auth_headers_admin,
         key_prefix="complete_perm",
@@ -567,7 +564,6 @@ async def test_experiments_complete_forbidden_for_viewer(
 async def test_experiments_complete_not_found(
     http_session, base_url, auth_headers_experimenter
 ):
-    """POST .../complete по несуществующему эксперименту возвращает 404."""
     url = f"{base_url}/api/v1/experiments/00000000-0000-0000-0000-000000000001/complete"
     async with http_session.post(
         url,
@@ -581,7 +577,6 @@ async def test_experiments_complete_not_found(
 async def test_experiments_complete_invalid_status_returns_400(
     http_session, base_url, auth_headers_experimenter, flag_id
 ):
-    """POST .../complete при статусе draft возвращает 400."""
     create_url = f"{base_url}/api/v1/experiments"
     async with http_session.post(
         create_url,
@@ -605,7 +600,6 @@ async def test_experiments_complete_invalid_status_returns_400(
 async def test_experiments_complete_rollout_winner_invalid_variant_returns_400(
     http_session, base_url, auth_headers_experimenter, auth_headers_approver, auth_headers_admin
 ):
-    """POST .../complete с completion_outcome=rollout_winner и неверным variant_id возвращает 400."""
     exp_id = await create_experiment_in_running(
         http_session, base_url, auth_headers_experimenter, auth_headers_approver, auth_headers_admin,
         key_prefix="complete_invalid_var",
@@ -631,7 +625,6 @@ async def test_experiments_complete_rollout_winner_invalid_variant_returns_400(
 async def test_experiments_complete_success_rollback(
     http_session, base_url, auth_headers_experimenter, auth_headers_approver, auth_headers_admin
 ):
-    """POST .../complete с rollback возвращает 200 и status=completed."""
     exp_id = await create_experiment_in_running(
         http_session, base_url, auth_headers_experimenter, auth_headers_approver, auth_headers_admin,
         key_prefix="complete_rollback",
@@ -653,7 +646,6 @@ async def test_experiments_complete_success_rollback(
 async def test_experiments_complete_success_no_effect(
     http_session, base_url, auth_headers_experimenter, auth_headers_approver, auth_headers_admin
 ):
-    """POST .../complete с no_effect возвращает 200."""
     exp_id = await create_experiment_in_running(
         http_session, base_url, auth_headers_experimenter, auth_headers_approver, auth_headers_admin,
         key_prefix="complete_no_effect",
@@ -674,7 +666,6 @@ async def test_experiments_complete_success_no_effect(
 async def test_experiments_complete_success_rollout_winner(
     http_session, base_url, auth_headers_experimenter, auth_headers_approver, auth_headers_admin
 ):
-    """POST .../complete с rollout_winner и валидным variant_id возвращает 200."""
     exp_id = await create_experiment_in_running(
         http_session, base_url, auth_headers_experimenter, auth_headers_approver, auth_headers_admin,
         key_prefix="complete_rollout",

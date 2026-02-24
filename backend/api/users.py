@@ -206,14 +206,8 @@ class UserList(BaseModel):
 @docs(
     tags=["Users"],
     summary="Список пользователей",
-    description=(
-        "Список пользователей с опциональным фильтром по роли. Доступ: Admin — все пользователи."
-    ),
     responses={
-        200: {
-            "description": "Список пользователей (массив в поле users)",
-            "schema": UserListResponseSchema,
-        },
+        200: {"schema": UserListResponseSchema},
         401: RESPONSES_HTTP_ERROR[401],
         403: RESPONSES_HTTP_ERROR[403],
     },
@@ -234,12 +228,8 @@ async def users_list(request: web.Request, parsed: UserList) -> web.Response:
 @docs(
     tags=["Users"],
     summary="Создать пользователя",
-    description="Создать пользователя и назначить роль. Доступ: Admin.",
     responses={
-        201: {
-            "description": "Пользователь создан (объект пользователя без пароля)",
-            "schema": UserProfileSchema,
-        },
+        201: {"schema": UserProfileSchema},
         400: RESPONSES_HTTP_ERROR[400],
         401: RESPONSES_HTTP_ERROR[401],
         403: RESPONSES_HTTP_ERROR[403],
@@ -272,12 +262,8 @@ async def users_create(request: web.Request, parsed: UserCreate) -> web.Response
 @docs(
     tags=["Users"],
     summary="Получить пользователя",
-    description="Получить пользователя по ID. Path: id — UUID пользователя.",
     responses={
-        200: {
-            "description": "Данные пользователя (id, email, first_name, role, verified, created_at, updated_at)",
-            "schema": UserProfileSchema,
-        },
+        200: {"schema": UserProfileSchema},
         400: RESPONSES_HTTP_ERROR[400],
         401: RESPONSES_HTTP_ERROR[401],
         403: RESPONSES_HTTP_ERROR[403],
@@ -304,12 +290,8 @@ async def users_get(request: web.Request) -> web.Response:
 @docs(
     tags=["Users"],
     summary="Обновить пользователя",
-    description="Обновить пользователя и/или назначить роль. Доступ: Admin. Path: id — UUID пользователя.",
     responses={
-        200: {
-            "description": "Пользователь обновлён (объект пользователя без пароля)",
-            "schema": UserProfileSchema,
-        },
+        200: {"schema": UserProfileSchema},
         400: RESPONSES_HTTP_ERROR[400],
         401: RESPONSES_HTTP_ERROR[401],
         403: RESPONSES_HTTP_ERROR[403],
@@ -344,16 +326,8 @@ async def users_update(request: web.Request, parsed: UserUpdate) -> web.Response
 @docs(
     tags=["Users"],
     summary="Список групп аппруверов",
-    description=(
-        "Список групп одобряющих. experimenter_id=null — fallback-группа. "
-        "Для Experimenter без персональной группы используется fallback, "
-        "а при её отсутствии — min_approvals=1, approver_ids=все admin."
-    ),
     responses={
-        200: {
-            "description": "Список групп аппруверов (поле approver_groups)",
-            "schema": ApproverGroupListResponseSchema,
-        },
+        200: {"schema": ApproverGroupListResponseSchema},
         401: RESPONSES_HTTP_ERROR[401],
         403: RESPONSES_HTTP_ERROR[403],
     },
@@ -372,16 +346,8 @@ async def approver_groups_list(request: web.Request) -> web.Response:
 @docs(
     tags=["Users"],
     summary="Создать группу аппруверов",
-    description=(
-        "Создать новую группу. experimenter_id=null — fallback-группа (единственная). "
-        "Если группа для experimenter_id уже есть — 409. "
-        "Доступ: Admin. В группу попадают только пользователи с role admin/approver."
-    ),
     responses={
-        201: {
-            "description": "Группа создана (объект группы с id, experimenter_id, min_approvals, created_at, updated_at)",
-            "schema": ApproverGroupItemSchema,
-        },
+        201: {"schema": ApproverGroupItemSchema},
         400: RESPONSES_HTTP_ERROR[400],
         401: RESPONSES_HTTP_ERROR[401],
         403: RESPONSES_HTTP_ERROR[403],
@@ -396,7 +362,7 @@ async def approver_groups_create(request: web.Request, parsed: ApproverGroupSet)
     auth_payload = await check_authorization(request)
     if not auth_payload:
         return validate.format_401_error(request, "Token is required")
-    if auth_payload["role"] != "approver":
+    if auth_payload["role"] != "admin":
         return validate.format_403_error(request, "Not enough permissions to access this resource")
 
     result = await create_approver_group(
@@ -417,15 +383,8 @@ async def approver_groups_create(request: web.Request, parsed: ApproverGroupSet)
 @docs(
     tags=["Users"],
     summary="Обновить группу аппруверов",
-    description=(
-        "Обновить min_approvals и/или список approver_ids по id группы. "
-        "Доступ: Admin. Path: id — UUID группы."
-    ),
     responses={
-        200: {
-            "description": "Группа обновлена (объект группы)",
-            "schema": ApproverGroupItemSchema,
-        },
+        200: {"schema": ApproverGroupItemSchema},
         400: RESPONSES_HTTP_ERROR[400],
         401: RESPONSES_HTTP_ERROR[401],
         403: RESPONSES_HTTP_ERROR[403],
@@ -441,7 +400,7 @@ async def approver_groups_update(
     auth_payload = await check_authorization(request)
     if not auth_payload:
         return validate.format_401_error(request, "Token is required")
-    if auth_payload["role"] != "approver":
+    if auth_payload["role"] != "admin":
         return validate.format_403_error(request, "Not enough permissions to access this resource")
 
     group_id = parse_uuid(request.match_info.get("id", ""))

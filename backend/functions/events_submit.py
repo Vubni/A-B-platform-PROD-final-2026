@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import uuid as uuid_module
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from core import parse_iso_timestamp, validate_uuid
+from core import parse_iso_timestamp, serialize_json, validate_uuid
 from database.database import Database
 from functions.event_types import get_event_type_by_key
 from functions.events_dependency_queue import (
@@ -119,6 +120,82 @@ async def _show_event_exists(decision_id: str, show_event_type_id: str) -> bool:
         return bool(row)
 
 
+def _to_uuid_list(ids: list[str]) -> list[uuid_module.UUID]:
+    out = []
+    for s in ids:
+        try:
+            out.append(s if isinstance(s, uuid_module.UUID) else uuid_module.UUID(str(s)))
+        except (ValueError, TypeError):
+            continue
+    return out
+
+
+async def _batch_existing_decision_ids(db: Database, decision_ids: list[str]) -> set[str]:
+    if not decision_ids:
+        return set()
+    uuids = _to_uuid_list(decision_ids)
+    if not uuids:
+        return set()
+    rows = await db.execute_all(
+        "SELECT decision_id FROM decisions WHERE decision_id = ANY($1::uuid[])",
+        (uuids,),
+    )
+    return {str(r["decision_id"]) for r in (rows or [])}
+
+
+async def _batch_existing_event_ids(db: Database, event_ids: list[str]) -> set[str]:
+    if not event_ids:
+        return set()
+    rows = await db.execute_all(
+        "SELECT event_id FROM event_occurrences WHERE event_id = ANY($1::text[])",
+        (event_ids,),
+    )
+    return {str(r["event_id"]) for r in (rows or [])}
+
+
+async def _batch_event_types_by_keys(db: Database, keys: list[str]) -> dict[str, dict]:
+    if not keys:
+        return {}
+    unique = list(dict.fromkeys(k.strip() for k in keys))
+    rows = await db.execute_all(
+        """SELECT id, key, display_name, description, required_params, validation_type,
+                  report_alert_config, status, requires_show_event_type_id, is_critical,
+                  created_at, updated_at
+           FROM event_types WHERE key = ANY($1) AND status = 'active'""",
+        (unique,),
+    )
+    out = {}
+    for r in rows or []:
+        row = serialize_json(r)
+        if row and row.get("key"):
+            out[row["key"]] = row
+    return out
+
+
+async def _batch_show_event_exists(
+    db: Database, pairs: list[tuple[str, str]]
+) -> set[tuple[str, str]]:
+    if not pairs:
+        return set()
+    decision_ids = [p[0] for p in pairs]
+    type_ids = [p[1] for p in pairs]
+    uuids_d = _to_uuid_list(decision_ids)
+    uuids_t = _to_uuid_list(type_ids)
+    if len(uuids_d) != len(pairs) or len(uuids_t) != len(pairs):
+        return set()
+    rows = await db.execute_all(
+        """SELECT e.decision_id, e.event_type_id
+           FROM event_occurrences e
+           INNER JOIN (
+               SELECT unnest($1::uuid[]) AS d, unnest($2::uuid[]) AS t
+           ) u ON e.decision_id = u.d AND e.event_type_id = u.t""",
+        (uuids_d, uuids_t),
+    )
+    if not rows:
+        return set()
+    return {(str(r["decision_id"]), str(r["event_type_id"])) for r in rows}
+
+
 async def _insert_event(
     event_id: str,
     decision_id: str,
@@ -126,10 +203,11 @@ async def _insert_event(
     subject_id: str,
     timestamp: datetime,
     payload: dict | None,
+    db: Database | None = None,
 ) -> bool:
-    async with Database() as db:
+    async def _do_insert(conn: Database) -> bool:
         try:
-            await db.execute(
+            await conn.execute(
                 """INSERT INTO event_occurrences
                    (event_id, decision_id, event_type_id, subject_id, "timestamp", payload)
                    VALUES ($1, $2, $3, $4, $5, $6)""",
@@ -146,27 +224,23 @@ async def _insert_event(
         except Exception:
             return False
 
+    if db is not None:
+        return await _do_insert(db)
+    async with Database() as conn:
+        return await _do_insert(conn)
 
-async def process_events_batch(events: list[Any]) -> dict[str, Any]:
+
+async def validate_events_batch(events: list[Any]) -> dict[str, Any]:
     accepted = 0
     duplicates = 0
     rejected = 0
     errors: list[dict[str, Any]] = []
-    touched_decision_ids: set[str] = set()
-
-    await events_dependency_queue.expire_old()
 
     for index, raw in enumerate(events):
         parsed, ev_id, err = _validate_single_event(raw, index)
         if err:
             rejected += 1
-            errors.append(
-                {
-                    "index": index,
-                    "event_id": ev_id,
-                    "message": err,
-                }
-            )
+            errors.append({"index": index, "event_id": ev_id, "message": err})
             continue
 
         event_type = await get_event_type_by_key(parsed.event_type_key)
@@ -195,24 +269,139 @@ async def process_events_batch(events: list[Any]) -> dict[str, Any]:
         rp_err = _validate_required_params(event_type.get("required_params"), parsed.payload)
         if rp_err:
             rejected += 1
-            errors.append(
-                {
-                    "index": index,
-                    "event_id": parsed.event_id,
-                    "message": rp_err,
-                }
-            )
+            errors.append({"index": index, "event_id": parsed.event_id, "message": rp_err})
             continue
 
         if await _event_exists(parsed.event_id):
             duplicates += 1
             continue
 
-        et_id = event_type["id"]
-        requires_show_id = event_type.get("requires_show_event_type_id")
+        accepted += 1
 
-        if requires_show_id:
-            if await _show_event_exists(parsed.decision_id, requires_show_id):
+    return {
+        "accepted": accepted,
+        "duplicates": duplicates,
+        "rejected": rejected,
+        "errors": errors,
+    }
+
+
+async def process_events_batch(events: list[Any]) -> dict[str, Any]:
+    accepted = 0
+    duplicates = 0
+    rejected = 0
+    errors: list[dict[str, Any]] = []
+    touched_decision_ids: set[str] = set()
+
+    await events_dependency_queue.expire_old()
+
+    parsed_list: list[tuple[int, Any, EventSubmitInput | None, str | None, str | None]] = []
+    decision_ids: list[str] = []
+    event_ids: list[str] = []
+    event_type_keys: list[str] = []
+    for index, raw in enumerate(events):
+        parsed, ev_id, err = _validate_single_event(raw, index)
+        parsed_list.append((index, raw, parsed, ev_id, err))
+        if parsed is not None and err is None:
+            decision_ids.append(parsed.decision_id)
+            event_ids.append(parsed.event_id)
+            event_type_keys.append(parsed.event_type_key)
+
+    async with Database() as db:
+        event_type_cache = await _batch_event_types_by_keys(db, event_type_keys)
+        existing_decision_ids = await _batch_existing_decision_ids(db, decision_ids)
+        existing_event_ids = await _batch_existing_event_ids(db, event_ids)
+
+        show_pairs = []
+        for _idx, _raw, parsed, _ev_id, err in parsed_list:
+            if parsed is None or err is not None:
+                continue
+            et = event_type_cache.get(parsed.event_type_key)
+            if not et:
+                continue
+            rid = et.get("requires_show_event_type_id")
+            if rid:
+                show_pairs.append((parsed.decision_id, rid))
+        show_exists_set: set[tuple[str, str]] = await _batch_show_event_exists(db, show_pairs)
+
+        for index, raw, parsed, ev_id, err in parsed_list:
+            if err is not None:
+                rejected += 1
+                errors.append({"index": index, "event_id": ev_id, "message": err})
+                continue
+            if parsed is None:
+                continue
+
+            event_type = event_type_cache.get(parsed.event_type_key)
+            if not event_type:
+                rejected += 1
+                errors.append(
+                    {
+                        "index": index,
+                        "event_id": parsed.event_id,
+                        "message": f"unknown event type: {parsed.event_type_key}",
+                    }
+                )
+                continue
+
+            if parsed.decision_id not in existing_decision_ids:
+                rejected += 1
+                errors.append(
+                    {
+                        "index": index,
+                        "event_id": parsed.event_id,
+                        "message": "decision_id not found",
+                    }
+                )
+                continue
+
+            rp_err = _validate_required_params(event_type.get("required_params"), parsed.payload)
+            if rp_err:
+                rejected += 1
+                errors.append({"index": index, "event_id": parsed.event_id, "message": rp_err})
+                continue
+
+            if parsed.event_id in existing_event_ids:
+                duplicates += 1
+                continue
+
+            et_id = event_type["id"]
+            requires_show_id = event_type.get("requires_show_event_type_id")
+
+            if requires_show_id:
+                if (parsed.decision_id, requires_show_id) in show_exists_set:
+                    ok = await _insert_event(
+                        parsed.event_id,
+                        parsed.decision_id,
+                        et_id,
+                        parsed.subject_id,
+                        parsed.timestamp,
+                        parsed.payload,
+                        db=db,
+                    )
+                    if ok:
+                        accepted += 1
+                        touched_decision_ids.add(parsed.decision_id)
+                        existing_event_ids.add(parsed.event_id)
+                        show_exists_set.add((parsed.decision_id, et_id))
+                    else:
+                        duplicates += 1
+                else:
+                    pending = PendingEvent(
+                        event_id=parsed.event_id,
+                        decision_id=parsed.decision_id,
+                        event_type_id=et_id,
+                        subject_id=parsed.subject_id,
+                        timestamp=parsed.timestamp,
+                        payload=parsed.payload,
+                    )
+                    await events_dependency_queue.add(
+                        parsed.decision_id,
+                        requires_show_id,
+                        pending,
+                    )
+                    accepted += 1
+            else:
                 ok = await _insert_event(
                     parsed.event_id,
                     parsed.decision_id,
@@ -220,55 +409,33 @@ async def process_events_batch(events: list[Any]) -> dict[str, Any]:
                     parsed.subject_id,
                     parsed.timestamp,
                     parsed.payload,
+                    db=db,
                 )
                 if ok:
                     accepted += 1
                     touched_decision_ids.add(parsed.decision_id)
+                    existing_event_ids.add(parsed.event_id)
+                    show_exists_set.add((parsed.decision_id, et_id))
+                    ready = await events_dependency_queue.pop_ready(
+                        parsed.decision_id,
+                        et_id,
+                    )
+                    for pe in ready:
+                        ok_pe = await _insert_event(
+                            pe.event_id,
+                            pe.decision_id,
+                            pe.event_type_id,
+                            pe.subject_id,
+                            pe.timestamp,
+                            pe.payload,
+                            db=db,
+                        )
+                        if ok_pe:
+                            touched_decision_ids.add(pe.decision_id)
+                            existing_event_ids.add(pe.event_id)
+                            show_exists_set.add((pe.decision_id, pe.event_type_id))
                 else:
                     duplicates += 1
-            else:
-                pending = PendingEvent(
-                    event_id=parsed.event_id,
-                    decision_id=parsed.decision_id,
-                    event_type_id=et_id,
-                    subject_id=parsed.subject_id,
-                    timestamp=parsed.timestamp,
-                    payload=parsed.payload,
-                )
-                await events_dependency_queue.add(
-                    parsed.decision_id,
-                    requires_show_id,
-                    pending,
-                )
-                accepted += 1
-        else:
-            ok = await _insert_event(
-                parsed.event_id,
-                parsed.decision_id,
-                et_id,
-                parsed.subject_id,
-                parsed.timestamp,
-                parsed.payload,
-            )
-            if ok:
-                accepted += 1
-                touched_decision_ids.add(parsed.decision_id)
-                ready = await events_dependency_queue.pop_ready(
-                    parsed.decision_id,
-                    et_id,
-                )
-                for pe in ready:
-                    await _insert_event(
-                        pe.event_id,
-                        pe.decision_id,
-                        pe.event_type_id,
-                        pe.subject_id,
-                        pe.timestamp,
-                        pe.payload,
-                    )
-                    touched_decision_ids.add(pe.decision_id)
-            else:
-                duplicates += 1
 
     if touched_decision_ids:
         try:

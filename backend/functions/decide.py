@@ -35,9 +35,7 @@ async def get_decisions_for_subject(
                 if not flag:
                     continue
                 decision_id = uuid.uuid4()
-                flag_uuid = (
-                    uuid.UUID(flag["id"]) if isinstance(flag["id"], str) else flag["id"]
-                )
+                flag_uuid = uuid.UUID(flag["id"]) if isinstance(flag["id"], str) else flag["id"]
                 await db.execute(
                     """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
                        VALUES ($1, $2, $3, $4, NULL, NULL)""",
@@ -305,9 +303,7 @@ async def get_decisions_for_subject(
             if not flag or flag["key"] in added_keys:
                 continue
             decision_id = uuid.uuid4()
-            flag_uuid = (
-                uuid.UUID(flag["id"]) if isinstance(flag["id"], str) else flag["id"]
-            )
+            flag_uuid = uuid.UUID(flag["id"]) if isinstance(flag["id"], str) else flag["id"]
             await db.execute(
                 """INSERT INTO decisions (decision_id, subject_id, flag_id, value, experiment_id, variant_id)
                    VALUES ($1, $2, $3, $4, NULL, NULL)""",

@@ -36,12 +36,8 @@ class AuthLogin(BaseModel):
 @docs(
     tags=["Auth"],
     summary="Авторизация",
-    description=("Авторизация, возвращает токен и данные пользователя"),
     responses={
-        200: {
-            "description": "Успешный вход (token, user без пароля)",
-            "schema": AuthLoginResponseSchema,
-        },
+        200: {"schema": AuthLoginResponseSchema},
         400: RESPONSES_HTTP_ERROR[400],
         401: RESPONSES_HTTP_ERROR[401],
         422: RESPONSES_HTTP_ERROR[422],

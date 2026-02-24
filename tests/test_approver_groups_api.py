@@ -1,6 +1,3 @@
-"""
-Тесты API групп аппруверов: GET/POST /api/v1/approver-groups, PATCH /api/v1/approver-groups/{id}.
-"""
 import uuid
 
 import pytest
@@ -8,7 +5,6 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_approver_groups_list_requires_auth(http_session, base_url):
-    """GET /api/v1/approver-groups без токена возвращает 401."""
     url = f"{base_url}/api/v1/approver-groups"
     async with http_session.get(url) as resp:
         assert resp.status == 401
@@ -20,7 +16,6 @@ async def test_approver_groups_list_requires_auth(http_session, base_url):
 async def test_approver_groups_list_success_admin(
     http_session, base_url, auth_headers_admin
 ):
-    """GET /api/v1/approver-groups от admin возвращает 200 и approver_groups."""
     url = f"{base_url}/api/v1/approver-groups"
     async with http_session.get(url, headers=auth_headers_admin) as resp:
         assert resp.status == 200
@@ -33,7 +28,6 @@ async def test_approver_groups_list_success_admin(
 async def test_approver_groups_list_success_approver(
     http_session, base_url, auth_headers_approver
 ):
-    """GET /api/v1/approver-groups от approver возвращает 200."""
     url = f"{base_url}/api/v1/approver-groups"
     async with http_session.get(url, headers=auth_headers_approver) as resp:
         assert resp.status == 200
@@ -45,7 +39,6 @@ async def test_approver_groups_list_success_approver(
 async def test_approver_groups_list_success_experimenter(
     http_session, base_url, auth_headers_experimenter
 ):
-    """GET /api/v1/approver-groups от experimenter возвращает 200."""
     url = f"{base_url}/api/v1/approver-groups"
     async with http_session.get(url, headers=auth_headers_experimenter) as resp:
         assert resp.status == 200
@@ -55,7 +48,6 @@ async def test_approver_groups_list_success_experimenter(
 
 @pytest.mark.asyncio
 async def test_approver_groups_create_requires_auth(http_session, base_url):
-    """POST /api/v1/approver-groups без токена возвращает 401."""
     url = f"{base_url}/api/v1/approver-groups"
     async with http_session.post(
         url,
@@ -69,26 +61,45 @@ async def test_approver_groups_create_requires_auth(http_session, base_url):
 
 
 @pytest.mark.asyncio
-async def test_approver_groups_create_forbidden_for_admin(
-    http_session, base_url, auth_headers_admin
+async def test_approver_groups_create_forbidden_for_viewer(
+    http_session, base_url, auth_headers_viewer
 ):
-    """POST /api/v1/approver-groups от admin возвращает 403 (только approver)."""
+    url = f"{base_url}/api/v1/approver-groups"
+    async with http_session.post(
+        url,
+        headers=auth_headers_viewer,
+        json={
+            "experimenter_id": None,
+            "min_approvals": 1,
+            "approver_ids": [],
+        },
+    ) as resp:
+        assert resp.status == 403
+        data = await resp.json()
+        assert data.get("code") == "FORBIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_approver_groups_create_forbidden_for_approver(
+    http_session, base_url, auth_headers_approver, auth_headers_admin
+):
     url = f"{base_url}/api/v1/approver-groups"
     async with http_session.get(
         f"{base_url}/api/v1/users", headers=auth_headers_admin
     ) as r:
-        assert r.status == 200
+        if r.status != 200:
+            pytest.skip("Need users")
         users = (await r.json()).get("users") or []
-    approver = next((u for u in users if u.get("role") == "approver"), None)
-    if not approver:
-        pytest.skip("Need approver user in seed")
+    approver_user = next((u for u in users if u.get("role") == "approver"), None)
+    if not approver_user:
+        pytest.skip("Need approver in seed")
     async with http_session.post(
         url,
-        headers=auth_headers_admin,
+        headers=auth_headers_approver,
         json={
             "experimenter_id": None,
             "min_approvals": 1,
-            "approver_ids": [approver["id"]],
+            "approver_ids": [approver_user["id"]],
         },
     ) as resp:
         assert resp.status == 403
@@ -98,9 +109,8 @@ async def test_approver_groups_create_forbidden_for_admin(
 
 @pytest.mark.asyncio
 async def test_approver_groups_create_success_fallback(
-    http_session, base_url, auth_headers_approver, auth_headers_admin
+    http_session, base_url, auth_headers_admin
 ):
-    """POST /api/v1/approver-groups от approver создаёт fallback-группу (experimenter_id=null)."""
     url = f"{base_url}/api/v1/approver-groups"
     async with http_session.get(
         f"{base_url}/api/v1/users", headers=auth_headers_admin
@@ -117,7 +127,7 @@ async def test_approver_groups_create_success_fallback(
         "approver_ids": approver_ids,
     }
     async with http_session.post(
-        url, headers=auth_headers_approver, json=payload
+        url, headers=auth_headers_admin, json=payload
     ) as resp:
         if resp.status == 409:
             data = await resp.json()
@@ -132,9 +142,8 @@ async def test_approver_groups_create_success_fallback(
 
 @pytest.mark.asyncio
 async def test_approver_groups_create_success_for_experimenter(
-    http_session, base_url, auth_headers_approver, auth_headers_admin
+    http_session, base_url, auth_headers_admin
 ):
-    """POST /api/v1/approver-groups с experimenter_id создаёт группу (201 или 409)."""
     url = f"{base_url}/api/v1/approver-groups"
     async with http_session.get(
         f"{base_url}/api/v1/users", headers=auth_headers_admin
@@ -151,7 +160,7 @@ async def test_approver_groups_create_success_for_experimenter(
         "approver_ids": [approver_user["id"]],
     }
     async with http_session.post(
-        url, headers=auth_headers_approver, json=payload
+        url, headers=auth_headers_admin, json=payload
     ) as resp:
         assert resp.status in (201, 409)
         if resp.status == 201:
@@ -162,9 +171,8 @@ async def test_approver_groups_create_success_for_experimenter(
 
 @pytest.mark.asyncio
 async def test_approver_groups_create_min_approvals_validation(
-    http_session, base_url, auth_headers_approver, auth_headers_admin
+    http_session, base_url, auth_headers_admin
 ):
-    """POST /api/v1/approver-groups с min_approvals < 1 возвращает 400."""
     url = f"{base_url}/api/v1/approver-groups"
     async with http_session.get(
         f"{base_url}/api/v1/users", headers=auth_headers_admin
@@ -176,7 +184,7 @@ async def test_approver_groups_create_min_approvals_validation(
         pytest.skip("Need approver in seed")
     async with http_session.post(
         url,
-        headers=auth_headers_approver,
+        headers=auth_headers_admin,
         json={
             "experimenter_id": None,
             "min_approvals": 0,
@@ -195,9 +203,8 @@ async def test_approver_groups_create_min_approvals_validation(
 
 @pytest.mark.asyncio
 async def test_approver_groups_create_experimenter_not_found(
-    http_session, base_url, auth_headers_approver, auth_headers_admin
+    http_session, base_url, auth_headers_admin
 ):
-    """POST /api/v1/approver-groups с несуществующим experimenter_id возвращает 404."""
     url = f"{base_url}/api/v1/approver-groups"
     fake_uuid = "00000000-0000-0000-0000-000000000099"
     async with http_session.get(
@@ -210,7 +217,7 @@ async def test_approver_groups_create_experimenter_not_found(
         pytest.skip("Need approver in seed")
     async with http_session.post(
         url,
-        headers=auth_headers_approver,
+        headers=auth_headers_admin,
         json={
             "experimenter_id": fake_uuid,
             "min_approvals": 1,
@@ -224,7 +231,6 @@ async def test_approver_groups_create_experimenter_not_found(
 
 @pytest.mark.asyncio
 async def test_approver_groups_update_requires_auth(http_session, base_url):
-    """PATCH /api/v1/approver-groups/{id} без токена возвращает 401."""
     url = f"{base_url}/api/v1/approver-groups/{uuid.uuid4()}"
     async with http_session.patch(
         url, json={"min_approvals": 2}
@@ -234,9 +240,8 @@ async def test_approver_groups_update_requires_auth(http_session, base_url):
 
 @pytest.mark.asyncio
 async def test_approver_groups_update_forbidden_for_experimenter(
-    http_session, base_url, auth_headers_experimenter, auth_headers_approver, auth_headers_admin
+    http_session, base_url, auth_headers_experimenter, auth_headers_admin
 ):
-    """PATCH /api/v1/approver-groups/{id} от experimenter возвращает 403."""
     url_list = f"{base_url}/api/v1/approver-groups"
     async with http_session.get(url_list, headers=auth_headers_admin) as r:
         if r.status != 200:
@@ -254,7 +259,7 @@ async def test_approver_groups_update_forbidden_for_experimenter(
                 pytest.skip("Need approver and experimenter")
             async with http_session.post(
                 url_list,
-                headers=auth_headers_approver,
+                headers=auth_headers_admin,
                 json={
                     "experimenter_id": experimenter["id"],
                     "min_approvals": 1,
@@ -275,12 +280,33 @@ async def test_approver_groups_update_forbidden_for_experimenter(
 
 
 @pytest.mark.asyncio
-async def test_approver_groups_update_success(
+async def test_approver_groups_update_forbidden_for_approver(
     http_session, base_url, auth_headers_approver, auth_headers_admin
 ):
-    """PATCH /api/v1/approver-groups/{id} от approver обновляет группу."""
     url_list = f"{base_url}/api/v1/approver-groups"
-    async with http_session.get(url_list, headers=auth_headers_approver) as r:
+    async with http_session.get(url_list, headers=auth_headers_admin) as r:
+        if r.status != 200:
+            pytest.skip("Need to list groups")
+        groups = (await r.json()).get("approver_groups") or []
+    if not groups:
+        pytest.skip("No approver groups to update (create via seed or previous test)")
+    patch_url = f"{base_url}/api/v1/approver-groups/{groups[0]['id']}"
+    async with http_session.patch(
+        patch_url,
+        headers=auth_headers_approver,
+        json={"min_approvals": 2},
+    ) as resp:
+        assert resp.status == 403
+        data = await resp.json()
+        assert data.get("code") == "FORBIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_approver_groups_update_success(
+    http_session, base_url, auth_headers_admin
+):
+    url_list = f"{base_url}/api/v1/approver-groups"
+    async with http_session.get(url_list, headers=auth_headers_admin) as r:
         assert r.status == 200
         data = await r.json()
         groups = data.get("approver_groups") or []
@@ -290,7 +316,7 @@ async def test_approver_groups_update_success(
     patch_url = f"{base_url}/api/v1/approver-groups/{group_id}"
     async with http_session.patch(
         patch_url,
-        headers=auth_headers_approver,
+        headers=auth_headers_admin,
         json={"min_approvals": 2},
     ) as resp:
         assert resp.status == 200
@@ -301,13 +327,12 @@ async def test_approver_groups_update_success(
 
 @pytest.mark.asyncio
 async def test_approver_groups_update_not_found(
-    http_session, base_url, auth_headers_approver
+    http_session, base_url, auth_headers_admin
 ):
-    """PATCH /api/v1/approver-groups/{id} для несуществующей группы возвращает 404."""
     url = f"{base_url}/api/v1/approver-groups/00000000-0000-0000-0000-000000000001"
     async with http_session.patch(
         url,
-        headers=auth_headers_approver,
+        headers=auth_headers_admin,
         json={"min_approvals": 2},
     ) as resp:
         assert resp.status == 404
@@ -317,11 +342,10 @@ async def test_approver_groups_update_not_found(
 
 @pytest.mark.asyncio
 async def test_approver_groups_update_no_fields_returns_400(
-    http_session, base_url, auth_headers_approver, auth_headers_admin
+    http_session, base_url, auth_headers_admin
 ):
-    """PATCH /api/v1/approver-groups/{id} без полей для обновления возвращает 400."""
     url_list = f"{base_url}/api/v1/approver-groups"
-    async with http_session.get(url_list, headers=auth_headers_approver) as r:
+    async with http_session.get(url_list, headers=auth_headers_admin) as r:
         if r.status != 200:
             pytest.skip("Need list")
         groups = (await r.json()).get("approver_groups") or []
@@ -330,7 +354,7 @@ async def test_approver_groups_update_no_fields_returns_400(
     patch_url = f"{base_url}/api/v1/approver-groups/{groups[0]['id']}"
     async with http_session.patch(
         patch_url,
-        headers=auth_headers_approver,
+        headers=auth_headers_admin,
         json={},
     ) as resp:
         assert resp.status == 400

@@ -1,7 +1,10 @@
+import asyncio
 import uuid
 from datetime import UTC, datetime
 
 import pytest
+
+EVENTS_SUCCESS_STATUSES = (200, 202)
 
 
 @pytest.mark.asyncio
@@ -429,7 +432,11 @@ async def events_submit_context(
     async with http_session.post(
         f"{base_url}/api/v1/approver-groups",
         headers=auth_headers_admin,
-        json={"experimenter_id": experimenter["id"], "min_approvals": 1, "approver_ids": [approver_user["id"]]},
+        json={
+            "experimenter_id": experimenter["id"],
+            "min_approvals": 1,
+            "approver_ids": [approver_user["id"]],
+        },
     ) as _:
         pass
 
@@ -478,7 +485,7 @@ async def events_submit_context(
     subject_id = f"events-subject-{uuid.uuid4().hex[:8]}"
     async with http_session.post(
         decide_url,
-        json={"subject_id": subject_id, "attributes": {}, "flags": [flag_id]},
+        json={"subject_id": subject_id, "attributes": {}, "flags": [flag_key]},
         headers=auth_headers_viewer,
     ) as dr:
         if dr.status != 200:
@@ -497,18 +504,22 @@ async def test_events_submit_returns_200_and_shape(http_session, base_url):
     url = f"{base_url}/api/v1/events"
     payload = {"events": []}
     async with http_session.post(url, json=payload) as resp:
-        assert resp.status == 200
+        assert resp.status in EVENTS_SUCCESS_STATUSES
         data = await resp.json()
-        assert data.get("accepted") == 0
-        assert data.get("duplicates") == 0
-        assert data.get("rejected") == 0
-        assert data.get("errors") == []
-        assert data.get("status") == "ok"
-        assert "accepted" in data
-        assert "duplicates" in data
-        assert "rejected" in data
-        assert "errors" in data
-        assert isinstance(data["errors"], list)
+        if resp.status == 202:
+            assert data.get("status") == "accepted"
+            assert "message" in data
+        else:
+            assert data.get("accepted") == 0
+            assert data.get("duplicates") == 0
+            assert data.get("rejected") == 0
+            assert data.get("errors") == []
+            assert data.get("status") == "ok"
+            assert "accepted" in data
+            assert "duplicates" in data
+            assert "rejected" in data
+            assert "errors" in data
+            assert isinstance(data["errors"], list)
 
 
 @pytest.mark.asyncio
@@ -539,14 +550,17 @@ async def test_events_submit_single_event_missing_event_id(http_session, base_ur
         ]
     }
     async with http_session.post(url, json=payload) as resp:
-        assert resp.status in (200, 400)
-        if resp.status == 200:
+        assert resp.status in (200, 202, 400)
+        if resp.status in (200, 202):
             data = await resp.json()
-            assert data["rejected"] == 1
-            assert data["accepted"] == 0
-            assert len(data["errors"]) == 1
-            assert data["errors"][0]["index"] == 0
-            assert "event_id" in data["errors"][0]["message"].lower() or "required" in data["errors"][0]["message"].lower()
+            if resp.status == 200:
+                assert data["rejected"] == 1
+                assert data["accepted"] == 0
+                assert len(data["errors"]) == 1
+                assert data["errors"][0]["index"] == 0
+                assert "event_id" in data["errors"][0]["message"].lower() or "required" in data["errors"][0]["message"].lower()
+            else:
+                assert data.get("status") == "accepted"
 
 
 @pytest.mark.asyncio
@@ -564,10 +578,13 @@ async def test_events_submit_single_event_empty_event_id(http_session, base_url)
         ]
     }
     async with http_session.post(url, json=payload) as resp:
-        assert resp.status == 200
+        assert resp.status in EVENTS_SUCCESS_STATUSES
         data = await resp.json()
-        assert data["rejected"] == 1
-        assert len(data["errors"]) == 1
+        if resp.status == 200:
+            assert data["rejected"] == 1
+            assert len(data["errors"]) == 1
+        else:
+            assert data.get("status") == "accepted"
 
 
 @pytest.mark.asyncio
@@ -584,12 +601,15 @@ async def test_events_submit_single_event_missing_decision_id(http_session, base
         ]
     }
     async with http_session.post(url, json=payload) as resp:
-        assert resp.status in (200, 400)
-        if resp.status == 200:
+        assert resp.status in (200, 202, 400)
+        if resp.status in (200, 202):
             data = await resp.json()
-            assert data["rejected"] == 1
-            err = data["errors"][0]
-            assert "decision_id" in err["message"].lower() or "required" in err["message"].lower()
+            if resp.status == 200:
+                assert data["rejected"] == 1
+                err = data["errors"][0]
+                assert "decision_id" in err["message"].lower() or "required" in err["message"].lower()
+            else:
+                assert data.get("status") == "accepted"
 
 
 @pytest.mark.asyncio
@@ -607,10 +627,13 @@ async def test_events_submit_single_event_invalid_decision_id_uuid(http_session,
         ]
     }
     async with http_session.post(url, json=payload) as resp:
-        assert resp.status == 200
+        assert resp.status in EVENTS_SUCCESS_STATUSES
         data = await resp.json()
-        assert data["rejected"] == 1
-        assert "uuid" in data["errors"][0]["message"].lower() or "decision" in data["errors"][0]["message"].lower()
+        if resp.status == 200:
+            assert data["rejected"] == 1
+            assert "uuid" in data["errors"][0]["message"].lower() or "decision" in data["errors"][0]["message"].lower()
+        else:
+            assert data.get("status") == "accepted"
 
 
 @pytest.mark.asyncio
@@ -799,13 +822,16 @@ async def test_events_submit_valid_single_event_accepted(
         ]
     }
     async with http_session.post(url, json=payload) as resp:
-        assert resp.status == 200
+        assert resp.status in EVENTS_SUCCESS_STATUSES
         data = await resp.json()
-        assert data["accepted"] == 1
-        assert data["duplicates"] == 0
-        assert data["rejected"] == 0
-        assert data["errors"] == []
-        assert data["status"] == "ok"
+        if resp.status == 200:
+            assert data["accepted"] == 1
+            assert data["duplicates"] == 0
+            assert data["rejected"] == 0
+            assert data["errors"] == []
+            assert data["status"] == "ok"
+        else:
+            assert data.get("status") == "accepted"
 
 
 @pytest.mark.asyncio
@@ -824,13 +850,19 @@ async def test_events_submit_duplicate_event_id(
         "payload": {},
     }
     async with http_session.post(url, json={"events": [event]}) as resp:
-        assert resp.status == 200
+        assert resp.status in EVENTS_SUCCESS_STATUSES
         data = await resp.json()
-        assert data["accepted"] == 1 and data["duplicates"] == 0 and data["rejected"] == 0
+        if resp.status == 202:
+            await asyncio.sleep(2)
+        elif resp.status == 200:
+            assert data["accepted"] == 1 and data["duplicates"] == 0 and data["rejected"] == 0
     async with http_session.post(url, json={"events": [event]}) as resp:
-        assert resp.status == 200
+        assert resp.status in EVENTS_SUCCESS_STATUSES
         data = await resp.json()
-        assert data["accepted"] == 0 and data["duplicates"] == 1 and data["rejected"] == 0
+        if resp.status == 200:
+            assert data["accepted"] == 0 and data["duplicates"] == 1 and data["rejected"] == 0
+        else:
+            assert data.get("status") == "accepted"
 
 
 @pytest.mark.asyncio
@@ -947,10 +979,13 @@ async def test_events_submit_required_params_accepted(
         ]
     }
     async with http_session.post(url, json=payload) as resp:
-        assert resp.status == 200
+        assert resp.status in EVENTS_SUCCESS_STATUSES
         data = await resp.json()
-        assert data["accepted"] == 1
-        assert data["rejected"] == 0
+        if resp.status == 200:
+            assert data["accepted"] == 1
+            assert data["rejected"] == 0
+        else:
+            assert data.get("status") == "accepted"
 
 
 @pytest.mark.asyncio
@@ -971,10 +1006,13 @@ async def test_events_submit_timestamp_formats(http_session, base_url, events_su
             ]
         }
         async with http_session.post(url, json=payload) as resp:
-            assert resp.status == 200
+            assert resp.status in EVENTS_SUCCESS_STATUSES
             data = await resp.json()
-            assert data["accepted"] == 1, f"timestamp {ts!r} should be accepted: {data}"
-            assert data["rejected"] == 0
+            if resp.status == 200:
+                assert data["accepted"] == 1, f"timestamp {ts!r} should be accepted: {data}"
+                assert data["rejected"] == 0
+            else:
+                assert data.get("status") == "accepted"
 
 
 @pytest.mark.asyncio
@@ -994,14 +1032,17 @@ async def test_events_submit_response_errors_contain_index_and_event_id(
         ]
     }
     async with http_session.post(url, json=payload) as resp:
-        assert resp.status == 200
+        assert resp.status in EVENTS_SUCCESS_STATUSES
         data = await resp.json()
-        assert data["rejected"] == 1
-        err = data["errors"][0]
-        assert "index" in err
-        assert err["index"] == 0
-        assert err.get("event_id") == "custom-ev-123"
-        assert "message" in err
+        if resp.status == 200:
+            assert data["rejected"] == 1
+            err = data["errors"][0]
+            assert "index" in err
+            assert err["index"] == 0
+            assert err.get("event_id") == "custom-ev-123"
+            assert "message" in err
+        else:
+            assert data.get("status") == "accepted"
 
 
 @pytest.mark.asyncio
@@ -1020,12 +1061,15 @@ async def test_events_submit_with_events_body(http_session, base_url):
         ]
     }
     async with http_session.post(url, json=payload) as resp:
-        assert resp.status == 200
+        assert resp.status in EVENTS_SUCCESS_STATUSES
         data = await resp.json()
-        assert "accepted" in data
-        assert "duplicates" in data
-        assert "rejected" in data
-        assert "errors" in data
+        if resp.status == 200:
+            assert "accepted" in data
+            assert "duplicates" in data
+            assert "rejected" in data
+            assert "errors" in data
+        else:
+            assert data.get("status") == "accepted"
 
 
 @pytest.mark.asyncio
@@ -1073,10 +1117,15 @@ async def test_events_submit_out_of_order_with_requires_show(
         ]
     }
     async with http_session.post(events_url, json=click_payload) as resp:
-        assert resp.status == 200
+        assert resp.status in EVENTS_SUCCESS_STATUSES
         data = await resp.json()
-        assert data["accepted"] == 1
-        assert data["rejected"] == 0
+        if resp.status == 202:
+            await asyncio.sleep(2)
+        elif resp.status == 200:
+            assert data["accepted"] == 1
+            assert data["rejected"] == 0
+        else:
+            assert data.get("status") == "accepted"
     show_payload = {
         "events": [
             {
@@ -1090,10 +1139,13 @@ async def test_events_submit_out_of_order_with_requires_show(
         ]
     }
     async with http_session.post(events_url, json=show_payload) as resp:
-        assert resp.status == 200
+        assert resp.status in EVENTS_SUCCESS_STATUSES
         data = await resp.json()
-        assert data["accepted"] == 1
-        assert data["rejected"] == 0
+        if resp.status == 200:
+            assert data["accepted"] == 1
+            assert data["rejected"] == 0
+        else:
+            assert data.get("status") == "accepted"
 
 
 @pytest.mark.asyncio
@@ -1127,7 +1179,7 @@ async def test_guardrail_pauses_experiment_when_threshold_exceeded(
         payload = {
             "subject_id": f"guardrail-subject-{i}",
             "attributes": {},
-            "flags": [ctx["flag_id"]],
+            "flags": [ctx["flag_key"]],
         }
         async with http_session.post(
             decide_url,
@@ -1157,11 +1209,15 @@ async def test_guardrail_pauses_experiment_when_threshold_exceeded(
         ]
     }
     async with http_session.post(events_url, json=events_payload) as resp:
-        assert resp.status == 200, await resp.text()
+        assert resp.status in EVENTS_SUCCESS_STATUSES, await resp.text()
         submit_result = await resp.json()
-        assert submit_result.get("accepted", 0) >= 1, (
-            f"Conversion event must be accepted: {submit_result}"
-        )
+        if resp.status == 202:
+            assert submit_result.get("status") == "accepted"
+            await asyncio.sleep(2)
+        else:
+            assert submit_result.get("accepted", 0) >= 1, (
+                f"Conversion event must be accepted: {submit_result}"
+            )
     get_exp_url = f"{base_url}/api/v1/experiments/{exp_id}"
     async with http_session.get(get_exp_url, headers=auth_headers_experimenter) as resp:
         assert resp.status == 200

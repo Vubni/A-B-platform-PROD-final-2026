@@ -13,20 +13,20 @@ def _assert_safety_action_shape(action: dict):
     assert set(action.keys()) == {"trigger_type", "action", "notify"}
 
 
-async def _get_experiment_flag_id(http_session, base_url, auth_headers_experimenter, exp_id: str) -> str:
+async def _get_experiment_flag_key(http_session, base_url, auth_headers_experimenter, exp_id: str) -> str:
     url = f"{base_url}/api/v1/experiments/{exp_id}"
     async with http_session.get(url, headers=auth_headers_experimenter) as resp:
         assert resp.status == 200, await resp.text()
         data = await resp.json()
-        return data["flag_id"]
+        return data["flag_key"]
 
 
-async def _decide_once(http_session, base_url, auth_headers_viewer, flag_id: str, subject_id: str):
+async def _decide_once(http_session, base_url, auth_headers_viewer, flag_key: str, subject_id: str):
     url = f"{base_url}/api/v1/decide"
     payload = {
         "subject_id": subject_id,
         "attributes": {},
-        "flags": [flag_id],
+        "flags": [flag_key],
     }
     async with http_session.post(url, headers=auth_headers_viewer, json=payload) as resp:
         assert resp.status == 200, await resp.text()
@@ -254,7 +254,7 @@ async def test_autopilot_steps_up_when_gates_pass(
     running_experiment_id,
 ):
     exp_id = running_experiment_id
-    flag_id = await _get_experiment_flag_id(http_session, base_url, auth_headers_experimenter, exp_id)
+    flag_key = await _get_experiment_flag_key(http_session, base_url, auth_headers_experimenter, exp_id)
     ramp_plan_url = f"{base_url}/api/v1/experiments/{exp_id}/ramp-plan"
     start_url = f"{base_url}/api/v1/experiments/{exp_id}/ramp-start"
     state_url = f"{base_url}/api/v1/experiments/{exp_id}/ramp-state"
@@ -278,11 +278,11 @@ async def test_autopilot_steps_up_when_gates_pass(
     async with http_session.post(start_url, headers=auth_headers_experimenter) as r_start:
         assert r_start.status == 200, await r_start.text()
 
-    await _decide_once(http_session, base_url, auth_headers_viewer, flag_id, "autopilot-up-1")
+    await _decide_once(http_session, base_url, auth_headers_viewer, flag_key, "autopilot-up-1")
     await _rewind_last_eval_at(exp_id)
-    await _decide_once(http_session, base_url, auth_headers_viewer, flag_id, "autopilot-up-2")
+    await _decide_once(http_session, base_url, auth_headers_viewer, flag_key, "autopilot-up-2")
     await _rewind_last_eval_at(exp_id)
-    await _decide_once(http_session, base_url, auth_headers_viewer, flag_id, "autopilot-up-3")
+    await _decide_once(http_session, base_url, auth_headers_viewer, flag_key, "autopilot-up-3")
 
     async with http_session.get(state_url, headers=auth_headers_experimenter) as r_state:
         assert r_state.status == 200, await r_state.text()
@@ -305,7 +305,7 @@ async def test_autopilot_steps_back_when_guardrail_triggered(
     running_experiment_id,
 ):
     exp_id = running_experiment_id
-    flag_id = await _get_experiment_flag_id(http_session, base_url, auth_headers_experimenter, exp_id)
+    flag_key = await _get_experiment_flag_key(http_session, base_url, auth_headers_experimenter, exp_id)
     ramp_plan_url = f"{base_url}/api/v1/experiments/{exp_id}/ramp-plan"
     start_url = f"{base_url}/api/v1/experiments/{exp_id}/ramp-start"
     state_url = f"{base_url}/api/v1/experiments/{exp_id}/ramp-state"
@@ -331,11 +331,11 @@ async def test_autopilot_steps_back_when_guardrail_triggered(
     async with http_session.post(start_url, headers=auth_headers_experimenter) as r_start:
         assert r_start.status == 200, await r_start.text()
 
-    await _decide_once(http_session, base_url, auth_headers_viewer, flag_id, "autopilot-back-1")
+    await _decide_once(http_session, base_url, auth_headers_viewer, flag_key, "autopilot-back-1")
     await _rewind_last_eval_at(exp_id)
-    await _decide_once(http_session, base_url, auth_headers_viewer, flag_id, "autopilot-back-2")
+    await _decide_once(http_session, base_url, auth_headers_viewer, flag_key, "autopilot-back-2")
     await _rewind_last_eval_at(exp_id)
-    await _decide_once(http_session, base_url, auth_headers_viewer, flag_id, "autopilot-back-3")
+    await _decide_once(http_session, base_url, auth_headers_viewer, flag_key, "autopilot-back-3")
 
     async with http_session.get(state_url, headers=auth_headers_experimenter) as r_state_before:
         assert r_state_before.status == 200, await r_state_before.text()
@@ -352,7 +352,7 @@ async def test_autopilot_steps_back_when_guardrail_triggered(
         details='{"source":"autopilot-ramp-test"}',
     )
     await _rewind_last_eval_at(exp_id)
-    await _decide_once(http_session, base_url, auth_headers_viewer, flag_id, "autopilot-back-4")
+    await _decide_once(http_session, base_url, auth_headers_viewer, flag_key, "autopilot-back-4")
 
     async with http_session.get(state_url, headers=auth_headers_experimenter) as r_state_after:
         assert r_state_after.status == 200, await r_state_after.text()

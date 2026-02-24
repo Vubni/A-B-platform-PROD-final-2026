@@ -43,6 +43,15 @@ async def _decision_ids_by_variant(db, experiment_id: str, variant_id: str) -> l
     return [r["decision_id"] for r in rows]
 
 
+async def _subjects_count_by_variant(db, experiment_id: str, variant_id: str) -> int:
+    row = await db.execute(
+        """SELECT COUNT(DISTINCT subject_id) AS cnt FROM decisions
+           WHERE experiment_id = $1 AND variant_id = $2""",
+        (experiment_id, variant_id),
+    )
+    return int(row["cnt"]) if row and row.get("cnt") is not None else 0
+
+
 async def _event_counts_by_type(
     db, decision_ids: list[str], event_type_keys: list[str], start_ts: datetime, end_ts: datetime
 ) -> dict[str, int]:
@@ -217,7 +226,6 @@ def _primary_metric_summary(
     primary_metric_name: str | None,
     event_expectations: dict | None,
 ) -> dict | None:
-    """Сводка по главной метрике: лучше/хуже по каждому варианту относительно контроля."""
     if not event_expectations or not isinstance(event_expectations, dict):
         direction = None
     else:
@@ -361,6 +369,7 @@ async def get_experiment_report(experiment: dict, start_iso: str, end_iso: str) 
             var_name = v.get("variant_name") or ""
             is_control = v.get("is_control") or False
             decision_ids = await _decision_ids_by_variant(db, experiment["id"], var_id)
+            subjects_count = await _subjects_count_by_variant(db, experiment["id"], var_id)
             metric_values = []
             for em in exp_metrics:
                 metric_key = em["metric_key"]
@@ -387,9 +396,15 @@ async def get_experiment_report(experiment: dict, start_iso: str, end_iso: str) 
                     "variant_id": var_id,
                     "variant_name": var_name,
                     "is_control": is_control,
+                    "subjects_count": subjects_count,
                     "metric_values": metric_values,
                     "event_counts": event_counts,
                 }
+            )
+        total_subjects = sum(rv["subjects_count"] for rv in report_variants)
+        for rv in report_variants:
+            rv["share_pct"] = (
+                round(100.0 * rv["subjects_count"] / total_subjects, 2) if total_subjects else 0.0
             )
         conflict_stats = await get_conflict_stats_for_report(
             db, experiment["id"], start_ts, end_ts
@@ -399,6 +414,7 @@ async def get_experiment_report(experiment: dict, start_iso: str, end_iso: str) 
     primary_metric_key = None
     primary_metric_name = None
     primary_event_expectations = None
+    primary_aggregation_unit = None
     for em in exp_metrics:
         m = catalog_by_key.get(em["metric_key"])
         metric_type = em.get("metric_type") or ""
@@ -407,6 +423,8 @@ async def get_experiment_report(experiment: dict, start_iso: str, end_iso: str) 
             if m:
                 primary_metric_name = m.get("name")
                 primary_event_expectations = m.get("event_expectations")
+                ar = m.get("aggregation_rule") or {}
+                primary_aggregation_unit = (ar.get("aggregation_unit") or "event").strip() or None
         metrics_def.append(
             {
                 "metric_key": em["metric_key"],
@@ -452,6 +470,17 @@ async def get_experiment_report(experiment: dict, start_iso: str, end_iso: str) 
             "winner_variant_name": winner_name,
         }
 
+    dynamics: list[dict[str, Any]] = []
+    if primary_metric_key and primary_summary is not None:
+        dynamics = [
+            {
+                "period_start": start_iso,
+                "period_end": end_iso,
+                "metric_key": primary_metric_key,
+                "value": primary_summary.get("control_value"),
+            }
+        ]
+
     return {
         "experiment_id": experiment["id"],
         "experiment_name": experiment.get("name"),
@@ -460,12 +489,13 @@ async def get_experiment_report(experiment: dict, start_iso: str, end_iso: str) 
         "context": {
             "window_start": start_iso,
             "window_end": end_iso,
-            "aggregation_unit": None,
+            "aggregation_unit": primary_aggregation_unit,
+            "attribution": "by_decision_id",
         },
         "metrics": metrics_def,
         "variants": report_variants,
         "primary_metric_summary": primary_summary,
-        "dynamics": None,
+        "dynamics": dynamics,
         "completion": completion,
         "conflict_stats": conflict_stats,
     }

@@ -204,7 +204,6 @@ async def store_conflict_logs(db, subject_id: str, logs: list[dict[str, Any]]) -
 
 
 async def get_preflight_conflicts(db, experiment_id: str) -> list[dict[str, Any]]:
-    """Список доменов, в которых запуск этого эксперимента создаст конфликт с уже running."""
     rows = await db.execute_all(
         """SELECT cd.id AS domain_id, cd.key AS domain_key, cd.name AS domain_name,
                   e2.id AS conflicting_id, e2.name AS conflicting_name, f.key AS flag_key
@@ -461,7 +460,6 @@ async def delete_binding(db, experiment_id: str, domain_id: str) -> bool:
 async def get_conflict_log_for_experiment(
     db, experiment_id: str, limit: int = 100
 ) -> list[dict[str, Any]]:
-    """Записи, где эксперимент был победителем или проигравшим."""
     rows = await db.execute_all(
         """SELECT dcl.id, dcl.subject_id, dcl.domain_id, cd.key AS domain_key,
                   dcl.policy_used, dcl.config_version, dcl.winner_experiment_id,
@@ -495,7 +493,6 @@ async def get_conflict_log_for_experiment(
 async def get_conflict_stats_for_report(
     db, experiment_id: str, start_ts: Any, end_ts: Any
 ) -> dict[str, Any]:
-    """Агрегаты по decision_conflict_log за окно: раз выиграл конфликт, раз проиграл."""
     won_row = await db.execute(
         """SELECT COUNT(*) AS cnt FROM decision_conflict_log
            WHERE winner_experiment_id = $1 AND created_at >= $2 AND created_at < $3""",

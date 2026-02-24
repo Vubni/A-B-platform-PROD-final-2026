@@ -1,4 +1,3 @@
-import json
 import re
 from collections import defaultdict
 
@@ -8,11 +7,11 @@ from aiohttp_apispec import docs
 _counters: dict[str, dict[tuple, float]] = defaultdict(lambda: defaultdict(float))
 
 _METRIC_DESCRIPTIONS: dict[str, str] = {
-    "http_requests_total": "Всего HTTP-запросов (по method, path, status)",
-    "http_errors_total": "HTTP-ошибки 4xx/5xx (по method, path, status)",
-    "decide_requests_total": "Запросы к /decide (выбор варианта)",
-    "events_accepted_total": "Принято событий (events)",
-    "report_requests_total": "Запросы отчётов по экспериментам",
+    "http_requests_total": "Total HTTP requests by method, path, status",
+    "http_errors_total": "HTTP 4xx/5xx errors by method, path, status",
+    "decide_requests_total": "Requests to /decide (variant selection)",
+    "events_accepted_total": "Accepted events count",
+    "report_requests_total": "Experiment report requests",
 }
 
 
@@ -55,6 +54,8 @@ def record_report_requested() -> None:
 def _render_prometheus() -> str:
     lines: list[str] = []
     for name, buckets in sorted(_counters.items()):
+        help_desc = _METRIC_DESCRIPTIONS.get(name, "Counter")
+        lines.append(f"# HELP {name} {help_desc}")
         lines.append(f"# TYPE {name} counter")
         for labels_tuple, value in sorted(buckets.items()):
             if labels_tuple:
@@ -65,60 +66,18 @@ def _render_prometheus() -> str:
     return "\n".join(lines) + "\n"
 
 
-def _build_metrics_json() -> dict:
-    """Структурированный JSON для читаемого вывода метрик."""
-    metrics_list: list[dict] = []
-    for name, buckets in sorted(_counters.items()):
-        description = _METRIC_DESCRIPTIONS.get(name, "Счётчик")
-        series: list[dict] = []
-        for labels_tuple, value in sorted(buckets.items()):
-            labels = dict(labels_tuple) if labels_tuple else {}
-            series.append({"labels": labels, "value": int(value)})
-        metrics_list.append(
-            {
-                "name": name,
-                "type": "counter",
-                "description": description,
-                "series": series,
-            }
-        )
-    return {
-        "metrics": metrics_list,
-        "format": "json",
-        "help": "Для экспорта в Prometheus используйте GET /metrics?format=prometheus",
-    }
-
-
 @docs(
     tags=["Metrics"],
-    summary="Экспорт метрик (JSON по умолчанию, Prometheus по запросу)",
-    description=(
-        "Системные метрики. По умолчанию — читаемый JSON. "
-        "Для Prometheus: GET /metrics?format=prometheus. "
-        "Метрики: http_requests_total, http_errors_total, decide_requests_total, "
-        "events_accepted_total, report_requests_total."
-    ),
-    responses={
-        200: {
-            "description": "Метрики в application/json (по умолчанию) или text/plain (Prometheus)"
-        }
-    },
+    summary="Экспорт метрик Prometheus",
+    responses={200: {}},
 )
 async def metrics_export(request: web.Request) -> web.Response:
-    want_prometheus = request.url.query.get("format", "").lower() == "prometheus"
-    if want_prometheus:
-        body = _render_prometheus()
-        return web.Response(
-            text=body,
-            content_type="text/plain",
-            charset="utf-8",
-            headers={"Cache-Control": "no-store"},
-        )
-    data = _build_metrics_json()
-    return web.json_response(
-        data,
+    body = _render_prometheus()
+    return web.Response(
+        text=body,
+        content_type="text/plain",
+        charset="utf-8",
         headers={"Cache-Control": "no-store"},
-        dumps=lambda obj: json.dumps(obj, ensure_ascii=False, indent=2),
     )
 
 

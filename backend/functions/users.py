@@ -1,5 +1,7 @@
+import math
 from typing import Any
 
+from config import FALLBACK_APPROVAL_PERCENT
 from core import create_token, serialize_json
 from database.database import Database
 
@@ -106,6 +108,22 @@ async def update_user(
     return await get_user_by_id(user_id)
 
 
+async def _get_fallback_approver_group(db: Any) -> dict:
+    """При отсутствии явной аппрувер-группы: все approver и admin в системе;
+    min_approvals = max(1, ceil(N * FALLBACK_APPROVAL_PERCENT))."""
+    rows = await db.execute_all("SELECT id FROM users WHERE role IN ('admin', 'approver')")
+    approver_ids = [str(r["id"]) for r in (rows or [])]
+    n = len(approver_ids)
+    min_approvals = max(1, math.ceil(n * FALLBACK_APPROVAL_PERCENT)) if n else 1
+    return {"min_approvals": min_approvals, "approver_ids": approver_ids}
+
+
+async def get_fallback_approver_group() -> dict:
+    """Возвращает fallback-группу (все approver/admin в системе и порог по FALLBACK_APPROVAL_PERCENT)."""
+    async with Database() as db:
+        return await _get_fallback_approver_group(db)
+
+
 async def get_approver_group_for_experimenter(experimenter_id: str) -> dict | None:
     async with Database() as db:
         row = await db.execute(
@@ -141,11 +159,7 @@ async def get_approver_group_for_experimenter(experimenter_id: str) -> dict | No
                 "min_approvals": row["min_approvals"],
                 "approver_ids": row["approver_ids"] or [],
             }
-        admins = await db.execute_all("SELECT id FROM users WHERE role = 'admin'")
-        return {
-            "min_approvals": 1,
-            "approver_ids": [str(r["id"]) for r in (admins or [])],
-        }
+        return await _get_fallback_approver_group(db)
 
 
 async def get_approver_group_by_experimenter(experimenter_id: str | None) -> dict | None:

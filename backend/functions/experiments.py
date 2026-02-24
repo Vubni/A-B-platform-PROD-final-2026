@@ -456,7 +456,11 @@ async def check_access_to_experiment(experiment_id: str, user_id: str) -> bool:
                 (str(created_by),),
             )
         if not approver_group:
-            return False
+            role_row = await db.execute(
+                "SELECT 1 FROM users WHERE id = $1 AND role IN ('admin', 'approver')",
+                (str(user_id),),
+            )
+            return bool(role_row)
         check_member = await db.execute_all(
             "SELECT 1 FROM approver_group_members WHERE approver_group_id = $1 AND approver_id = $2",
             (str(approver_group["id"]), str(user_id)),
@@ -492,25 +496,24 @@ async def add_review_record(
                 (experiment_id,),
             )
         elif action == "approved":
-            from functions.users import get_approver_group_for_experimenter
+            from functions.users import (
+                get_approver_group_for_experimenter,
+                get_fallback_approver_group,
+            )
 
             created_by = exp["created_by"]
             if created_by:
                 group = await get_approver_group_for_experimenter(str(created_by))
                 min_approvals = (group or {}).get("min_approvals", 1)
             else:
-                min_approvals = 1
+                fallback = await get_fallback_approver_group()
+                min_approvals = fallback.get("min_approvals", 1)
             count_row = await db.execute(
                 "SELECT COUNT(*) AS c FROM experiment_review_history WHERE experiment_id = $1 AND action = 'approved'",
                 (experiment_id,),
             )
             count = int((count_row or {}).get("c") or 0)
             if count >= min_approvals:
-                await db.execute(
-                    "UPDATE experiments SET status = 'approved', updated_at = NOW() WHERE id = $1",
-                    (experiment_id,),
-                )
-            else:
                 await db.execute(
                     "UPDATE experiments SET status = 'approved', updated_at = NOW() WHERE id = $1",
                     (experiment_id,),

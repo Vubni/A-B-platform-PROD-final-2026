@@ -144,7 +144,6 @@ async def create_or_update_ramp_plan(
 
 
 async def delete_ramp_plan(experiment_id: str) -> bool:
-    """Удалить план раскатки по experiment_id."""
     async with Database() as db:
         row = await db.execute(
             "SELECT id FROM ramp_plans WHERE experiment_id = $1",

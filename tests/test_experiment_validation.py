@@ -5,7 +5,6 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_check_variant_weights_match_audience_rejects_mismatch():
-    """Если сумма весов вариантов не равна audience_fraction (2+ варианта), возвращается ошибка."""
     from functions.experiments import _check_variant_weights_match_audience
 
     db = AsyncMock()
@@ -26,7 +25,6 @@ async def test_check_variant_weights_match_audience_rejects_mismatch():
 
 @pytest.mark.asyncio
 async def test_check_variant_weights_match_audience_accepts_match():
-    """Если сумма весов равна audience_fraction (2+ варианта), ошибки нет."""
     from functions.experiments import _check_variant_weights_match_audience
 
     db = AsyncMock()
@@ -43,7 +41,6 @@ async def test_check_variant_weights_match_audience_accepts_match():
 
 @pytest.mark.asyncio
 async def test_check_variant_weights_match_audience_skips_single_variant():
-    """При одном варианте проверка суммы не выполняется (ошибки нет)."""
     from functions.experiments import _check_variant_weights_match_audience
 
     db = AsyncMock()

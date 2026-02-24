@@ -237,7 +237,6 @@ def pytest_report_collectionfinish(config, start_path, items):
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """Вывод отчёта покрытия эндпоинтов (не покрытия кода)."""
     all_set = set(ALL_ENDPOINTS)
     tested_set = set(TESTED_ENDPOINTS)
     covered = all_set & tested_set
@@ -376,6 +375,11 @@ async def flag_id(http_session, base_url, auth_headers_admin):
     pytest.skip("Could not get or create test flag")
 
 
+@pytest.fixture
+def flag_key(flag_id):
+    return "test_feature_flag"
+
+
 async def transition_experiment_to_running(
     http_session,
     base_url,
@@ -383,22 +387,38 @@ async def transition_experiment_to_running(
     auth_headers_experimenter,
     auth_headers_approver,
 ) -> bool:
-    """Переводит эксперимент on_review -> approved -> running. Возвращает True при успехе, False при 409."""
-    for status, role in [
-        ("on_review", auth_headers_experimenter),
-        ("approved", auth_headers_approver),
-        ("running", auth_headers_experimenter),
-    ]:
+    async with http_session.patch(
+        f"{base_url}/api/v1/experiments/{exp_id}/status",
+        headers=auth_headers_experimenter,
+        json={"status": "on_review"},
+    ) as r:
+        if r.status != 200:
+            raise RuntimeError(f"Could not set status on_review: {await r.text()}")
+    for _ in range(5):
+        async with http_session.get(
+            f"{base_url}/api/v1/experiments/{exp_id}", headers=auth_headers_approver
+        ) as gr:
+            if gr.status != 200:
+                raise RuntimeError(f"Could not get experiment: {await gr.text()}")
+            if (await gr.json()).get("status") == "approved":
+                break
         async with http_session.patch(
             f"{base_url}/api/v1/experiments/{exp_id}/status",
-            headers=role,
-            json={"status": status},
+            headers=auth_headers_approver,
+            json={"status": "approved"},
         ) as r:
-            if r.status == 409 and status == "running":
-                return False
             if r.status != 200:
                 text = await r.text()
-                raise RuntimeError(f"Could not set status {status}: {text}")
+                raise RuntimeError(f"Could not set status approved: {text}")
+    async with http_session.patch(
+        f"{base_url}/api/v1/experiments/{exp_id}/status",
+        headers=auth_headers_experimenter,
+        json={"status": "running"},
+    ) as r:
+        if r.status == 409:
+            return False
+        if r.status != 200:
+            raise RuntimeError(f"Could not set status running: {await r.text()}")
     return True
 
 
@@ -410,7 +430,6 @@ async def create_experiment_in_running(
     auth_headers_admin,
     key_prefix: str = "complete",
 ) -> str:
-    """Создаёт флаг, эксперимент с двумя вариантами и переводит в running. При 409 повторяет с новым флагом. Возвращает exp_id."""
     flags_url = f"{base_url}/api/v1/flags"
     create_url = f"{base_url}/api/v1/experiments"
     for _attempt in range(2):
@@ -461,7 +480,6 @@ async def linked_event_types_metrics_experiment(
 async def _create_linked_event_types_metrics_experiment(
     http_session, base_url, auth_headers_admin, auth_headers_experimenter
 ):
-    """Создаёт связанные event types, метрики, флаг и эксперимент с вариантами (draft). Возвращает контекст-словарь."""
     suffix = uuid.uuid4().hex[:8]
     et_url = f"{base_url}/api/v1/event-types"
     event_keys = {}
@@ -537,6 +555,7 @@ async def _create_linked_event_types_metrics_experiment(
                 "aggregation_unit": "subject",
             },
             "attribution_rule": {"requires_decision": True},
+            "event_expectations": {event_keys["exposure"]: "higher"},
             "unit": "ratio",
         },
     ) as r:
@@ -617,7 +636,6 @@ async def linked_event_types_metrics_experiment_running(
     auth_headers_experimenter,
     auth_headers_approver,
 ):
-    """linked_event_types_metrics_experiment + on_review -> approved -> running с одной повторной попыткой при 409."""
     ctx = await _create_linked_event_types_metrics_experiment(
         http_session, base_url, auth_headers_admin, auth_headers_experimenter
     )

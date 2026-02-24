@@ -1,4 +1,24 @@
 services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: prod_zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: prod_kafka
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
   postgres:
     image: postgres:16-alpine
     container_name: prod_postgres
@@ -9,8 +29,7 @@ services:
       POSTGRES_DB: prod
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql
-      - ./docker/postgres/learnings_library.sql:/docker-entrypoint-initdb.d/02-learnings_library.sql
+      - ./docker/postgres:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U user -d prod"]
       interval: 5s
@@ -24,19 +43,31 @@ services:
     container_name: prod_backend
     restart: unless-stopped
     depends_on:
+      kafka:
+        condition: service_started
       postgres:
         condition: service_healthy
     environment:
       DB_HOST: postgres
       DB_PASSWORD: prod_secret
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EVENTS_USE_KAFKA: ${EVENTS_USE_KAFKA:-true}
+      AUTOPILOT_EVAL_INTERVAL_SECONDS: ${AUTOPILOT_EVAL_INTERVAL_SECONDS:-60}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
       ADMIN_FIRST_NAME: ${ADMIN_FIRST_NAME:-Admin}
+      SEED_DEMO_USERS: 1
       LEARNINGS_REQUIRED_ON_COMPLETE: ${LEARNINGS_REQUIRED_ON_COMPLETE:-true}
     ports:
       - "80:80"
     volumes:
       - backend_logs:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:80/ready', timeout=5)\" || exit 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 18
+      start_period: 45s
 
   tests:
     build:
@@ -51,7 +82,7 @@ services:
       LEARNINGS_REQUIRED_ON_COMPLETE: ${LEARNINGS_REQUIRED_ON_COMPLETE:-true}
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy
       postgres:
         condition: service_healthy
     command: ["sh", "-c", "python /app/tests/seed_test_data.py && pytest /app/tests/ -s"]

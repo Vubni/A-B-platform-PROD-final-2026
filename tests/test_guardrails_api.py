@@ -1,6 +1,3 @@
-"""
-Тесты API guardrails: GET/POST /api/v1/guardrails, GET/DELETE /api/v1/guardrails/{metric_key}.
-"""
 import uuid
 
 import pytest
@@ -8,7 +5,6 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_guardrails_list_requires_auth(http_session, base_url):
-    """GET /api/v1/guardrails без токена возвращает 401."""
     url = f"{base_url}/api/v1/guardrails"
     async with http_session.get(url) as resp:
         assert resp.status == 401
@@ -20,7 +16,6 @@ async def test_guardrails_list_requires_auth(http_session, base_url):
 async def test_guardrails_list_success(
     http_session, base_url, auth_headers_experimenter
 ):
-    """GET /api/v1/guardrails с токеном возвращает 200 и guardrails."""
     url = f"{base_url}/api/v1/guardrails"
     async with http_session.get(url, headers=auth_headers_experimenter) as resp:
         assert resp.status == 200
@@ -31,7 +26,6 @@ async def test_guardrails_list_success(
 
 @pytest.mark.asyncio
 async def test_guardrails_get_requires_auth(http_session, base_url):
-    """GET /api/v1/guardrails/{metric_key} без токена возвращает 401."""
     url = f"{base_url}/api/v1/guardrails/some_metric_key"
     async with http_session.get(url) as resp:
         assert resp.status == 401
@@ -41,7 +35,6 @@ async def test_guardrails_get_requires_auth(http_session, base_url):
 async def test_guardrails_get_not_found(
     http_session, base_url, auth_headers_experimenter
 ):
-    """GET /api/v1/guardrails/{metric_key} для несуществующего guardrail возвращает 404."""
     key = f"nonexistent_guardrail_metric_{uuid.uuid4().hex[:8]}"
     url = f"{base_url}/api/v1/guardrails/{key}"
     async with http_session.get(url, headers=auth_headers_experimenter) as resp:
@@ -54,7 +47,6 @@ async def test_guardrails_get_not_found(
 async def test_guardrails_get_success(
     http_session, base_url, auth_headers_experimenter, linked_event_types_metrics_experiment
 ):
-    """GET /api/v1/guardrails/{metric_key} возвращает guardrail после создания."""
     ctx = linked_event_types_metrics_experiment
     metric_key = ctx["metric_keys"]["conversions"]
     guardrails_url = f"{base_url}/api/v1/guardrails"
@@ -81,7 +73,6 @@ async def test_guardrails_get_success(
 
 @pytest.mark.asyncio
 async def test_guardrails_upsert_requires_auth(http_session, base_url):
-    """POST /api/v1/guardrails без токена возвращает 401."""
     url = f"{base_url}/api/v1/guardrails"
     async with http_session.post(
         url,
@@ -99,7 +90,6 @@ async def test_guardrails_upsert_requires_auth(http_session, base_url):
 async def test_guardrails_upsert_forbidden_for_viewer(
     http_session, base_url, auth_headers_viewer, linked_event_types_metrics_experiment
 ):
-    """POST /api/v1/guardrails от viewer возвращает 403."""
     ctx = linked_event_types_metrics_experiment
     url = f"{base_url}/api/v1/guardrails"
     async with http_session.post(
@@ -121,7 +111,6 @@ async def test_guardrails_upsert_forbidden_for_viewer(
 async def test_guardrails_upsert_metric_not_found(
     http_session, base_url, auth_headers_experimenter
 ):
-    """POST /api/v1/guardrails с несуществующей метрикой возвращает 404."""
     url = f"{base_url}/api/v1/guardrails"
     key = f"nonexistent_metric_{uuid.uuid4().hex[:8]}"
     async with http_session.post(
@@ -143,7 +132,6 @@ async def test_guardrails_upsert_metric_not_found(
 async def test_guardrails_upsert_validation_invalid_action(
     http_session, base_url, auth_headers_experimenter, linked_event_types_metrics_experiment
 ):
-    """POST /api/v1/guardrails с неверным action возвращает 400/422."""
     ctx = linked_event_types_metrics_experiment
     url = f"{base_url}/api/v1/guardrails"
     async with http_session.post(
@@ -163,7 +151,6 @@ async def test_guardrails_upsert_validation_invalid_action(
 async def test_guardrails_upsert_validation_window_seconds(
     http_session, base_url, auth_headers_experimenter, linked_event_types_metrics_experiment
 ):
-    """POST /api/v1/guardrails с window_seconds <= 0 возвращает 400/422."""
     ctx = linked_event_types_metrics_experiment
     url = f"{base_url}/api/v1/guardrails"
     async with http_session.post(
@@ -183,7 +170,6 @@ async def test_guardrails_upsert_validation_window_seconds(
 async def test_guardrails_upsert_success_rollback_to_control(
     http_session, base_url, auth_headers_experimenter, linked_event_types_metrics_experiment
 ):
-    """POST /api/v1/guardrails с action=rollback_to_control сохраняет guardrail."""
     ctx = linked_event_types_metrics_experiment
     metric_key = ctx["metric_keys"]["impressions"]
     url = f"{base_url}/api/v1/guardrails"
@@ -206,7 +192,6 @@ async def test_guardrails_upsert_success_rollback_to_control(
 
 @pytest.mark.asyncio
 async def test_guardrails_delete_requires_auth(http_session, base_url):
-    """DELETE /api/v1/guardrails/{metric_key} без токена возвращает 401."""
     url = f"{base_url}/api/v1/guardrails/some_key"
     async with http_session.delete(url) as resp:
         assert resp.status == 401
@@ -216,7 +201,6 @@ async def test_guardrails_delete_requires_auth(http_session, base_url):
 async def test_guardrails_delete_forbidden_for_viewer(
     http_session, base_url, auth_headers_viewer, linked_event_types_metrics_experiment
 ):
-    """DELETE /api/v1/guardrails от viewer возвращает 403."""
     ctx = linked_event_types_metrics_experiment
     url = f"{base_url}/api/v1/guardrails/{ctx['metric_keys']['conversions']}"
     async with http_session.delete(url, headers=auth_headers_viewer) as resp:
@@ -227,7 +211,6 @@ async def test_guardrails_delete_forbidden_for_viewer(
 async def test_guardrails_delete_not_found(
     http_session, base_url, auth_headers_experimenter
 ):
-    """DELETE /api/v1/guardrails/{metric_key} для несуществующего guardrail возвращает 404."""
     key = f"nonexistent_gr_{uuid.uuid4().hex[:8]}"
     url = f"{base_url}/api/v1/guardrails/{key}"
     async with http_session.delete(url, headers=auth_headers_experimenter) as resp:
@@ -240,7 +223,6 @@ async def test_guardrails_delete_not_found(
 async def test_guardrails_delete_success(
     http_session, base_url, auth_headers_experimenter, auth_headers_admin
 ):
-    """DELETE /api/v1/guardrails/{metric_key} удаляет guardrail и возвращает 204."""
     suffix = uuid.uuid4().hex[:8]
     et_key = f"gr_del_et_{suffix}"
     metric_key = f"gr_del_metric_{suffix}"

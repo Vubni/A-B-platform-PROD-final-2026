@@ -16,8 +16,7 @@ def is_ready() -> bool:
 @docs(
     tags=["Health"],
     summary="Проба живости",
-    description="Возвращает 200, когда процесс запущен. Не проверяет зависимости.",
-    responses={200: {"description": "Процесс запущен"}},
+    responses={200: {}},
 )
 async def health(request: web.Request) -> web.Response:
     return web.Response(status=200, text="OK")
@@ -26,10 +25,9 @@ async def health(request: web.Request) -> web.Response:
 @docs(
     tags=["Health"],
     summary="Проба готовности",
-    description="Возвращает 200, когда приложение готово принимать запросы. Возвращает 503, пока критичные зависимости (БД и др.) не готовы.",
     responses={
-        200: {"description": "Готов к приёму запросов"},
-        503: {"description": "Зависимости не готовы"},
+        200: {},
+        503: {},
     },
 )
 async def ready(request: web.Request) -> web.Response:

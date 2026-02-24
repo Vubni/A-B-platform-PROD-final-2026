@@ -13,7 +13,7 @@
 | `DATE_BASE_CONNECT["password"]` | `DB_PASSWORD` | — | Пароль БД (обязательно задать в prod) |
 | `DATE_BASE_CONNECT["database"]` | `DB_NAME` | `prod` | Имя базы данных |
 
-Для корректной работы триггеров схемы (`docker/postgres/init.sql`) требуется **PostgreSQL 14+** (в 11–13 используется `EXECUTE PROCEDURE` вместо `EXECUTE FUNCTION`). Подробнее — Runbook, раздел «База данных и триггеры».
+Для корректной работы триггеров схемы (`docker/postgres/01-init.sql` и `schema/*.sql`) требуется **PostgreSQL 14+** (в 11–13 используется `EXECUTE PROCEDURE` вместо `EXECUTE FUNCTION`). Подробнее — Runbook, раздел «База данных и триггеры».
 
 ### Аутентификация и безопасность
 
@@ -21,6 +21,7 @@
 |------------|-----|--------------|----------|
 | `SECRET` | `RANDOM_SECRET` | `AJd27GqoS#gvxp@V` | Секрет для подписи JWT/сессий; в prod задать свой |
 | `AUTH_TOKEN_EXPIRATION` | — | `86400` (24 ч) | Время жизни токена в секундах (константа в коде) |
+| — | `SEED_DEMO_USERS` | `1` в docker-compose | Если задана (например `1`), при старте создаются тестовые пользователи, группа аппруверов, флаг `test_feature_flag`, типы событий `demo_*` и метрики — проверка возможна только через Docker и curl, без запуска Python. Для релиза можно отключить в docker-compose. |
 
 ### Эксперименты и события
 
@@ -94,11 +95,11 @@
 
 2. **Создать и запустить эксперимент**: создать эксперимент с вариантами A/B, отправить на ревью, одобрить, запустить.
 
-3. **Выдача варианта** (в `flags` передавайте **UUID флагов** из ответа `GET /api/v1/flags`):
+3. **Выдача варианта** (в `flags` передавайте **ключи флагов**, например `"button_color"`):
    ```bash
    curl -X POST http://localhost/api/v1/decide \
      -H "Content-Type: application/json" \
-     -d '{"subject_id": "u42", "attributes": {}, "flags": ["<UUID флага button_color из GET /api/v1/flags>"]}'
+     -d '{"subject_id": "u42", "attributes": {}, "flags": ["button_color"]}'
    ```
    В ответе — `flags` (массив решений) и для каждого флага **`decision_id`** для привязки событий (выдаётся всегда, в т.ч. при отсутствии эксперимента или при default).
 
@@ -114,7 +115,9 @@
    curl "http://localhost/api/v1/experiments/{experiment_id}/report?start=2026-02-01&end=2026-02-15"
    ```
 
-После выполнения `python tests/seed_test_data.py` доступны фиксированные типы событий (`demo_exposure`, `demo_click`, `demo_conversion`) и метрики (`demo_impressions`, `demo_conversions`, `demo_conversion_rate`) — их можно использовать в эксперименте и в шагах 4–5. Полный пакет тестовых данных и сценариев (happy-path, негативные, граничные) с шагами и ожидаемыми результатами описан в **`backend/docs/demo-scenarios.md`**.
+**Тестовые данные.** При запуске через Docker (`docker compose up -d`) с `SEED_DEMO_USERS=1` типы событий `demo_exposure`, `demo_click`, `demo_conversion` и метрики `demo_impressions`, `demo_conversions`, `demo_conversion_rate` создаются при старте автоматически — ничего дополнительно запускать не нужно. Для локального запуска без Docker: `python tests/seed_test_data.py`.
+
+**Полные сценарии.** Пошаговые сценарии (happy-path, негативные, граничные) с ожидаемыми результатами — в **`backend/docs/demo-scenarios.md`**. Для проверяющего: **`backend/docs/reviewer-test-guide.md`** — тестовые пользователи, токены, UUID флага и готовый сквозной сценарий «выдача варианта → событие → отчёт» через curl после `docker compose up -d`.
 
 ## Роли и аппрувер-группы
 
@@ -125,12 +128,12 @@
 | **Approver** | Одобрение/отклонение экспериментов в своей группе |
 | **Viewer** | Только чтение |
 
-**Fallback аппрувер-группы:** сначала персональная группа (`approver_groups.experimenter_id = <id>`), затем fallback (`experimenter_id IS NULL` через `PUT /api/v1/approver-groups`), иначе `min_approvals = 1`, аппруверы — все admin.
+**Fallback аппрувер-группы (сценарий без явной группы):** сначала персональная группа (`approver_groups.experimenter_id = <id>`), затем дефолтная группа (`experimenter_id IS NULL` через POST/PATCH `/api/v1/approver-groups`). Если ни одной нет — **fallback**: одобрять могут все пользователи с ролью `approver` и `admin` в системе; минимальный порог одобрений = `max(1, ceil(N × FALLBACK_APPROVAL_PERCENT))`, где N — число таких пользователей. Процент задаётся в `config.py` (`FALLBACK_APPROVAL_PERCENT`, по умолчанию `0.6`).
 
 ## Ключевые архитектурные решения (B7-4)
 
 1. **Моно-сервисный backend на aiohttp + PostgreSQL**  
-   - **Решение**: единый backend-сервис (`backend/server.py`) без внутренних микросервисов; одна БД PostgreSQL (`docker/postgres/init.sql`).  
+   - **Решение**: единый backend-сервис (`backend/server.py`) без внутренних микросервисов; одна БД PostgreSQL (`docker/postgres/`).  
    - **Причины**: снизить сложность реализации для олимпиады, упростить отладку и демонстрацию end-to-end сценариев.  
    - **Риски/ограничения**: масштабирование по доменам потребует рефакторинга (выделение сервисов), все горячие пути завязаны на одну БД.
 
@@ -162,7 +165,7 @@
 ## Ограничения и упрощения (B7-9)
 
 1. **Одна БД PostgreSQL, без шардирования и реплик**  
-   - **Где в коде**: `docker/postgres/init.sql`, `backend/database/database.py`.  
+   - **Где в коде**: `docker/postgres/schema/`, `backend/database/database.py`.  
    - **Как проявляется**: все операции чтения/записи (решения, события, отчёты) проходят через одну БД; в демо нет сценариев с распределённым хранилищем.  
    - **Риск**: при росте нагрузки одна БД становится bottleneck; для прод-подхода потребуется шардинг или реплики.
 
@@ -187,7 +190,7 @@
    - **Риск**: при всплесках нагрузки запись событий может замедлить API; в Runbook описана возможность вынести приём в очередь.
 
 6. **Фиксированная модель ролей и ревью**  
-   - **Где в коде**: `docker/postgres/init.sql` (`user_role`, `approver_groups`), `backend/api/users.py`, `backend/functions/experiments.py` (ревью).  
+   - **Где в коде**: `docker/postgres/schema/` (`user_role`, `approver_groups`), `backend/api/users.py`, `backend/functions/experiments.py` (ревью).  
    - **Как проявляется**: роли `admin`, `experimenter`, `approver`, `viewer`; правила ревью привязаны к approver-группам и `min_approvals`.  
    - **Риск**: многоуровневые схемы ревью и внешние аппруверы потребуют изменения схемы и логики.
 
@@ -245,7 +248,9 @@
 │   └── requirements*.txt    # Зависимости backend
 ├── docker/
 │   └── postgres/
-│       └── init.sql         # Схема БД, индексы, ограничения и триггеры
+│       ├── 01-init.sql      # Точка входа схемы (подключает schema/*.sql)
+│       ├── 02-learnings_library.sql
+│       └── schema/          # Схема БД: таблицы, индексы, триггеры
 ├── tests/                   # Интеграционные тесты к HTTP-API
 │   ├── conftest.py          # Фикстуры (логин, сиды, base_url)
 │   ├── test_*.py            # Наборы тестов по доменным областям
@@ -268,7 +273,7 @@
   - Бизнес-логика: `backend/functions/events_submit.py` — валидация, дедупликация, связь с `decision_id`, зависимые события.
 - **Отчёты и guardrail**:
   - Отчёт: `GET /api/v1/experiments/{id}/report` (`backend/api/reports.py` + `backend/functions/reports.py`).
-  - Guardrail: проверка и действия — `backend/functions/guardrails.py`; история — таблица `experiment_guardrail_history` в `docker/postgres/init.sql`.
+  - Guardrail: проверка и действия — `backend/functions/guardrails.py`; история — таблица `experiment_guardrail_history` в `docker/postgres/schema/`.
 
 ## Матрица соответствия и C4 (B7-3, B7-5–B7-7)
 

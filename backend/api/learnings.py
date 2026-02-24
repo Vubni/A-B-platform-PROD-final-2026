@@ -68,6 +68,7 @@ class LearningAuditQuery(BaseModel):
             raise ValueError("offset must be >= 0")
         return v
 
+
 class LearningGuardrailItem(BaseModel):
     metric_key: str
     threshold_value: float | None = None
@@ -284,11 +285,12 @@ class SimilarQuery(BaseModel):
 @docs(
     tags=["Learnings"],
     summary="Поиск learnings",
-    responses={200: {"description": "Список learnings", "schema": LearningListResponseSchema},
-    401: RESPONSES_HTTP_ERROR[401],
-    422: RESPONSES_HTTP_ERROR[422],
-    404: RESPONSES_HTTP_ERROR[404],
-    500: RESPONSES_HTTP_ERROR[500],
+    responses={
+        200: {"description": "Список learnings", "schema": LearningListResponseSchema},
+        401: RESPONSES_HTTP_ERROR[401],
+        422: RESPONSES_HTTP_ERROR[422],
+        404: RESPONSES_HTTP_ERROR[404],
+        500: RESPONSES_HTTP_ERROR[500],
     },
 )
 @request_schema(LearningListQuerySchema(), location="query", put_into="data")
@@ -311,18 +313,20 @@ async def learnings_list(request: web.Request, parsed: LearningListQuery) -> web
         date_from=parsed.date_from,
         date_to=parsed.date_to,
         limit=parsed.limit,
-        offset=parsed.offset)
+        offset=parsed.offset,
+    )
     return web.json_response({"learnings": rows})
 
 
 @docs(
     tags=["Learnings"],
     summary="Получить learning по id",
-    responses={200: {"description": "Learning", "schema": LearningItemSchema},
-    401: RESPONSES_HTTP_ERROR[401],
-    404: RESPONSES_HTTP_ERROR[404],
-    422: RESPONSES_HTTP_ERROR[422],
-    500: RESPONSES_HTTP_ERROR[500],
+    responses={
+        200: {"description": "Learning", "schema": LearningItemSchema},
+        401: RESPONSES_HTTP_ERROR[401],
+        404: RESPONSES_HTTP_ERROR[404],
+        422: RESPONSES_HTTP_ERROR[422],
+        500: RESPONSES_HTTP_ERROR[500],
     },
 )
 async def learnings_get(request: web.Request) -> web.Response:
@@ -343,11 +347,12 @@ async def learnings_get(request: web.Request) -> web.Response:
 @docs(
     tags=["Learnings"],
     summary="Получить learning по эксперименту",
-    responses={200: {"description": "Learning", "schema": LearningItemSchema},
-    401: RESPONSES_HTTP_ERROR[401],
-    404: RESPONSES_HTTP_ERROR[404],
-    422: RESPONSES_HTTP_ERROR[422],
-    500: RESPONSES_HTTP_ERROR[500],
+    responses={
+        200: {"description": "Learning", "schema": LearningItemSchema},
+        401: RESPONSES_HTTP_ERROR[401],
+        404: RESPONSES_HTTP_ERROR[404],
+        422: RESPONSES_HTTP_ERROR[422],
+        500: RESPONSES_HTTP_ERROR[500],
     },
 )
 async def learning_by_experiment_get(request: web.Request) -> web.Response:
@@ -368,17 +373,20 @@ async def learning_by_experiment_get(request: web.Request) -> web.Response:
 @docs(
     tags=["Learnings"],
     summary="Создать или обновить learning для эксперимента",
-    responses={200: {"description": "Learning", "schema": LearningItemSchema},
-    401: RESPONSES_HTTP_ERROR[401],
-    403: RESPONSES_HTTP_ERROR[403],
-    404: RESPONSES_HTTP_ERROR[404],
-    422: RESPONSES_HTTP_ERROR[422],
-    500: RESPONSES_HTTP_ERROR[500],
+    responses={
+        200: {"description": "Learning", "schema": LearningItemSchema},
+        401: RESPONSES_HTTP_ERROR[401],
+        403: RESPONSES_HTTP_ERROR[403],
+        404: RESPONSES_HTTP_ERROR[404],
+        422: RESPONSES_HTTP_ERROR[422],
+        500: RESPONSES_HTTP_ERROR[500],
     },
 )
 @request_schema(LearningUpsertSchema(), location="json", put_into="data")
 @validate.validate(LearningUpsert)
-async def learning_upsert_for_experiment(request: web.Request, parsed: LearningUpsert) -> web.Response:
+async def learning_upsert_for_experiment(
+    request: web.Request, parsed: LearningUpsert
+) -> web.Response:
     auth_payload = await check_authorization(request)
     if not auth_payload:
         return validate.format_401_error(request, "Token is required")
@@ -426,18 +434,20 @@ async def learning_upsert_for_experiment(request: web.Request, parsed: LearningU
             }
             for g in parsed.guardrails
         ],
-        actor_user_id=str(auth_payload.get("id")) if auth_payload.get("id") else None)
+        actor_user_id=str(auth_payload.get("id")) if auth_payload.get("id") else None,
+    )
     return web.json_response(row)
 
 
 @docs(
     tags=["Learnings"],
     summary="История изменений learning",
-    responses={200: {"description": "Аудит", "schema": LearningAuditListResponseSchema},
-    401: RESPONSES_HTTP_ERROR[401],
-    404: RESPONSES_HTTP_ERROR[404],
-    422: RESPONSES_HTTP_ERROR[422],
-    500: RESPONSES_HTTP_ERROR[500],
+    responses={
+        200: {"description": "Аудит", "schema": LearningAuditListResponseSchema},
+        401: RESPONSES_HTTP_ERROR[401],
+        404: RESPONSES_HTTP_ERROR[404],
+        422: RESPONSES_HTTP_ERROR[422],
+        500: RESPONSES_HTTP_ERROR[500],
     },
 )
 @validate.validate(LearningAuditQuery)
@@ -461,11 +471,12 @@ async def learnings_audit(request: web.Request, parsed: LearningAuditQuery) -> w
 @docs(
     tags=["Learnings"],
     summary="Похожие эксперименты для learning",
-    responses={200: {"description": "Похожие learnings", "schema": LearningSimilarResponseSchema},
-    401: RESPONSES_HTTP_ERROR[401],
-    404: RESPONSES_HTTP_ERROR[404],
-    422: RESPONSES_HTTP_ERROR[422],
-    500: RESPONSES_HTTP_ERROR[500],
+    responses={
+        200: {"description": "Похожие learnings", "schema": LearningSimilarResponseSchema},
+        401: RESPONSES_HTTP_ERROR[401],
+        404: RESPONSES_HTTP_ERROR[404],
+        422: RESPONSES_HTTP_ERROR[422],
+        500: RESPONSES_HTTP_ERROR[500],
     },
 )
 @validate.validate(SimilarQuery)

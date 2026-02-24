@@ -1,6 +1,3 @@
-"""
-Тесты API каталога метрик: GET/POST /api/v1/metrics, GET/PATCH /api/v1/metrics/{key}.
-"""
 import uuid
 
 import pytest
@@ -8,7 +5,6 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_metrics_list_requires_auth(http_session, base_url):
-    """GET /api/v1/metrics без токена возвращает 401."""
     url = f"{base_url}/api/v1/metrics"
     async with http_session.get(url) as resp:
         assert resp.status == 401
@@ -20,7 +16,6 @@ async def test_metrics_list_requires_auth(http_session, base_url):
 async def test_metrics_list_success(
     http_session, base_url, auth_headers_experimenter
 ):
-    """GET /api/v1/metrics с токеном (experimenter/viewer/approver) возвращает 200 и metrics."""
     url = f"{base_url}/api/v1/metrics"
     async with http_session.get(url, headers=auth_headers_experimenter) as resp:
         assert resp.status == 200
@@ -33,7 +28,6 @@ async def test_metrics_list_success(
 async def test_metrics_list_as_viewer(
     http_session, base_url, auth_headers_viewer
 ):
-    """GET /api/v1/metrics от viewer возвращает 200."""
     url = f"{base_url}/api/v1/metrics"
     async with http_session.get(url, headers=auth_headers_viewer) as resp:
         assert resp.status == 200
@@ -43,7 +37,6 @@ async def test_metrics_list_as_viewer(
 
 @pytest.mark.asyncio
 async def test_metrics_get_requires_auth(http_session, base_url):
-    """GET /api/v1/metrics/{key} без токена возвращает 401."""
     url = f"{base_url}/api/v1/metrics/some_key"
     async with http_session.get(url) as resp:
         assert resp.status == 401
@@ -53,7 +46,6 @@ async def test_metrics_get_requires_auth(http_session, base_url):
 async def test_metrics_get_not_found(
     http_session, base_url, auth_headers_experimenter
 ):
-    """GET /api/v1/metrics/{key} для несуществующей метрики возвращает 404."""
     key = f"nonexistent_metric_{uuid.uuid4().hex[:8]}"
     url = f"{base_url}/api/v1/metrics/{key}"
     async with http_session.get(url, headers=auth_headers_experimenter) as resp:
@@ -66,7 +58,6 @@ async def test_metrics_get_not_found(
 async def test_metrics_get_success(
     http_session, base_url, auth_headers_experimenter, linked_event_types_metrics_experiment
 ):
-    """GET /api/v1/metrics/{key} возвращает метрику из каталога."""
     ctx = linked_event_types_metrics_experiment
     key = ctx["metric_keys"]["impressions"]
     url = f"{base_url}/api/v1/metrics/{key}"
@@ -81,7 +72,6 @@ async def test_metrics_get_success(
 
 @pytest.mark.asyncio
 async def test_metrics_create_requires_auth(http_session, base_url):
-    """POST /api/v1/metrics без токена возвращает 401."""
     url = f"{base_url}/api/v1/metrics"
     async with http_session.post(
         url,
@@ -102,7 +92,6 @@ async def test_metrics_create_requires_auth(http_session, base_url):
 async def test_metrics_create_forbidden_for_viewer(
     http_session, base_url, auth_headers_viewer, auth_headers_admin
 ):
-    """POST /api/v1/metrics от viewer возвращает 403."""
     et_url = f"{base_url}/api/v1/event-types"
     key_et = f"metric_catalog_et_v_{uuid.uuid4().hex[:8]}"
     async with http_session.post(
@@ -133,7 +122,6 @@ async def test_metrics_create_forbidden_for_viewer(
 async def test_metrics_create_success(
     http_session, base_url, auth_headers_experimenter, auth_headers_admin
 ):
-    """POST /api/v1/metrics от experimenter создаёт метрику, возвращает 201."""
     et_url = f"{base_url}/api/v1/event-types"
     key_et = f"metric_catalog_et_{uuid.uuid4().hex[:8]}"
     async with http_session.post(
@@ -173,7 +161,6 @@ async def test_metrics_create_success(
 async def test_metrics_create_duplicate_key_returns_409(
     http_session, base_url, auth_headers_experimenter, linked_event_types_metrics_experiment
 ):
-    """POST /api/v1/metrics с ключом, который уже есть, возвращает 409."""
     ctx = linked_event_types_metrics_experiment
     existing_key = ctx["metric_keys"]["impressions"]
     url = f"{base_url}/api/v1/metrics"
@@ -199,7 +186,6 @@ async def test_metrics_create_duplicate_key_returns_409(
 
 @pytest.mark.asyncio
 async def test_metrics_update_requires_auth(http_session, base_url):
-    """PATCH /api/v1/metrics/{key} без токена возвращает 401."""
     url = f"{base_url}/api/v1/metrics/some_key"
     async with http_session.patch(url, json={"name": "Updated"}) as resp:
         assert resp.status == 401
@@ -209,7 +195,6 @@ async def test_metrics_update_requires_auth(http_session, base_url):
 async def test_metrics_update_forbidden_for_experimenter(
     http_session, base_url, auth_headers_experimenter, linked_event_types_metrics_experiment
 ):
-    """PATCH /api/v1/metrics/{key} от experimenter возвращает 403 (только admin)."""
     ctx = linked_event_types_metrics_experiment
     key = ctx["metric_keys"]["impressions"]
     url = f"{base_url}/api/v1/metrics/{key}"
@@ -227,7 +212,6 @@ async def test_metrics_update_forbidden_for_experimenter(
 async def test_metrics_update_success(
     http_session, base_url, auth_headers_admin, auth_headers_experimenter, linked_event_types_metrics_experiment
 ):
-    """PATCH /api/v1/metrics/{key} от admin обновляет метрику."""
     ctx = linked_event_types_metrics_experiment
     key = ctx["metric_keys"]["impressions"]
     url = f"{base_url}/api/v1/metrics/{key}"
@@ -247,7 +231,6 @@ async def test_metrics_update_success(
 async def test_metrics_update_not_found(
     http_session, base_url, auth_headers_admin
 ):
-    """PATCH /api/v1/metrics/{key} для несуществующей метрики возвращает 404."""
     key = f"nonexistent_metric_patch_{uuid.uuid4().hex[:8]}"
     url = f"{base_url}/api/v1/metrics/{key}"
     async with http_session.patch(

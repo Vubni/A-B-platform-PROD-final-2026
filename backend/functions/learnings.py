@@ -82,12 +82,16 @@ def _score_similarity(base: dict, candidate: dict) -> tuple[float, list[str]]:
         reasons.append("overlap_app_versions")
     score += app_versions_overlap * 0.04
 
-    guardrails_overlap = _jaccard(base.get("guardrail_metric_keys"), candidate.get("guardrail_metric_keys"))
+    guardrails_overlap = _jaccard(
+        base.get("guardrail_metric_keys"), candidate.get("guardrail_metric_keys")
+    )
     if guardrails_overlap > 0:
         reasons.append("overlap_guardrail_metrics")
     score += guardrails_overlap * 0.04
 
-    targeting_similarity = _text_jaccard(base.get("targeting_summary"), candidate.get("targeting_summary"))
+    targeting_similarity = _text_jaccard(
+        base.get("targeting_summary"), candidate.get("targeting_summary")
+    )
     if targeting_similarity > 0:
         reasons.append("similar_targeting_summary")
     score += targeting_similarity * 0.04
@@ -112,7 +116,8 @@ async def _get_learning_by_id_using_db(db: Database, learning_id: str) -> dict |
         JOIN experiments e ON e.id = l.experiment_id
         WHERE l.id = $1
         """,
-        (learning_id,))
+        (learning_id,),
+    )
     if not row:
         return None
 
@@ -123,9 +128,12 @@ async def _get_learning_by_id_using_db(db: Database, learning_id: str) -> dict |
         WHERE learning_id = $1
         ORDER BY metric_key ASC
         """,
-        (learning_id,))
+        (learning_id,),
+    )
     row["guardrails"] = guardrails or []
-    row["guardrail_metric_keys"] = [g.get("metric_key") for g in (guardrails or []) if g.get("metric_key")]
+    row["guardrail_metric_keys"] = [
+        g.get("metric_key") for g in (guardrails or []) if g.get("metric_key")
+    ]
     return serialize_json(row)
 
 
@@ -137,8 +145,8 @@ async def get_learning_by_id(learning_id: str) -> dict | None:
 async def get_learning_by_experiment_id(experiment_id: str) -> dict | None:
     async with Database() as db:
         row = await db.execute(
-            "SELECT id FROM experiment_learnings WHERE experiment_id = $1",
-            (experiment_id,))
+            "SELECT id FROM experiment_learnings WHERE experiment_id = $1", (experiment_id,)
+        )
         if not row:
             return None
         return await _get_learning_by_id_using_db(db, str(row["id"]))
@@ -169,7 +177,9 @@ async def upsert_learning(
     actor_user_id: str | None,
 ) -> dict | None:
     async with Database() as db:
-        guardrail_triggers_count = sum(int((g or {}).get("trigger_count") or 0) for g in (guardrails or []))
+        guardrail_triggers_count = sum(
+            int((g or {}).get("trigger_count") or 0) for g in (guardrails or [])
+        )
         learning_id = await db.fetchval(
             """
             INSERT INTO experiment_learnings (
@@ -234,7 +244,8 @@ async def upsert_learning(
                 is_completed,
                 actor_user_id,
                 actor_user_id,
-            ))
+            ),
+        )
         if not learning_id:
             return None
         learning_id = str(learning_id)
@@ -257,7 +268,8 @@ async def upsert_learning(
                     g.get("threshold_value"),
                     int(g.get("trigger_count") or 0),
                     json.dumps(g.get("details") or {}),
-                ))
+                ),
+            )
         return await _get_learning_by_id_using_db(db, learning_id)
 
 
@@ -354,7 +366,8 @@ async def list_learning_audit(learning_id: str, limit: int = 50, offset: int = 0
             ORDER BY changed_at DESC
             LIMIT $2 OFFSET $3
             """,
-            (learning_id, limit, offset))
+            (learning_id, limit, offset),
+        )
         guardrail_rows = []
         try:
             guardrail_rows = await db.execute_all(
@@ -393,7 +406,8 @@ async def find_similar_learnings(learning_id: str, limit: int = 5) -> list[dict]
             JOIN experiments e ON e.id = l.experiment_id
             WHERE l.id <> $1
             """,
-            (learning_id,))
+            (learning_id,),
+        )
         if not candidates:
             return []
 
@@ -403,7 +417,8 @@ async def find_similar_learnings(learning_id: str, limit: int = 5) -> list[dict]
             FROM learning_guardrails
             WHERE learning_id = ANY($1::uuid[])
             """,
-            ([learning_id] + [str(c["id"]) for c in candidates],))
+            ([learning_id] + [str(c["id"]) for c in candidates],),
+        )
         guardrails_map: dict[str, list[str]] = {}
         for r in all_guardrails or []:
             lid = str(r["learning_id"])
@@ -434,7 +449,8 @@ async def find_similar_learnings(learning_id: str, limit: int = 5) -> list[dict]
                 ON CONFLICT (learning_id, similar_learning_id)
                 DO UPDATE SET score = EXCLUDED.score, computed_at = NOW(), algorithm_version = 'v1'
                 """,
-                (learning_id, cid, score))
+                (learning_id, cid, score),
+            )
 
         enriched.sort(key=lambda x: x["score"], reverse=True)
         return enriched[:limit]
