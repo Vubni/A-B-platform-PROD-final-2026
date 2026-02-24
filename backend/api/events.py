@@ -125,6 +125,11 @@ def _event_type_id_from_request(request: web.Request) -> str | None:
     return validate_uuid(raw)
 
 
+
+def _kafka_consumer_ready(app: web.Application) -> bool:
+    task = app.get("kafka_consumer_task")
+    return task is not None and not task.done()
+
 @docs(
     tags=["Events"],
     summary="Отправить пакет событий",
@@ -135,11 +140,6 @@ def _event_type_id_from_request(request: web.Request) -> str | None:
         422: RESPONSES_HTTP_ERROR[422],
     },
 )
-def _kafka_consumer_ready(app: web.Application) -> bool:
-    task = app.get("kafka_consumer_task")
-    return task is not None and not task.done()
-
-
 @request_schema(EventsSubmitRequestSchema(), location="json", put_into="data")
 @validate.validate(EventsSubmitInput)
 async def events_submit(request: web.Request, parsed: EventsSubmitInput) -> web.Response:
