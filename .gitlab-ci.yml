@@ -34,7 +34,7 @@ test:
       docker compose --profile test up -d postgres backend
       echo "Waiting for backend /ready (max 180s)..."
       for i in $(seq 1 36); do
-        if docker compose --profile test exec -T backend python -c "import urllib.request; urllib.request.urlopen('http://localhost:80/ready')" 2>/dev/null; then
+        if docker compose --profile test exec -T backend python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/ready')" 2>/dev/null; then
           echo "Backend is ready."
           break
         fi

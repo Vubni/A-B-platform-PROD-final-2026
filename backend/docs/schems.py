@@ -1063,6 +1063,9 @@ class ReportVariantRowSchema(Schema):
     variant_id = fields.Str(description="UUID варианта")
     variant_name = fields.Str(description="Имя варианта (control, treatment и т.д.)")
     is_control = fields.Bool(description="Является ли контрольным")
+    decisions_count = fields.Int(
+        description="Число выдач этого варианта (количество decision-записей)"
+    )
     subjects_count = fields.Int(
         description="Число пользователей (subject_id), получивших этот вариант"
     )

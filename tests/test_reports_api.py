@@ -131,6 +131,7 @@ async def test_report_success_structure(
             assert "variant_id" in v
             assert "variant_name" in v
             assert "is_control" in v
+            assert "decisions_count" in v
             assert "subjects_count" in v
             assert "share_pct" in v
             assert "metric_values" in v
@@ -354,6 +355,8 @@ async def test_report_after_decide_and_events_shows_user_share_and_real_conclusi
     assert control_row and treatment_row
     n_control_report = control_row.get("subjects_count", 0)
     n_treatment_report = treatment_row.get("subjects_count", 0)
+    assert control_row.get("decisions_count", 0) >= n_control_report
+    assert treatment_row.get("decisions_count", 0) >= n_treatment_report
     total_in_report = n_control_report + n_treatment_report
     assert total_in_report >= 2, "need at least 2 subjects in report (both variants)"
     assert n_control_report >= 1 and n_treatment_report >= 1, "need at least one subject per variant for conclusions"
@@ -379,6 +382,8 @@ async def test_report_after_decide_and_events_shows_user_share_and_real_conclusi
     treatment_result = next((r for r in results if r.get("variant_name") == "treatment"), None)
     assert treatment_result is not None
     treatment_val = treatment_result.get("value")
+    assert control_val == 0
+    assert treatment_val == 1
     if treatment_val is not None or control_val is not None:
         assert treatment_val is not None and (control_val is None or treatment_val > control_val), (
             f"expected treatment primary value ({treatment_val!r}) > control ({control_val!r})"

@@ -1,3 +1,4 @@
+import json
 import uuid
 from typing import Any
 
@@ -92,8 +93,15 @@ async def create_flag(
             return None
         await db.execute(
             """INSERT INTO feature_flags (key, value_type, default_value, description, owner, metadata)
-               VALUES ($1, $2::flag_value_type, $3, $4, $5, $6)""",
-            (key, value_type, default_value, description, owner, metadata),
+               VALUES ($1, $2::flag_value_type, $3, $4, $5, $6::jsonb)""",
+            (
+                key,
+                value_type,
+                default_value,
+                description,
+                owner,
+                json.dumps(metadata) if metadata is not None else None,
+            ),
         )
         row = await db.execute(
             """SELECT id, key, value_type::text, default_value, description, owner, metadata, created_at, updated_at

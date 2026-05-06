@@ -10,7 +10,7 @@
 | Что | Как получить |
 |-----|----------------|
 | Запущенный backend и БД | `docker compose up -d` или локальный запуск по `backend/README.md` |
-| Тестовые данные | `export API_BASE_URL=http://localhost:80` и `python tests/seed_test_data.py` |
+| Тестовые данные | `export API_BASE_URL=http://localhost:8080` и `python tests/seed_test_data.py` |
 | Токен admin | `POST /api/v1/auth` с `{"email": "admin@test.com", "password": "admin123"}` → `token` |
 | Токен experimenter | `{"email": "experimenter@test.com", "password": "exp123"}` |
 | Токен viewer | `{"email": "viewer@test.com", "password": "view123"}` |

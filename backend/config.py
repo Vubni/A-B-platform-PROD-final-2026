@@ -67,6 +67,11 @@ logger = logging.getLogger("backend")
 logger.setLevel(logging.INFO)
 logger.propagate = False
 
+for _noisy_logger_name in ("aiokafka", "kafka"):
+    _noisy_logger = logging.getLogger(_noisy_logger_name)
+    _noisy_logger.setLevel(logging.ERROR)
+    _noisy_logger.addHandler(logging.NullHandler())
+
 _formatter = StructuredJsonFormatter()
 
 

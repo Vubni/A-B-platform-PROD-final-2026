@@ -381,7 +381,7 @@
 docker compose up -d
 ```
 
-API: `http://localhost:80`. Логи: `backend_logs` volume.
+API: `http://localhost:8080`. Логи: `backend_logs` volume.
 
 **Без Docker**:
 

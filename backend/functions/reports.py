@@ -52,6 +52,15 @@ async def _subjects_count_by_variant(db, experiment_id: str, variant_id: str) ->
     return int(row["cnt"]) if row and row.get("cnt") is not None else 0
 
 
+async def _decisions_count_by_variant(db, experiment_id: str, variant_id: str) -> int:
+    row = await db.execute(
+        """SELECT COUNT(*) AS cnt FROM decisions
+           WHERE experiment_id = $1 AND variant_id = $2""",
+        (experiment_id, variant_id),
+    )
+    return int(row["cnt"]) if row and row.get("cnt") is not None else 0
+
+
 async def _event_counts_by_type(
     db, decision_ids: list[str], event_type_keys: list[str], start_ts: datetime, end_ts: datetime
 ) -> dict[str, int]:
@@ -175,6 +184,21 @@ async def _compute_metric_value(
 ) -> float | None:
     rule = metric_catalog_row.get("aggregation_rule") or {}
     kind = (rule.get("kind") or "").strip()
+    if kind == "ratio":
+        num_key = rule.get("numerator_metric_key")
+        den_key = rule.get("denominator_metric_key")
+        if not num_key or not den_key:
+            return None
+        num_metric = await get_metric_by_key(num_key)
+        den_metric = await get_metric_by_key(den_key)
+        if not num_metric or not den_metric:
+            return None
+        num_val = await _compute_metric_value(db, decision_ids, start_ts, end_ts, num_metric)
+        den_val = await _compute_metric_value(db, decision_ids, start_ts, end_ts, den_metric)
+        if num_val is None or den_val is None or den_val == 0:
+            return None
+        return num_val / den_val
+
     event_type_key = rule.get("event_type_key")
     if not event_type_key:
         return None
@@ -202,20 +226,6 @@ async def _compute_metric_value(
             value_path,
             int(rule.get("percentile") or 95),
         )
-    if kind == "ratio":
-        num_key = rule.get("numerator_metric_key")
-        den_key = rule.get("denominator_metric_key")
-        if not num_key or not den_key:
-            return None
-        num_metric = await get_metric_by_key(num_key)
-        den_metric = await get_metric_by_key(den_key)
-        if not num_metric or not den_metric:
-            return None
-        num_val = await _compute_metric_value(db, decision_ids, start_ts, end_ts, num_metric)
-        den_val = await _compute_metric_value(db, decision_ids, start_ts, end_ts, den_metric)
-        if num_val is None or den_val is None or den_val == 0:
-            return None
-        return num_val / den_val
     return None
 
 
@@ -369,6 +379,7 @@ async def get_experiment_report(experiment: dict, start_iso: str, end_iso: str) 
             var_name = v.get("variant_name") or ""
             is_control = v.get("is_control") or False
             decision_ids = await _decision_ids_by_variant(db, experiment["id"], var_id)
+            decisions_count = await _decisions_count_by_variant(db, experiment["id"], var_id)
             subjects_count = await _subjects_count_by_variant(db, experiment["id"], var_id)
             metric_values = []
             for em in exp_metrics:
@@ -396,6 +407,7 @@ async def get_experiment_report(experiment: dict, start_iso: str, end_iso: str) 
                     "variant_id": var_id,
                     "variant_name": var_name,
                     "is_control": is_control,
+                    "decisions_count": decisions_count,
                     "subjects_count": subjects_count,
                     "metric_values": metric_values,
                     "event_counts": event_counts,

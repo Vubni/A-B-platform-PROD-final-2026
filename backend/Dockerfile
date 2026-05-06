@@ -13,6 +13,6 @@ COPY . .
 
 RUN mkdir -p logs
 
-EXPOSE 80
+EXPOSE 8080
 
 CMD ["python", "server.py"]

@@ -207,7 +207,7 @@ async def test_decide_returns_default_when_targeting_rule_not_matched(
         pytest.skip("Could not set status running")
 
     payload = {
-        "subject_id": "user-outside-targeting",
+        "subject_id": f"user-outside-targeting-{uuid.uuid4().hex}",
         "attributes": {"country": "BY"},
         "flags": [targeting_flag_key],
     }
@@ -219,7 +219,7 @@ async def test_decide_returns_default_when_targeting_rule_not_matched(
         assert data["flags"][0]["experiment"] is None
 
     payload_match = {
-        "subject_id": "user-inside-targeting",
+        "subject_id": f"user-inside-targeting-{uuid.uuid4().hex}",
         "attributes": {"country": "RU"},
         "flags": [targeting_flag_key],
     }
@@ -233,6 +233,81 @@ async def test_decide_returns_default_when_targeting_rule_not_matched(
         f"{base_url}/api/v1/experiments/{exp_id}/complete",
         headers=auth_headers_experimenter,
         json={"completion_outcome": "rollback", "comment": "Teardown targeting test"},
+    ):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_decide_first_eligible_subject_enters_full_audience_experiment(
+    http_session,
+    base_url,
+    auth_headers_viewer,
+    auth_headers_admin,
+    auth_headers_experimenter,
+    auth_headers_approver,
+):
+    flags_url = f"{base_url}/api/v1/flags"
+    exp_url = f"{base_url}/api/v1/experiments"
+    decide_url = f"{base_url}{DECIDE_URL_SUFFIX}"
+    flag_key = f"decide_first_subject_{uuid.uuid4().hex[:12]}"
+
+    async with http_session.post(
+        flags_url,
+        headers=auth_headers_admin,
+        json={"key": flag_key, "value_type": "string", "default_value": "default"},
+    ) as resp:
+        assert resp.status == 201, await resp.text()
+        flag_id = (await resp.json())["id"]
+
+    async with http_session.post(
+        exp_url,
+        headers=auth_headers_experimenter,
+        json={
+            "flag_id": flag_id,
+            "name": "Decide first subject enters experiment",
+            "audience_fraction": 1.0,
+        },
+    ) as resp:
+        assert resp.status == 201, await resp.text()
+        exp_id = (await resp.json())["id"]
+
+    for variant in [
+        {"variant_name": "control", "variant_value": "c", "weight": 0.5, "is_control": True},
+        {"variant_name": "treatment", "variant_value": "t", "weight": 0.5, "is_control": False},
+    ]:
+        async with http_session.post(
+            f"{base_url}/api/v1/experiments/{exp_id}/variants",
+            headers=auth_headers_experimenter,
+            json=variant,
+        ) as resp:
+            assert resp.status == 201, await resp.text()
+
+    from conftest import transition_experiment_to_running
+
+    ok = await transition_experiment_to_running(
+        http_session, base_url, exp_id, auth_headers_experimenter, auth_headers_approver
+    )
+    if not ok:
+        pytest.skip("Could not set status running")
+
+    async with http_session.post(
+        decide_url,
+        headers=auth_headers_viewer,
+        json={"subject_id": f"first-subject-{uuid.uuid4().hex}", "attributes": {}, "flags": [flag_key]},
+    ) as resp:
+        assert resp.status == 200, await resp.text()
+        data = await resp.json()
+
+    flag_decision = data["flags"][0]
+    assert flag_decision["experiment"] is not None
+    assert flag_decision["experiment"]["experiment_id"] == exp_id
+    assert flag_decision["experiment"]["variant"] in ("control", "treatment")
+    assert flag_decision["flag_value"] in ("c", "t")
+
+    async with http_session.post(
+        f"{base_url}/api/v1/experiments/{exp_id}/complete",
+        headers=auth_headers_experimenter,
+        json={"completion_outcome": "rollback", "comment": "Teardown first subject test"},
     ):
         pass
 

@@ -183,12 +183,17 @@ async def get_decisions_for_subject(
                        VALUES ($1, $2, $3, $4, $5, $6)""",
                     (decision_id, subject_id, flag_id, existing_raw_value, exp_id, var_id),
                 )
+                experiment_payload = (
+                    {"experiment_id": out_experiment_id, "variant": out_variant}
+                    if out_experiment_id and out_variant
+                    else None
+                )
                 result["flags"].append(
                     {
                         "flag_key": experiment["flag_key"],
                         "flag_value": out_flag_value,
                         "decision_id": str(decision_id),
-                        "experiment": {"experiment_id": out_experiment_id, "variant": out_variant},
+                        "experiment": experiment_payload,
                     }
                 )
                 continue
@@ -204,9 +209,7 @@ async def get_decisions_for_subject(
             total = counts["total"] or 0
             in_experiment = counts["in_experiment"] or 0
 
-            if total == 0:
-                assign_to_experiment = False
-            elif audience_fraction == 0:
+            if audience_fraction == 0:
                 assign_to_experiment = True
             else:
                 target_in_experiment = (total + 1) * audience_fraction

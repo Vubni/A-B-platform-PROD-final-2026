@@ -83,6 +83,25 @@ async def test_flags_create_success(http_session, base_url, auth_headers_admin):
 
 
 @pytest.mark.asyncio
+async def test_flags_create_with_metadata(http_session, base_url, auth_headers_admin):
+    url = f"{base_url}/api/v1/flags"
+    key = f"api_test_flag_metadata_{uuid.uuid4().hex[:8]}"
+    payload = {
+        "key": key,
+        "value_type": "string",
+        "default_value": "green",
+        "owner": "growth",
+        "description": "Цвет кнопки покупки",
+        "metadata": {"surface": "checkout"},
+    }
+    async with http_session.post(url, json=payload, headers=auth_headers_admin) as resp:
+        assert resp.status == 201
+        data = await resp.json()
+        assert data["key"] == key
+        assert data["metadata"] == {"surface": "checkout"}
+
+
+@pytest.mark.asyncio
 async def test_flags_create_number_and_bool(
     http_session, base_url, auth_headers_admin
 ):

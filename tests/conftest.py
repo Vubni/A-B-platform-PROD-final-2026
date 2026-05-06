@@ -12,7 +12,7 @@ _backend_dir = _project_root / "backend"
 if _backend_dir.exists() and str(_backend_dir) not in sys.path:
     sys.path.insert(0, str(_backend_dir))
 
-BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:80")
+BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8080")
 
 
 TEST_SECTIONS = {
@@ -223,7 +223,8 @@ def pytest_report_collectionfinish(config, start_path, items):
     for item in items:
         section = _section_for_nodeid(item.nodeid)
         groups.setdefault(section, []).append(item.nodeid.split("::")[-1])
-    order = SECTION_ORDER + [s for s in sorted(groups) if s not in SECTION_ORDER]
+    order = SECTION_ORDER + \
+        [s for s in sorted(groups) if s not in SECTION_ORDER]
     lines = []
     for section in order:
         if section in groups:
@@ -260,7 +261,8 @@ def pytest_sessionfinish(session, exitstatus):
         for method, path in sorted(uncovered, key=lambda x: (x[1], x[0])):
             reporter.write_line(f"  {method:6} {path}")
         reporter.write_line("")
-    reporter.write_line(f"Итого: {num_covered}/{total} эндпоинтов — {pct:.0f}%")
+    reporter.write_line(
+        f"Итого: {num_covered}/{total} эндпоинтов — {pct:.0f}%")
     reporter.write_line("")
 
 
@@ -444,7 +446,8 @@ async def create_experiment_in_running(
             flag_id = (await fr.json())["id"]
         async with http_session.post(
             create_url,
-            json={"flag_id": flag_id, "name": f"Complete test {key}", "audience_fraction": 0.5},
+            json={"flag_id": flag_id, "name": f"Complete test {key}",
+                  "audience_fraction": 0.5},
             headers=auth_headers_experimenter,
         ) as cr:
             if cr.status != 201:
@@ -452,8 +455,10 @@ async def create_experiment_in_running(
             exp_id = (await cr.json())["id"]
         var_url = f"{base_url}/api/v1/experiments/{exp_id}/variants"
         for v in [
-            {"variant_name": "control", "variant_value": "c", "weight": 0.25, "is_control": True},
-            {"variant_name": "treatment", "variant_value": "t", "weight": 0.25, "is_control": False},
+            {"variant_name": "control", "variant_value": "c",
+                "weight": 0.25, "is_control": True},
+            {"variant_name": "treatment", "variant_value": "t",
+                "weight": 0.25, "is_control": False},
         ]:
             async with http_session.post(var_url, headers=auth_headers_experimenter, json=v) as vr:
                 assert vr.status == 201, f"Variant add failed: {(await vr.text())}"

@@ -23,8 +23,7 @@ def _get_bootstrap() -> str:
 
 async def ensure_topic() -> bool:
     try:
-        from aiokafka import AIOKafkaAdminClient
-        from aiokafka.admin import NewTopic
+        from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 
         admin = AIOKafkaAdminClient(bootstrap_servers=_get_bootstrap())
         await admin.start()

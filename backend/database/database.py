@@ -4,6 +4,7 @@ import uuid
 from datetime import date, datetime, time
 
 from asyncpg import Connection, PostgresConnectionError, Record, connect
+from asyncpg.exceptions import CannotConnectNowError
 
 from config import DATE_BASE_CONNECT, logger
 
@@ -28,7 +29,7 @@ class Database:
                 await self.transaction.start()
                 self._retry_count = 0
                 return self
-            except PostgresConnectionError as e:
+            except (PostgresConnectionError, CannotConnectNowError) as e:
                 self._retry_count += 1
                 logger.error(
                     f"Попытка подключения {self._retry_count}/{self.MAX_RETRIES} failed: {e}"
