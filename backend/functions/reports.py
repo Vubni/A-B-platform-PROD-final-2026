@@ -64,30 +64,30 @@ async def _decisions_count_by_variant(db, experiment_id: str, variant_id: str) -
 async def _event_counts_by_type(
     db, decision_ids: list[str], event_type_keys: list[str], start_ts: datetime, end_ts: datetime
 ) -> dict[str, int]:
-    if not decision_ids or not event_type_keys:
+    if not decision_ids:
         return dict.fromkeys(event_type_keys, 0)
+    result = dict.fromkeys(event_type_keys, 0)
     key_to_id: dict[str, str] = {}
     for k in event_type_keys:
         et = await get_event_type_by_key(k, active_only=False)
         if et and et.get("id"):
             key_to_id[k] = et["id"]
-    if not key_to_id:
-        return dict.fromkeys(event_type_keys, 0)
-    ids = list(key_to_id.values())
-    rows = await db.execute_all(
-        """SELECT e.event_type_id, COUNT(*) AS cnt
-           FROM event_occurrences e
-           WHERE e.decision_id = ANY($1::uuid[]) AND e.event_type_id = ANY($2::uuid[])
-             AND e.timestamp >= $3 AND e.timestamp < $4
-           GROUP BY e.event_type_id""",
-        (decision_ids, ids, start_ts, end_ts),
-    )
     id_to_key = {v: k for k, v in key_to_id.items()}
-    result = dict.fromkeys(event_type_keys, 0)
+
+    rows = await db.execute_all(
+        """SELECT e.event_type_id, et.key AS event_type_key, COUNT(*) AS cnt
+           FROM event_occurrences e
+           JOIN event_types et ON et.id = e.event_type_id
+           WHERE e.decision_id = ANY($1::uuid[])
+             AND e.timestamp >= $2 AND e.timestamp < $3
+           GROUP BY e.event_type_id, et.key""",
+        (decision_ids, start_ts, end_ts),
+    )
     for r in rows:
         eid = r.get("event_type_id")
-        if eid and eid in id_to_key:
-            result[id_to_key[eid]] = int(r.get("cnt") or 0)
+        key = id_to_key.get(eid) or r.get("event_type_key")
+        if key:
+            result[key] = int(r.get("cnt") or 0)
     return result
 
 

@@ -252,6 +252,7 @@ async def test_report_after_decide_and_events_shows_user_share_and_real_conclusi
     flag_key = ctx["flag_key"]
     exposure_key = ctx["event_type_keys"]["exposure"]
     conversion_key = ctx["event_type_keys"]["conversion"]
+    click_key = ctx["event_type_keys"]["click"]
     decide_url = f"{base_url}/api/v1/decide"
     events_url = f"{base_url}/api/v1/events"
     report_url = f"{base_url}/api/v1/experiments/{exp_id}/report"
@@ -327,6 +328,26 @@ async def test_report_after_decide_and_events_shows_user_share_and_real_conclusi
         else:
             assert conv_submit.get("accepted") == n_treatment, f"conversion events: {conv_submit}"
 
+    click_events = []
+    for subject_id, decision_id in decisions_by_variant["treatment"]:
+        click_events.append({
+            "event_id": str(uuid.uuid4()),
+            "decision_id": decision_id,
+            "event_type_key": click_key,
+            "subject_id": subject_id,
+            "timestamp": now_ts,
+            "payload": {"surface": "checkout_demo"},
+        })
+    async with http_session.post(events_url, json={"events": click_events}) as resp:
+        assert resp.status in (200, 202), await resp.text()
+        if resp.status == 202:
+            events_via_kafka = True
+        click_submit = await resp.json()
+        if resp.status == 202:
+            await asyncio.sleep(12)
+        else:
+            assert click_submit.get("accepted") == n_treatment, f"click events: {click_submit}"
+
     report = None
     poll_iterations = 35
     for _ in range(poll_iterations):
@@ -374,6 +395,7 @@ async def test_report_after_decide_and_events_shows_user_share_and_real_conclusi
     assert treatment_row["event_counts"].get(exp_key_used) == n_treatment_report
     assert control_row["event_counts"].get(conv_key_used) == 0
     assert treatment_row["event_counts"].get(conv_key_used) == n_treatment_report
+    assert treatment_row["event_counts"].get(click_key) == n_treatment_report
 
     summary = report.get("primary_metric_summary")
     assert summary is not None
