@@ -49,6 +49,61 @@ async def test_auth_login_missing_body_or_invalid(http_session, base_url):
         assert resp.status in (400, 422)
 
 
+@pytest.mark.asyncio
+async def test_auth_register_success_and_login(http_session, base_url):
+    unique = uuid.uuid4().hex[:8]
+    payload = {
+        "email": f"register_{unique}@test.com",
+        "first_name": f"Register_{unique}",
+        "password": "Register123",
+    }
+    async with http_session.post(f"{base_url}/api/v1/register", json=payload) as resp:
+        assert resp.status == 201, await resp.text()
+        data = await resp.json()
+        assert "token" in data
+        assert data["user"]["email"] == payload["email"]
+        assert data["user"]["first_name"] == payload["first_name"]
+        assert data["user"]["role"] == "viewer"
+        assert "password" not in data["user"]
+
+    async with http_session.post(
+        f"{base_url}/api/v1/auth",
+        json={"email": payload["email"], "password": payload["password"]},
+    ) as resp:
+        assert resp.status == 200, await resp.text()
+        data = await resp.json()
+        assert data["user"]["email"] == payload["email"]
+
+
+@pytest.mark.asyncio
+async def test_auth_register_duplicate_returns_409(http_session, base_url):
+    unique = uuid.uuid4().hex[:8]
+    payload = {
+        "email": f"register_dup_{unique}@test.com",
+        "first_name": f"RegisterDup_{unique}",
+        "password": "Register123",
+    }
+    async with http_session.post(f"{base_url}/api/v1/register", json=payload) as resp:
+        assert resp.status == 201, await resp.text()
+    async with http_session.post(f"{base_url}/api/v1/register", json=payload) as resp:
+        assert resp.status == 409
+
+
+@pytest.mark.asyncio
+async def test_auth_register_cannot_set_role(http_session, base_url):
+    unique = uuid.uuid4().hex[:8]
+    payload = {
+        "email": f"register_role_{unique}@test.com",
+        "first_name": f"RegisterRole_{unique}",
+        "password": "Register123",
+        "role": "admin",
+    }
+    async with http_session.post(f"{base_url}/api/v1/register", json=payload) as resp:
+        assert resp.status == 201, await resp.text()
+        data = await resp.json()
+        assert data["user"]["role"] == "viewer"
+
+
 
 @pytest.mark.asyncio
 async def test_users_list_requires_auth(http_session, base_url):

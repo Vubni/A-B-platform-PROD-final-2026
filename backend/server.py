@@ -189,6 +189,7 @@ if __name__ == "__main__":
         web.get("/health", health.health),
         web.get("/ready", health.ready),
         web.get("/metrics", system_metrics.metrics_export),
+        web.post(prefix + "/register", auth.auth_register),
         web.post(prefix + "/auth", auth.auth_login),
         web.get(prefix + "/users", users.users_list),
         web.post(prefix + "/users", users.users_create),
