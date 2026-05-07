@@ -105,6 +105,8 @@
 | | PATCH | `/api/v1/experiments/{id}/variants/{variant_id}` |
 | | DELETE | `/api/v1/experiments/{id}/variants/{variant_id}` |
 | | GET | `/api/v1/experiments/{id}/guardrail-history` |
+| | GET, POST | `/api/v1/experiments/{id}/attachments` |
+| | GET, DELETE | `/api/v1/experiments/{id}/attachments/{attachment_id}` |
 | **Guardrails** | GET | `/api/v1/guardrails` |
 | | GET | `/api/v1/guardrails/{metric_key}` |
 | | POST | `/api/v1/guardrails` |
@@ -114,6 +116,7 @@
 | **Event types** | GET, POST | `/api/v1/event-types` |
 | | GET, PATCH, DELETE | `/api/v1/event-types/{id}` |
 | **Reports** | GET | `/api/v1/experiments/{id}/report` |
+| | GET | `/api/v1/experiments/{id}/report/html` |
 | **Learnings** | GET | `/api/v1/learnings` |
 | | GET | `/api/v1/learnings/{id}` |
 | | GET | `/api/v1/learnings/{id}/audit` |
@@ -153,6 +156,22 @@
    ```bash
    curl "http://localhost/api/v1/experiments/{experiment_id}/report?start=2026-02-01&end=2026-02-15"
    ```
+
+6. **HTML-отчёт по шаблону Jinja2**:
+   ```bash
+   curl "http://localhost/api/v1/experiments/{experiment_id}/report/html?start=2026-02-01&end=2026-02-15" \
+     -H "Authorization: Bearer <token>"
+   ```
+   Шаблон лежит в `backend/templates/experiment_report.html`.
+
+7. **Файлы эксперимента**: к эксперименту можно прикрепить артефакты проверки — ТЗ, CSV с расчётами, скриншоты, PDF/Docx.
+   ```bash
+   curl -X POST "http://localhost/api/v1/experiments/{experiment_id}/attachments" \
+     -H "Authorization: Bearer <token>" \
+     -F "description=Расчёт выборки" \
+     -F "file=@sample-size.xlsx"
+   ```
+   Метаданные хранятся в PostgreSQL (`experiment_attachments`), сами файлы — в `UPLOAD_DIR` (`uploads/experiment_attachments` по умолчанию).
 
 **Тестовые данные.** При запуске через Docker (`docker compose up -d`) с `SEED_DEMO_USERS=1` типы событий `demo_exposure`, `demo_click`, `demo_conversion` и метрики `demo_impressions`, `demo_conversions`, `demo_conversion_rate` создаются при старте автоматически — ничего дополнительно запускать не нужно. Для локального запуска без Docker: `python tests/seed_test_data.py`.
 
@@ -270,6 +289,8 @@
 │   │   ├── decide.py             # Runtime-решения по флагам (POST /api/v1/decide)
 │   │   ├── events.py             # Типы событий и приём батчей событий (POST /api/v1/events)
 │   │   ├── reports.py            # Отчёты по экспериментам, каталог метрик
+│   │   ├── report_templates.py   # HTML-отчёт через Jinja2-шаблон
+│   │   ├── attachments.py        # Загрузка, список, скачивание и удаление файлов эксперимента
 │   │   ├── guardrails.py         # CRUD по настройкам guardrail-метрик
 │   │   ├── health.py             # /health и /ready
 │   │   ├── system_metrics.py     # /metrics и middleware для счётчиков
@@ -277,6 +298,7 @@
 │   │   └── get_file.py           # Раздача статики (Swagger UI и т.п.)
 │   ├── autopilot_ramp/           # Логика автопилота и ramp-up экспериментов
 │   ├── functions/                # Бизнес-логика (без HTTP)
+│   │   ├── attachments.py        # Метаданные файлов эксперимента
 │   │   ├── decide.py             # Алгоритм выдачи вариантов и записи decisions
 │   │   ├── events_submit.py      # Валидация, дедупликация, атрибуция событий
 │   │   ├── events_dependency_queue.py # Очередь зависимостей событий (show → conversion)
@@ -290,6 +312,7 @@
 │   ├── database/
 │   │   ├── database.py           # Обёртка над async-подключением к PostgreSQL
 │   │   └── functions.py          # Инициализация справочных данных
+│   ├── templates/                # Jinja2-шаблоны серверных HTML-представлений
 │   ├── docs/                     # Документация и схемы для Swagger и проверки
 │   │   ├── schems.py             # Модели/схемы для OpenAPI (Swagger)
 │   │   ├── compliance-matrix.md  # Матрица трассируемости задание–критерий–реализация
@@ -300,6 +323,7 @@
 │   ├── core.py                   # Общие утилиты: авторизация (JWT), проверка прав, константы
 │   ├── dsl.py                    # Парсер правил таргетинга (выражения, операторы, даты)
 │   ├── kafka_events.py           # Обработка событий из Kafka (если используется)
+│   ├── models.py                 # SQLAlchemy ORM-модели основных таблиц
 │   ├── scripts/                  # Вспомогательные скрипты разработки/запуска
 │   ├── server.py                 # Точка входа backend, регистрация маршрутов и middleware
 │   ├── requirements-dev.txt      # Dev-зависимости для разработки и линтинга

@@ -10,5 +10,6 @@ BEGIN;
 \i /docker-entrypoint-initdb.d/schema/07_decisions.sql
 \i /docker-entrypoint-initdb.d/schema/08_events.sql
 \i /docker-entrypoint-initdb.d/schema/09_ramp.sql
+\i /docker-entrypoint-initdb.d/schema/10_experiment_attachments.sql
 
 COMMIT;

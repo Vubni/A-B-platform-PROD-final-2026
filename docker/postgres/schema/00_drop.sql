@@ -1,6 +1,7 @@
 DROP TABLE IF EXISTS events_dependency_queue CASCADE;
 DROP TABLE IF EXISTS event_occurrences CASCADE;
 DROP TABLE IF EXISTS event_types CASCADE;
+DROP TABLE IF EXISTS experiment_attachments CASCADE;
 DROP TABLE IF EXISTS subject_experiment_cooldown CASCADE;
 DROP TABLE IF EXISTS decisions CASCADE;
 DROP TABLE IF EXISTS decision_conflict_log CASCADE;

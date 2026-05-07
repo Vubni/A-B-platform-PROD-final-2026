@@ -26,6 +26,7 @@ TEST_SECTIONS = {
     "test_decide_api.py": "Decide",
     "test_events_api.py": "Events",
     "test_reports_api.py": "Reports",
+    "test_templates_attachments_api.py": "Templates and attachments",
     "test_metrics_catalog_api.py": "Metrics catalog",
     "test_conflicts_api.py": "Conflict resolution",
     "test_autopilot_ramp_api.py": "Autopilot ramp-up",
@@ -43,6 +44,7 @@ CORE_SECTION_ORDER = [
     "Decide",
     "Events",
     "Reports",
+    "Templates and attachments",
     "Metrics catalog",
 ]
 
@@ -86,6 +88,10 @@ ALL_ENDPOINTS = [
     ("PATCH", "/api/v1/experiments/{id}/variants/{variant_id}"),
     ("DELETE", "/api/v1/experiments/{id}/variants/{variant_id}"),
     ("GET", "/api/v1/experiments/{id}/guardrail-history"),
+    ("GET", "/api/v1/experiments/{id}/attachments"),
+    ("POST", "/api/v1/experiments/{id}/attachments"),
+    ("GET", "/api/v1/experiments/{id}/attachments/{attachment_id}"),
+    ("DELETE", "/api/v1/experiments/{id}/attachments/{attachment_id}"),
     ("GET", "/api/v1/experiments/{id}/ramp-plan"),
     ("PUT", "/api/v1/experiments/{id}/ramp-plan"),
     ("DELETE", "/api/v1/experiments/{id}/ramp-plan"),
@@ -116,6 +122,7 @@ ALL_ENDPOINTS = [
     ("PATCH", "/api/v1/event-types/{id}"),
     ("DELETE", "/api/v1/event-types/{id}"),
     ("GET", "/api/v1/experiments/{id}/report"),
+    ("GET", "/api/v1/experiments/{id}/report/html"),
     ("GET", "/api/v1/learnings"),
     ("GET", "/api/v1/learnings/{id}"),
     ("GET", "/api/v1/learnings/{id}/audit"),
@@ -155,6 +162,10 @@ TESTED_ENDPOINTS = [
     ("PATCH", "/api/v1/experiments/{id}/variants/{variant_id}"),
     ("DELETE", "/api/v1/experiments/{id}/variants/{variant_id}"),
     ("GET", "/api/v1/experiments/{id}/guardrail-history"),
+    ("GET", "/api/v1/experiments/{id}/attachments"),
+    ("POST", "/api/v1/experiments/{id}/attachments"),
+    ("GET", "/api/v1/experiments/{id}/attachments/{attachment_id}"),
+    ("DELETE", "/api/v1/experiments/{id}/attachments/{attachment_id}"),
     ("GET", "/api/v1/experiments/{id}/ramp-plan"),
     ("PUT", "/api/v1/experiments/{id}/ramp-plan"),
     ("DELETE", "/api/v1/experiments/{id}/ramp-plan"),
@@ -185,6 +196,7 @@ TESTED_ENDPOINTS = [
     ("PATCH", "/api/v1/event-types/{id}"),
     ("DELETE", "/api/v1/event-types/{id}"),
     ("GET", "/api/v1/experiments/{id}/report"),
+    ("GET", "/api/v1/experiments/{id}/report/html"),
     ("GET", "/api/v1/learnings"),
     ("GET", "/api/v1/learnings/{id}"),
     ("GET", "/api/v1/learnings/{id}/audit"),
@@ -225,8 +237,7 @@ def pytest_report_collectionfinish(config, start_path, items):
     for item in items:
         section = _section_for_nodeid(item.nodeid)
         groups.setdefault(section, []).append(item.nodeid.split("::")[-1])
-    order = SECTION_ORDER + \
-        [s for s in sorted(groups) if s not in SECTION_ORDER]
+    order = SECTION_ORDER + [s for s in sorted(groups) if s not in SECTION_ORDER]
     lines = []
     for section in order:
         if section in groups:
@@ -263,8 +274,7 @@ def pytest_sessionfinish(session, exitstatus):
         for method, path in sorted(uncovered, key=lambda x: (x[1], x[0])):
             reporter.write_line(f"  {method:6} {path}")
         reporter.write_line("")
-    reporter.write_line(
-        f"Итого: {num_covered}/{total} эндпоинтов — {pct:.0f}%")
+    reporter.write_line(f"Итого: {num_covered}/{total} эндпоинтов — {pct:.0f}%")
     reporter.write_line("")
 
 
@@ -448,8 +458,7 @@ async def create_experiment_in_running(
             flag_id = (await fr.json())["id"]
         async with http_session.post(
             create_url,
-            json={"flag_id": flag_id, "name": f"Complete test {key}",
-                  "audience_fraction": 0.5},
+            json={"flag_id": flag_id, "name": f"Complete test {key}", "audience_fraction": 0.5},
             headers=auth_headers_experimenter,
         ) as cr:
             if cr.status != 201:
@@ -457,10 +466,13 @@ async def create_experiment_in_running(
             exp_id = (await cr.json())["id"]
         var_url = f"{base_url}/api/v1/experiments/{exp_id}/variants"
         for v in [
-            {"variant_name": "control", "variant_value": "c",
-                "weight": 0.25, "is_control": True},
-            {"variant_name": "treatment", "variant_value": "t",
-                "weight": 0.25, "is_control": False},
+            {"variant_name": "control", "variant_value": "c", "weight": 0.25, "is_control": True},
+            {
+                "variant_name": "treatment",
+                "variant_value": "t",
+                "weight": 0.25,
+                "is_control": False,
+            },
         ]:
             async with http_session.post(var_url, headers=auth_headers_experimenter, json=v) as vr:
                 assert vr.status == 201, f"Variant add failed: {(await vr.text())}"
@@ -490,7 +502,11 @@ async def _create_linked_event_types_metrics_experiment(
     suffix = uuid.uuid4().hex[:8]
     et_url = f"{base_url}/api/v1/event-types"
     event_keys = {}
-    for key_slug, display in [("exposure", "Exposure"), ("click", "Click"), ("conversion", "Conversion")]:
+    for key_slug, display in [
+        ("exposure", "Exposure"),
+        ("click", "Click"),
+        ("conversion", "Conversion"),
+    ]:
         key = f"test_et_{key_slug}_{suffix}"
         async with http_session.post(
             et_url,
@@ -647,14 +663,22 @@ async def linked_event_types_metrics_experiment_running(
         http_session, base_url, auth_headers_admin, auth_headers_experimenter
     )
     if await transition_experiment_to_running(
-        http_session, base_url, ctx["experiment_id"], auth_headers_experimenter, auth_headers_approver
+        http_session,
+        base_url,
+        ctx["experiment_id"],
+        auth_headers_experimenter,
+        auth_headers_approver,
     ):
         return ctx
     ctx2 = await _create_linked_event_types_metrics_experiment(
         http_session, base_url, auth_headers_admin, auth_headers_experimenter
     )
     if await transition_experiment_to_running(
-        http_session, base_url, ctx2["experiment_id"], auth_headers_experimenter, auth_headers_approver
+        http_session,
+        base_url,
+        ctx2["experiment_id"],
+        auth_headers_experimenter,
+        auth_headers_approver,
     ):
         return ctx2
     pytest.skip("Could not set status running for linked experiment (retry)")

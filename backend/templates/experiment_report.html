@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>{{ report.experiment_name }} — HTML report</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 32px; color: #172033; }
+    h1 { margin-bottom: 4px; }
+    .muted { color: #657086; }
+    .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 24px 0; }
+    .card { border: 1px solid #d8dee9; border-radius: 8px; padding: 16px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+    th, td { border-bottom: 1px solid #e5e9f0; padding: 10px; text-align: left; vertical-align: top; }
+    th { background: #f6f8fb; }
+    code { background: #f6f8fb; padding: 2px 5px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>{{ report.experiment_name }}</h1>
+  <div class="muted">
+    Эксперимент <code>{{ report.experiment_id }}</code>,
+    статус: <strong>{{ report.status }}</strong>,
+    окно: {{ report.context.window_start }} — {{ report.context.window_end }}
+  </div>
+
+  <section class="summary">
+    <div class="card">
+      <strong>Атрибуция</strong>
+      <p>{{ report.context.attribution }}</p>
+    </div>
+    <div class="card">
+      <strong>Рекомендация</strong>
+      <p>{{ report.primary_metric_summary.recommendation if report.primary_metric_summary else "нет данных" }}</p>
+    </div>
+    <div class="card">
+      <strong>Победитель</strong>
+      <p>{{ report.primary_metric_summary.winner_variant_name if report.primary_metric_summary and report.primary_metric_summary.winner_variant_name else "не выбран" }}</p>
+    </div>
+  </section>
+
+  {% if report.primary_metric_summary %}
+    <h2>Итоги по основной метрике</h2>
+    <ul>
+      {% for line in report.primary_metric_summary.summary_lines %}
+        <li>{{ line }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  <h2>Варианты</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Вариант</th>
+        <th>Control</th>
+        <th>Subjects</th>
+        <th>Share</th>
+        <th>Метрики</th>
+        <th>События</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for variant in report.variants %}
+        <tr>
+          <td>{{ variant.variant_name }}</td>
+          <td>{{ "да" if variant.is_control else "нет" }}</td>
+          <td>{{ variant.subjects_count }}</td>
+          <td>{{ variant.share_pct }}%</td>
+          <td>
+            {% for metric in variant.metric_values %}
+              <div><code>{{ metric.metric_key }}</code>: {{ metric.value if metric.value is not none else "нет данных" }} {{ metric.unit or "" }}</div>
+            {% endfor %}
+          </td>
+          <td>
+            {% for key, value in variant.event_counts.items() %}
+              <div><code>{{ key }}</code>: {{ value }}</div>
+            {% endfor %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>

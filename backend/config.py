@@ -10,8 +10,11 @@ load_dotenv()
 LOG_DIR = "logs"
 LOG_MAX_BYTES = 10 * 1024 * 1024
 LOG_BACKUP_COUNT = 3
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads/experiment_attachments")
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", 10 * 1024 * 1024))
 
 os.makedirs(LOG_DIR, exist_ok=True)
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 DATE_BASE_CONNECT = {
     "host": os.getenv("DB_HOST", "postgres"),

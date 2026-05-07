@@ -9,6 +9,7 @@ from aiohttp_apispec import (
 )
 
 from api import (
+    attachments,
     auth,
     autopilot_ramp_api,
     conflict_domains,
@@ -19,6 +20,7 @@ from api import (
     guardrails,
     health,
     learnings,
+    report_templates,
     reports,
     system_metrics,
     users,
@@ -197,8 +199,7 @@ if __name__ == "__main__":
         web.patch(prefix + "/users/{id}", users.users_update),
         web.get(prefix + "/approver-groups", users.approver_groups_list),
         web.post(prefix + "/approver-groups", users.approver_groups_create),
-        web.patch(
-            prefix + "/approver-groups/{id}", users.approver_groups_update),
+        web.patch(prefix + "/approver-groups/{id}", users.approver_groups_update),
         web.post(prefix + "/flags", flags.flags_create),
         web.get(prefix + "/flags", flags.flags_list),
         web.get(prefix + "/flags/{key}", flags.flags_get),
@@ -206,16 +207,11 @@ if __name__ == "__main__":
         web.post(prefix + "/experiments", experiments.experiments_create),
         web.get(prefix + "/experiments", experiments.experiments_list),
         web.get(prefix + "/experiments/{id}", experiments.experiments_get),
-        web.patch(prefix + "/experiments/{id}",
-                  experiments.experiments_update),
-        web.patch(prefix + "/experiments/{id}/status",
-                  experiments.experiments_update_status),
-        web.post(prefix + "/experiments/{id}/complete",
-                 experiments.experiments_complete),
-        web.post(prefix + "/experiments/{id}/archive",
-                 experiments.experiments_archive),
-        web.post(prefix + "/experiments/{id}/variants",
-                 experiments.experiments_variant_create),
+        web.patch(prefix + "/experiments/{id}", experiments.experiments_update),
+        web.patch(prefix + "/experiments/{id}/status", experiments.experiments_update_status),
+        web.post(prefix + "/experiments/{id}/complete", experiments.experiments_complete),
+        web.post(prefix + "/experiments/{id}/archive", experiments.experiments_archive),
+        web.post(prefix + "/experiments/{id}/variants", experiments.experiments_variant_create),
         web.patch(
             prefix + "/experiments/{id}/variants/{variant_id}",
             experiments.experiments_variant_update,
@@ -228,42 +224,44 @@ if __name__ == "__main__":
             prefix + "/experiments/{id}/guardrail-history",
             experiments.experiments_guardrail_history,
         ),
-        web.get(prefix + "/experiments/{id}/ramp-plan",
-                autopilot_ramp_api.ramp_plan_get),
-        web.put(prefix + "/experiments/{id}/ramp-plan",
-                autopilot_ramp_api.ramp_plan_put),
-        web.delete(
-            prefix + "/experiments/{id}/ramp-plan", autopilot_ramp_api.ramp_plan_delete),
-        web.get(prefix + "/experiments/{id}/ramp-state",
-                autopilot_ramp_api.ramp_state_get),
-        web.post(prefix + "/experiments/{id}/ramp-start",
-                 autopilot_ramp_api.ramp_start_post),
-        web.patch(
-            prefix + "/experiments/{id}/ramp-mode", autopilot_ramp_api.ramp_mode_patch),
+        web.get(
+            prefix + "/experiments/{id}/attachments",
+            attachments.experiment_attachments_list,
+        ),
         web.post(
-            prefix +
-            "/experiments/{id}/ramp-override", autopilot_ramp_api.ramp_override_post
+            prefix + "/experiments/{id}/attachments",
+            attachments.experiment_attachment_upload,
+        ),
+        web.get(
+            prefix + "/experiments/{id}/attachments/{attachment_id}",
+            attachments.experiment_attachment_download,
+        ),
+        web.delete(
+            prefix + "/experiments/{id}/attachments/{attachment_id}",
+            attachments.experiment_attachment_delete,
+        ),
+        web.get(prefix + "/experiments/{id}/ramp-plan", autopilot_ramp_api.ramp_plan_get),
+        web.put(prefix + "/experiments/{id}/ramp-plan", autopilot_ramp_api.ramp_plan_put),
+        web.delete(prefix + "/experiments/{id}/ramp-plan", autopilot_ramp_api.ramp_plan_delete),
+        web.get(prefix + "/experiments/{id}/ramp-state", autopilot_ramp_api.ramp_state_get),
+        web.post(prefix + "/experiments/{id}/ramp-start", autopilot_ramp_api.ramp_start_post),
+        web.patch(prefix + "/experiments/{id}/ramp-mode", autopilot_ramp_api.ramp_mode_patch),
+        web.post(
+            prefix + "/experiments/{id}/ramp-override", autopilot_ramp_api.ramp_override_post
         ),
         web.get(
             prefix + "/experiments/{id}/ramp-decision-log",
             autopilot_ramp_api.ramp_decision_log_get,
         ),
         web.get(prefix + "/guardrails", guardrails.guardrails_list),
-        web.get(prefix + "/guardrails/{metric_key}",
-                guardrails.guardrails_get),
+        web.get(prefix + "/guardrails/{metric_key}", guardrails.guardrails_get),
         web.post(prefix + "/guardrails", guardrails.guardrails_upsert),
-        web.delete(
-            prefix + "/guardrails/{metric_key}", guardrails.guardrails_delete),
-        web.get(prefix + "/conflict-domains",
-                conflict_domains.conflict_domains_list),
-        web.post(prefix + "/conflict-domains",
-                 conflict_domains.conflict_domains_create),
-        web.get(prefix + "/conflict-domains/{id}",
-                conflict_domains.conflict_domains_get),
-        web.patch(
-            prefix + "/conflict-domains/{id}", conflict_domains.conflict_domains_update),
-        web.delete(
-            prefix + "/conflict-domains/{id}", conflict_domains.conflict_domains_delete),
+        web.delete(prefix + "/guardrails/{metric_key}", guardrails.guardrails_delete),
+        web.get(prefix + "/conflict-domains", conflict_domains.conflict_domains_list),
+        web.post(prefix + "/conflict-domains", conflict_domains.conflict_domains_create),
+        web.get(prefix + "/conflict-domains/{id}", conflict_domains.conflict_domains_get),
+        web.patch(prefix + "/conflict-domains/{id}", conflict_domains.conflict_domains_update),
+        web.delete(prefix + "/conflict-domains/{id}", conflict_domains.conflict_domains_delete),
         web.get(
             prefix + "/experiments/{id}/conflict-bindings",
             conflict_domains.experiment_conflict_bindings_list,
@@ -281,8 +279,7 @@ if __name__ == "__main__":
             conflict_domains.experiment_conflict_preflight,
         ),
         web.get(
-            prefix +
-            "/experiments/{id}/conflict-log", conflict_domains.experiment_conflict_log
+            prefix + "/experiments/{id}/conflict-log", conflict_domains.experiment_conflict_log
         ),
         web.post(prefix + "/decide", decide.decide),
         web.post(prefix + "/events", events.events_submit),
@@ -291,17 +288,16 @@ if __name__ == "__main__":
         web.get(prefix + "/event-types/{id}", events.event_types_get),
         web.patch(prefix + "/event-types/{id}", events.event_types_update),
         web.delete(prefix + "/event-types/{id}", events.event_types_archive),
-        web.get(prefix + "/experiments/{id}/report",
-                reports.reports_experiment),
+        web.get(prefix + "/experiments/{id}/report", reports.reports_experiment),
+        web.get(
+            prefix + "/experiments/{id}/report/html", report_templates.reports_experiment_html
+        ),
         web.get(prefix + "/learnings", learnings.learnings_list),
         web.get(prefix + "/learnings/{id}", learnings.learnings_get),
         web.get(prefix + "/learnings/{id}/audit", learnings.learnings_audit),
-        web.get(prefix + "/learnings/{id}/similar",
-                learnings.learnings_similar),
-        web.get(prefix + "/experiments/{id}/learning",
-                learnings.learning_by_experiment_get),
-        web.put(prefix + "/experiments/{id}/learning",
-                learnings.learning_upsert_for_experiment),
+        web.get(prefix + "/learnings/{id}/similar", learnings.learnings_similar),
+        web.get(prefix + "/experiments/{id}/learning", learnings.learning_by_experiment_get),
+        web.put(prefix + "/experiments/{id}/learning", learnings.learning_upsert_for_experiment),
         web.get(prefix + "/metrics", reports.metrics_list),
         web.get(prefix + "/metrics/{key}", reports.metrics_get),
         web.post(prefix + "/metrics", reports.metrics_create),
