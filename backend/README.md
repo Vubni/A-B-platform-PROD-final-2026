@@ -15,6 +15,7 @@
 - **Главный `README` проекта** — запуск через Docker/без Docker, API, сценарии, архитектура: `../README.md`
 - **Backend Runbook** — формат логов, нагрузка, триггеры БД, инженерная дисциплина: `Runbook.md`
 - **Архитектура и соответствие критериям**:
+  - пояснительная записка: `docs/explanatory-note.md`
   - C4-диаграммы: `docs/c4-diagrams.md`
   - матрица трассируемости: `docs/compliance-matrix.md`
   - demo-сценарии и гайд для проверяющего: `docs/demo-scenarios.md`, `docs/reviewer-test-guide.md`
@@ -38,6 +39,7 @@
 - **Главный `README` проекта** — запуск через Docker/без Docker, API, сценарии, архитектура: `../README.md`
 - **Backend Runbook** — формат логов, нагрузка, триггеры БД, инженерная дисциплина: `Runbook.md`
 - **Архитектура и соответствие критериям**:
+  - пояснительная записка: `docs/explanatory-note.md`
   - C4-диаграммы: `docs/c4-diagrams.md`
   - матрица трассируемости: `docs/compliance-matrix.md`
   - demo-сценарии и гайд для проверяющего: `docs/demo-scenarios.md`, `docs/reviewer-test-guide.md`
