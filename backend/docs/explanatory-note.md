@@ -19,13 +19,13 @@ Backend реализован как монолитный сервис на `aioh
 
 Основные сущности проекта: `User`, `FeatureFlag`, `Experiment`, `ExperimentVariant`, `ExperimentAttachment`, а также SQL-таблицы для событий, решений, метрик, guardrails, конфликтных доменов и learnings. Для авторизации используется JWT: пользователь регистрируется или входит через `/api/v1/register` и `/api/v1/auth`, после чего GUI отправляет `Authorization: Bearer <token>`. Для файлов реализованы upload, list, download и delete attachments к экспериментам; файл сохраняется на диск, а метаданные попадают в PostgreSQL.
 
-Интересная часть реализации — поток `decide -> events -> report`: runtime API выдаёт вариант эксперимента субъекту, событие привязывается к `decision_id`, а отчёты затем считают результаты по вариантам и метрикам. Дополнительно добавлены guardrails, конфликтные домены и autopilot ramp-up, чтобы показать более реалистичную логику запуска экспериментов. GUI в отдельном проекте `a-b-gui-app` сделан на React + Vite и покрывает основные сценарии проверяющего: вход под ролями, CRUD-флаги, эксперименты, события, отчёты, загрузку файлов и произвольный вызов API.
+Интересная часть реализации — поток `decide -> events -> report`: runtime API выдаёт вариант эксперимента субъекту, событие привязывается к `decision_id`, а отчёты затем считают результаты по вариантам и метрикам. Дополнительно добавлены guardrails, конфликтные домены и autopilot ramp-up, чтобы показать более реалистичную логику запуска экспериментов. GUI лежит в `frontend/a-b-gui-app`, сделан на React + Vite и покрывает основные сценарии проверяющего: вход под ролями, CRUD-флаги, эксперименты, события, отчёты, загрузку файлов и произвольный вызов API.
 
 ## Технологии и библиотеки
 
 Для запуска backend нужны Python-зависимости из `backend/requirements.txt`. Ключевые библиотеки: `aiohttp`, `aiohttp-apispec`, `aiohttp-cors`, `asyncpg`, `SQLAlchemy`, `pydantic`, `PyJWT`, `Jinja2`, `aiokafka`, `python-dotenv`.
 
-Для интерфейса нужны Node.js-зависимости из `E:\projects\A-B GUI\a-b-gui-app\package.json`: `react`, `react-dom`, `vite`, `typescript`, `bootstrap`, `lucide-react`.
+Для интерфейса нужны Node.js-зависимости из `frontend/a-b-gui-app/package.json`: `react`, `react-dom`, `vite`, `typescript`, `bootstrap`, `lucide-react`.
 
 Хранение данных выполнено в PostgreSQL. Схемы лежат в `docker/postgres/schema/*.sql`, а воспроизводимый запуск окружения описан в `docker-compose.yml`: PostgreSQL, Kafka/Zookeeper, backend и тестовый профиль. Для CI добавлен `.gitlab-ci.yml`. Отдельного Replit/Tuna-хостинга в репозитории нет: вместо этого выбран Docker Compose как более предсказуемый способ локального и демонстрационного запуска.
 
@@ -38,7 +38,7 @@ docker compose up -d
 Быстрый запуск GUI:
 
 ```bash
-cd "E:\projects\A-B GUI\a-b-gui-app"
+cd frontend/a-b-gui-app
 npm install
 npm run dev -- --host 127.0.0.1
 ```

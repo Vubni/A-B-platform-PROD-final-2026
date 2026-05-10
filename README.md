@@ -328,6 +328,13 @@
 │   ├── server.py                 # Точка входа backend, регистрация маршрутов и middleware
 │   ├── requirements-dev.txt      # Dev-зависимости для разработки и линтинга
 │   └── requirements.txt          # Основные зависимости backend
+├── frontend/
+│   └── a-b-gui-app/              # Отдельно запускаемый React + Vite интерфейс
+│       ├── src/                  # Исходный код GUI
+│       ├── public/               # Статические ресурсы GUI
+│       ├── package.json          # npm-скрипты и зависимости интерфейса
+│       ├── package-lock.json     # Зафиксированные версии npm-зависимостей
+│       └── vite.config.ts        # Vite proxy на backend http://localhost:8080
 ├── coverage/                     # Локальные отчёты о покрытии
 ├── docker/
 │   └── postgres/
@@ -406,6 +413,18 @@ docker compose up -d
 ```
 
 API: `http://localhost:8080`. Логи: `backend_logs` volume.
+
+Docker-композиция оставлена без изменений: она поднимает backend, PostgreSQL, Kafka/Zookeeper и тестовый профиль так же, как раньше. Интерфейс в Docker не включён и запускается отдельно.
+
+**Интерфейс отдельно**:
+
+```bash
+cd frontend/a-b-gui-app
+npm install
+npm run dev -- --host 127.0.0.1
+```
+
+GUI: `http://127.0.0.1:5173`. По умолчанию он ходит в backend через Vite proxy `/__api -> http://localhost:8080`.
 
 **Без Docker**:
 
