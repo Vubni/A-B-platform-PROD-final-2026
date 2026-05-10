@@ -1,5 +1,8 @@
 # LOTTY A/B Platform
 
+## ВИДЕО РАБОТЫ
+
+https://disk.yandex.ru/i/rE1HDaZI_4Dsjg
 
 ## Переменные конфигурации (`config.py` и env)
 
