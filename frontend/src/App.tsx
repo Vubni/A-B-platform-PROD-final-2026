@@ -1345,24 +1345,81 @@ function RuntimeModule({ api, catalogs, drafts, updateDraft }: ModuleProps) {
 }
 
 const apiLifecycle = [
-  { title: 'Авторизация', text: 'Получите Bearer-токен через вход или регистрацию и передавайте его во все защищённые запросы.' },
-  { title: 'Флаги и эксперимент', text: 'Создайте флаг, настройте варианты, метрики и долю аудитории, затем переведите эксперимент в running.' },
-  { title: 'Runtime', text: 'На клиенте или backend-for-frontend вызывайте decide, сохраняйте decision_id и отправляйте события с этим ID.' },
-  { title: 'Отчёт и выводы', text: 'Смотрите отчёт, guardrails и фиксируйте learning, чтобы решение осталось в базе знаний.' },
+  { title: '1. Получите доступ', text: 'Создайте сервисного пользователя или войдите под ролью команды. Все защищённые методы принимают Bearer-токен в заголовке Authorization.' },
+  { title: '2. Подготовьте каталог', text: 'Заведите флаги, типы событий и метрики. Эти сущности становятся контрактом между продуктом, backend и аналитикой.' },
+  { title: '3. Запустите эксперимент', text: 'Создайте эксперимент, добавьте варианты, выберите долю аудитории, отправьте на ревью и переведите в running после согласования.' },
+  { title: '4. Подключите runtime', text: 'Вызовите decide в точке принятия решения, примените variant_value и сохраните decision_id для последующих событий.' },
+  { title: '5. Отправляйте события', text: 'Передавайте exposure, клики, покупки и другие события через /events. Один event_id должен быть уникальным для дедупликации.' },
+  { title: '6. Забирайте результат', text: 'Используйте report, guardrails и learnings, чтобы принять решение, завершить эксперимент и сохранить вывод для команды.' },
 ]
 
 const apiGroups = [
-  { name: 'Auth', endpoints: ['POST /api/v1/auth', 'POST /api/v1/register'], text: 'Вход, регистрация и получение токена.' },
-  { name: 'Флаги', endpoints: ['GET /api/v1/flags', 'POST /api/v1/flags', 'PATCH /api/v1/flags/{key}'], text: 'Каталог управляемых фич и fallback-значений.' },
-  { name: 'Эксперименты', endpoints: ['POST /api/v1/experiments', 'PATCH /api/v1/experiments/{id}/status', 'POST /api/v1/experiments/{id}/variants'], text: 'Дизайн A/B-теста, статусы, варианты и завершение.' },
-  { name: 'Runtime', endpoints: ['POST /api/v1/decide', 'POST /api/v1/events'], text: 'Назначение варианта и поток событий для метрик.' },
-  { name: 'Аналитика', endpoints: ['GET /api/v1/experiments/{id}/report', 'GET /api/v1/metrics', 'GET /api/v1/learnings'], text: 'Отчёты, метрики, выводы и история решений.' },
-  { name: 'Контроль качества', endpoints: ['GET /api/v1/guardrails', 'GET /api/v1/conflict-domains', 'GET /api/v1/experiments/{id}/ramp-plan'], text: 'Защитные метрики, конфликты трафика и автораскатка.' },
+  { name: 'Auth', endpoints: ['POST /api/v1/auth', 'POST /api/v1/register'], text: 'Вход, регистрация и получение Bearer-токена. Используйте отдельные сервисные аккаунты для backend-интеграций.' },
+  { name: 'Users и роли', endpoints: ['GET /api/v1/users', 'POST /api/v1/users', 'PATCH /api/v1/users/{id}', 'POST /api/v1/approver-groups'], text: 'Управление участниками, ролями и группами согласования экспериментов.' },
+  { name: 'Флаги функций', endpoints: ['GET /api/v1/flags', 'POST /api/v1/flags', 'GET /api/v1/flags/{key}', 'PATCH /api/v1/flags/{key}'], text: 'Каталог фич, fallback-значения и владельцы. Ключ флага используется в runtime-вызове decide.' },
+  { name: 'События и метрики', endpoints: ['GET /api/v1/event-types', 'POST /api/v1/event-types', 'GET /api/v1/metrics', 'POST /api/v1/metrics'], text: 'Описание продуктовых событий, обязательных параметров, метрик и правил атрибуции.' },
+  { name: 'Эксперименты', endpoints: ['POST /api/v1/experiments', 'PATCH /api/v1/experiments/{id}/status', 'POST /api/v1/experiments/{id}/variants', 'POST /api/v1/experiments/{id}/complete'], text: 'Создание гипотезы, варианты, статусы lifecycle, завершение и архивация.' },
+  { name: 'Runtime', endpoints: ['POST /api/v1/decide', 'POST /api/v1/events'], text: 'Критический контур для production: назначение варианта и запись событий пользователя.' },
+  { name: 'Отчёты и знания', endpoints: ['GET /api/v1/experiments/{id}/report', 'GET /api/v1/learnings', 'PUT /api/v1/experiments/{id}/learning'], text: 'Расчёт результата, динамика, выводы эксперимента и похожие learnings.' },
+  { name: 'Контроль рисков', endpoints: ['GET /api/v1/guardrails', 'GET /api/v1/conflict-domains', 'GET /api/v1/experiments/{id}/ramp-plan', 'POST /api/v1/experiments/{id}/ramp-start'], text: 'Guardrails, конфликтные домены и автоматическая раскатка трафика.' },
+]
+
+const apiContracts = [
+  {
+    title: 'Decide request',
+    text: 'Вызывается там, где продукту нужно понять, какой вариант показать пользователю.',
+    code: `{
+  "subject_id": "user-123",
+  "flags": ["checkout_cta"],
+  "attributes": {
+    "country": "RU",
+    "platform": "web",
+    "plan": "pro"
+  }
+}`,
+  },
+  {
+    title: 'Event batch',
+    text: 'Можно отправлять одно или несколько событий. decision_id связывает событие с назначенным вариантом.',
+    code: `{
+  "events": [{
+    "event_id": "8f8f9c6d-0d7f-4f6a-9d01",
+    "decision_id": "decision-456",
+    "event_type_key": "checkout_click",
+    "subject_id": "user-123",
+    "timestamp": "2026-05-14T10:15:00.000Z",
+    "payload": { "surface": "checkout" }
+  }]
+}`,
+  },
+  {
+    title: 'Report query',
+    text: 'Отчёт строится по окну дат. include_dynamics добавляет динамику по дням, если она нужна в интерфейсе.',
+    code: `GET /api/v1/experiments/{id}/report
+  ?start=2026-05-01
+  &end=2026-05-14
+  &include_dynamics=true`,
+  },
+]
+
+const integrationRules = [
+  { title: 'Где вызывать decide', text: 'Лучше на backend-for-frontend или серверной стороне критичного flow. На чистом frontend можно подключать только если токен и правила доступа не раскрывают лишних прав.' },
+  { title: 'Как хранить назначение', text: 'Сохраняйте decision_id вместе с текущей сессией или действием пользователя. Для одного показа используйте тот же decision_id при отправке exposure и conversion.' },
+  { title: 'Что класть в attributes', text: 'Передавайте стабильные признаки сегментации: страна, платформа, тариф, канал, версия приложения. Не отправляйте чувствительные персональные данные.' },
+  { title: 'Как обрабатывать fallback', text: 'Если decide вернул default или пустое назначение, показывайте безопасный базовый вариант и логируйте это как штатное поведение, а не ошибку интерфейса.' },
+]
+
+const apiErrors = [
+  { code: '401', reason: 'Токен отсутствует, истёк или передан без Bearer.', action: 'Переавторизуйтесь и повторите запрос с Authorization.' },
+  { code: '403', reason: 'Роль пользователя не имеет права на операцию.', action: 'Проверьте роль или вынесите действие в backend-сервис с нужными правами.' },
+  { code: '404', reason: 'Флаг, эксперимент, метрика или learning не найдены.', action: 'Синхронизируйте ключи из каталога и не хардкодьте ID окружений.' },
+  { code: '409', reason: 'Конфликт статуса, трафика или домена эксперимента.', action: 'Проверьте conflict-preflight, статус lifecycle и активные bindings.' },
+  { code: '422', reason: 'Тело запроса не прошло валидацию.', action: 'Сверьте payload с контрактами выше и required_params у event type.' },
 ]
 
 const codeSnippets = [
   {
-    title: '1. Клиент API',
+    title: '1. Безопасный клиент API',
     code: `const API_URL = 'https://your-lotty-host.example.com';
 
 async function lotty(path, { method = 'GET', token, body } = {}) {
@@ -1376,14 +1433,15 @@ async function lotty(path, { method = 'GET', token, body } = {}) {
   });
 
   if (!response.ok) {
-    throw new Error(\`LOTTY API error: \${response.status}\`);
+    const details = await response.text();
+    throw new Error(\`LOTTY API error: \${response.status} \${details}\`);
   }
 
   return response.json();
 }`,
   },
   {
-    title: '2. Получить вариант',
+    title: '2. Получить вариант в продукте',
     code: `const decision = await lotty('/api/v1/decide', {
   method: 'POST',
   token,
@@ -1402,7 +1460,7 @@ const assignment = decision.assignments?.[0];
 renderCheckoutButton(assignment?.variant_value ?? 'default');`,
   },
   {
-    title: '3. Отправить событие',
+    title: '3. Записать событие с атрибуцией',
     code: `await lotty('/api/v1/events', {
   method: 'POST',
   token,
@@ -1419,13 +1477,51 @@ renderCheckoutButton(assignment?.variant_value ?? 'default');`,
 });`,
   },
   {
-    title: '4. Быстрый отчёт',
+    title: '4. Забрать отчёт для витрины',
     code: `const report = await lotty(
   \`/api/v1/experiments/\${experimentId}/report?start=2026-05-01&end=2026-05-13&include_dynamics=true\`,
   { token },
 );
 
 console.table(report.variants);`,
+  },
+  {
+    title: '5. Мини SDK-обёртка',
+    code: `export function createLottyClient({ token }) {
+  return {
+    decide: (body) => lotty('/api/v1/decide', {
+      method: 'POST',
+      token,
+      body,
+    }),
+    track: (event) => lotty('/api/v1/events', {
+      method: 'POST',
+      token,
+      body: { events: [event] },
+    }),
+    report: (experimentId, params) => {
+      const query = new URLSearchParams(params).toString();
+      return lotty(\`/api/v1/experiments/\${experimentId}/report?\${query}\`, { token });
+    },
+  };
+}`,
+  },
+  {
+    title: '6. Retry для runtime-запросов',
+    code: `async function withRetry(run, attempts = 2) {
+  let lastError;
+  for (let index = 0; index <= attempts; index += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 150 * (index + 1)));
+    }
+  }
+  throw lastError;
+}
+
+const decision = await withRetry(() => client.decide(decidePayload));`,
   },
 ]
 
@@ -1434,20 +1530,30 @@ function DevelopersModule() {
     <>
       <ModuleHeader
         title="API для разработчиков"
-        description="Короткий маршрут интеграции LOTTY: как авторизоваться, получить вариант, отправить событие и забрать отчёт без чтения сырого Swagger-файла."
+        description="Подробный гид по интеграции LOTTY API v1: авторизация, каталоги, запуск эксперимента, runtime-назначения, события, отчёты, ошибки и практические заготовки кода."
       />
       <section className="developer-hero">
         <div>
-          <h2>Подключение строится вокруг одного цикла: decide, событие, отчёт.</h2>
-          <p>Swagger описывает сервис как LOTTY A/B Platform API v1. В продуктовой интеграции обычно достаточно Bearer-токена, стабильного ID пользователя, выбранного флага и сохранённого decision_id для последующей атрибуции событий.</p>
+          <h2>Интеграция строится вокруг стабильного продуктового контракта, а не вокруг ручных запросов.</h2>
+          <p>Swagger описывает сервис как LOTTY A/B Platform API v1. На практике разработчику нужны четыре вещи: токен, ключ флага, стабильный subject_id и decision_id, который связывает показ варианта с последующими событиями и отчётом.</p>
+          <div className="developer-meta">
+            <span>Base path: /api/v1</span>
+            <span>Auth: Bearer token</span>
+            <span>Runtime: decide + events</span>
+          </div>
         </div>
         <div className="developer-checklist">
-          <strong>Рекомендации</strong>
+          <strong>Что важно заложить сразу</strong>
           <span>Кэшируйте назначение на время сессии пользователя.</span>
           <span>Всегда отправляйте уникальный event_id для дедупликации.</span>
           <span>Передавайте сегментационные attributes только с нужными бизнес-полями.</span>
           <span>Для отчётов используйте одинаковые окна дат и include_dynamics, когда нужна динамика.</span>
         </div>
+      </section>
+
+      <section className="api-callout">
+        <strong>Короткая архитектура подключения</strong>
+        <span>Продуктовый backend или BFF получает вариант через <code>POST /api/v1/decide</code>, отдаёт UI безопасное значение варианта, а затем отправляет события через <code>POST /api/v1/events</code>. Аналитическая часть читает <code>report</code>, guardrails и learnings.</span>
       </section>
 
       <section className="api-flow-grid">
@@ -1458,6 +1564,45 @@ function DevelopersModule() {
             <p>{item.text}</p>
           </div>
         ))}
+      </section>
+
+      <section className="panel">
+        <div className="panel-title"><h2>Контракты payload</h2><span>то, что реально понадобится в коде</span></div>
+        <div className="api-payload-grid">
+          {apiContracts.map((contract) => (
+            <div className="payload-card" key={contract.title}>
+              <strong>{contract.title}</strong>
+              <p>{contract.text}</p>
+              <pre><code>{contract.code}</code></pre>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="api-detail-grid">
+        <div className="panel">
+          <div className="panel-title"><h2>Правила интеграции</h2><span>production-поведение</span></div>
+          <div className="integration-list">
+            {integrationRules.map((rule) => (
+              <div key={rule.title}>
+                <strong>{rule.title}</strong>
+                <p>{rule.text}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="panel">
+          <div className="panel-title"><h2>Ошибки и действия</h2><span>быстрая диагностика</span></div>
+          <div className="error-table">
+            {apiErrors.map((error) => (
+              <div key={error.code}>
+                <code>{error.code}</code>
+                <span>{error.reason}</span>
+                <strong>{error.action}</strong>
+              </div>
+            ))}
+          </div>
+        </div>
       </section>
 
       <section className="panel">
@@ -1473,6 +1618,11 @@ function DevelopersModule() {
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="api-callout muted-callout">
+        <strong>Порядок rollout для команды</strong>
+        <span>Сначала подключите decide в одном безопасном flow, затем добавьте exposure и conversion events, после этого включайте отчёты и guardrails. Так интеграция остаётся наблюдаемой и не превращается в набор разрозненных API-вызовов.</span>
       </section>
 
       <section className="code-grid">
