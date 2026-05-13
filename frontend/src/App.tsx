@@ -6,6 +6,7 @@ import {
   ChevronDown,
   CheckCircle2,
   ClipboardCheck,
+  Code2,
   Database,
   Edit3,
   Flag,
@@ -14,6 +15,7 @@ import {
   GitBranch,
   History,
   KeyRound,
+  LogOut,
   Plus,
   Play,
   RefreshCw,
@@ -21,38 +23,16 @@ import {
   Send,
   ShieldAlert,
   SlidersHorizontal,
-  TerminalSquare,
   UserPlus,
   Users,
-  XCircle,
 } from 'lucide-react'
-import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react'
 import './App.css'
 
 type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
-type RequestLog = {
-  id: string
-  at: string
-  method: HttpMethod
-  path: string
-  status: number | 'ERR'
-  ok: boolean
-  duration: number
-  request?: unknown
-  response: unknown
-}
-
 type ApiResult = { ok: boolean; status: number | 'ERR'; data: unknown }
-
-type EndpointSpec = {
-  method: HttpMethod
-  path: string
-  tag: string
-  summary: string
-  body?: string
-}
 
 type HealthState = {
   health?: 'ok' | 'fail'
@@ -132,97 +112,35 @@ type Drafts = {
     latency_p95_ms: number
     safety_action: string
   }
-  raw: { method: HttpMethod; path: string; body: string }
 }
 
 const nav = [
-  { id: 'overview', label: 'Обзор', icon: Gauge },
+  { id: 'overview', label: 'Рабочий стол', icon: Gauge },
   { id: 'demo', label: 'Демо A/B', icon: Play },
-  { id: 'access', label: 'Доступ', icon: Users },
-  { id: 'catalog', label: 'Каталоги', icon: Database },
-  { id: 'flags', label: 'Флаги', icon: Flag },
+  { id: 'access', label: 'Команды и роли', icon: Users },
+  { id: 'catalog', label: 'События и метрики', icon: Database },
+  { id: 'flags', label: 'Флаги функций', icon: Flag },
   { id: 'experiments', label: 'Эксперименты', icon: FlaskConical },
-  { id: 'runtime', label: 'Решения и события', icon: Route },
-  { id: 'reports', label: 'Отчёты', icon: BarChart3 },
-  { id: 'safety', label: 'Ограничители', icon: ShieldAlert },
-  { id: 'learnings', label: 'Выводы', icon: BookOpen },
-  { id: 'conflicts', label: 'Конфликты', icon: GitBranch },
-  { id: 'ramp', label: 'Раскатка', icon: SlidersHorizontal },
-  { id: 'raw', label: 'Произвольный API', icon: TerminalSquare },
+  { id: 'runtime', label: 'Назначения и события', icon: Route },
+  { id: 'developers', label: 'API для разработчиков', icon: Code2 },
+  { id: 'reports', label: 'Аналитика', icon: BarChart3 },
+  { id: 'safety', label: 'Защитные метрики', icon: ShieldAlert },
+  { id: 'learnings', label: 'База знаний', icon: BookOpen },
+  { id: 'conflicts', label: 'Политики трафика', icon: GitBranch },
+  { id: 'ramp', label: 'Автораскатка', icon: SlidersHorizontal },
 ] as const
+type NavId = (typeof nav)[number]['id']
+type Role = 'admin' | 'experimenter' | 'approver' | 'viewer'
+
+const navByRole: Record<Role, NavId[]> = {
+  admin: ['overview', 'access', 'developers', 'reports'],
+  experimenter: ['overview', 'demo', 'catalog', 'flags', 'experiments', 'runtime', 'developers', 'reports', 'safety', 'learnings', 'conflicts', 'ramp'],
+  approver: ['overview', 'experiments', 'developers', 'reports', 'learnings'],
+  viewer: ['overview', 'demo', 'runtime', 'developers', 'reports', 'learnings'],
+}
 
 const statuses = ['draft', 'on_review', 'approved', 'running', 'paused', 'rejected', 'completed', 'archived']
 const demoStamp = () => new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)
-
-const swaggerEndpoints: EndpointSpec[] = [
-  { method: 'GET', path: '/health', tag: 'Health', summary: 'Проба живости' },
-  { method: 'GET', path: '/ready', tag: 'Health', summary: 'Проба готовности' },
-  { method: 'GET', path: '/metrics', tag: 'Metrics', summary: 'Экспорт метрик Prometheus' },
-  { method: 'POST', path: '/api/v1/register', tag: 'Auth', summary: 'Регистрация', body: '{"email":"new_user@example.com","first_name":"New User","password":"demo12345"}' },
-  { method: 'POST', path: '/api/v1/auth', tag: 'Auth', summary: 'Авторизация', body: '{"email":"experimenter@test.com","password":"exp123"}' },
-  { method: 'GET', path: '/api/v1/users?role=viewer', tag: 'Users', summary: 'Список пользователей с фильтром по роли' },
-  { method: 'POST', path: '/api/v1/users', tag: 'Users', summary: 'Создать пользователя', body: '{"email":"tester@example.com","first_name":"Tester","password":"demo12345","role":"viewer"}' },
-  { method: 'GET', path: '/api/v1/users/{id}', tag: 'Users', summary: 'Получить пользователя по ID' },
-  { method: 'PATCH', path: '/api/v1/users/{id}', tag: 'Users', summary: 'Обновить пользователя', body: '{"first_name":"Updated","role":"viewer"}' },
-  { method: 'GET', path: '/api/v1/approver-groups', tag: 'Users', summary: 'Список групп аппруверов' },
-  { method: 'POST', path: '/api/v1/approver-groups', tag: 'Users', summary: 'Создать группу аппруверов', body: '{"experimenter_id":null,"approver_ids":[],"min_approvals":1}' },
-  { method: 'PATCH', path: '/api/v1/approver-groups/{id}', tag: 'Users', summary: 'Обновить группу аппруверов', body: '{"approver_ids":[],"min_approvals":1}' },
-  { method: 'GET', path: '/api/v1/flags', tag: 'Feature Flags', summary: 'Список feature flags' },
-  { method: 'POST', path: '/api/v1/flags', tag: 'Feature Flags', summary: 'Создать feature flag', body: '{"key":"new_flag","value_type":"string","default_value":"control","owner":"growth","description":"Demo flag","metadata":{}}' },
-  { method: 'GET', path: '/api/v1/flags/{key}', tag: 'Feature Flags', summary: 'Получить feature flag' },
-  { method: 'PATCH', path: '/api/v1/flags/{key}', tag: 'Feature Flags', summary: 'Обновить значение по умолчанию feature flag', body: '{"default_value":"treatment"}' },
-  { method: 'GET', path: '/api/v1/experiments', tag: 'Experiments', summary: 'Список экспериментов' },
-  { method: 'POST', path: '/api/v1/experiments', tag: 'Experiments', summary: 'Создать эксперимент', body: '{"name":"Button color A/B","flag_id":"{flag_id}","audience_fraction":0.5,"targeting_rule":null,"metrics":[{"metric_key":"demo_click_rate","metric_type":"primary"}]}' },
-  { method: 'GET', path: '/api/v1/experiments/{id}', tag: 'Experiments', summary: 'Получить эксперимент' },
-  { method: 'PATCH', path: '/api/v1/experiments/{id}', tag: 'Experiments', summary: 'Обновить эксперимент', body: '{"name":"Updated experiment","audience_fraction":0.5,"targeting_rule":null}' },
-  { method: 'PATCH', path: '/api/v1/experiments/{id}/status', tag: 'Experiments', summary: 'Обновить статус эксперимента', body: '{"status":"on_review","comment":"Комментарий"}' },
-  { method: 'POST', path: '/api/v1/experiments/{id}/complete', tag: 'Experiments', summary: 'Завершить эксперимент', body: '{"completion_outcome":"no_effect","comment":"Решение зафиксировано","completion_winner_variant_id":null}' },
-  { method: 'POST', path: '/api/v1/experiments/{id}/archive', tag: 'Experiments', summary: 'Архивировать эксперимент' },
-  { method: 'POST', path: '/api/v1/experiments/{id}/variants', tag: 'Experiments', summary: 'Добавить вариант к эксперименту', body: '{"variant_name":"treatment","variant_value":"treatment","weight":0.5,"is_control":false}' },
-  { method: 'PATCH', path: '/api/v1/experiments/{id}/variants/{variant_id}', tag: 'Experiments', summary: 'Обновить вариант эксперимента', body: '{"variant_value":"updated","weight":0.5,"is_control":false}' },
-  { method: 'DELETE', path: '/api/v1/experiments/{id}/variants/{variant_id}', tag: 'Experiments', summary: 'Удалить вариант эксперимента' },
-  { method: 'GET', path: '/api/v1/experiments/{id}/guardrail-history', tag: 'Experiments', summary: 'История срабатываний guardrail' },
-  { method: 'GET', path: '/api/v1/experiments/{id}/ramp-plan', tag: 'Autopilot Ramp-up', summary: 'Получить план раскатки' },
-  { method: 'PUT', path: '/api/v1/experiments/{id}/ramp-plan', tag: 'Autopilot Ramp-up', summary: 'Создать или обновить план раскатки', body: '{"observation_window_seconds":3600,"steps":[{"traffic_fraction":0.1},{"traffic_fraction":0.25}],"gate_data_sufficiency":{"min_total_impressions":1000,"min_impressions_per_variant":200,"min_minutes_on_step":60}}' },
-  { method: 'DELETE', path: '/api/v1/experiments/{id}/ramp-plan', tag: 'Autopilot Ramp-up', summary: 'Удалить план раскатки' },
-  { method: 'GET', path: '/api/v1/experiments/{id}/ramp-state', tag: 'Autopilot Ramp-up', summary: 'Получить состояние автопилота' },
-  { method: 'POST', path: '/api/v1/experiments/{id}/ramp-start', tag: 'Autopilot Ramp-up', summary: 'Запустить автопилот' },
-  { method: 'PATCH', path: '/api/v1/experiments/{id}/ramp-mode', tag: 'Autopilot Ramp-up', summary: 'Установить режим автопилота', body: '{"mode":"autopilot"}' },
-  { method: 'POST', path: '/api/v1/experiments/{id}/ramp-override', tag: 'Autopilot Ramp-up', summary: 'Ручной переход на ступень', body: '{"to_step_index":1}' },
-  { method: 'GET', path: '/api/v1/experiments/{id}/ramp-decision-log?limit=100', tag: 'Autopilot Ramp-up', summary: 'История решений автопилота' },
-  { method: 'GET', path: '/api/v1/guardrails', tag: 'Guardrails', summary: 'Список guardrail-правил по метрикам' },
-  { method: 'POST', path: '/api/v1/guardrails', tag: 'Guardrails', summary: 'Создать или обновить guardrail по метрике', body: '{"metric_key":"demo_click_rate","threshold":0.1,"action":"pause","window_seconds":3600}' },
-  { method: 'GET', path: '/api/v1/guardrails/{metric_key}', tag: 'Guardrails', summary: 'Получить guardrail по метрике' },
-  { method: 'DELETE', path: '/api/v1/guardrails/{metric_key}', tag: 'Guardrails', summary: 'Удалить guardrail по метрике' },
-  { method: 'GET', path: '/api/v1/conflict-domains', tag: 'Conflict domains', summary: 'Список конфликтных доменов' },
-  { method: 'POST', path: '/api/v1/conflict-domains', tag: 'Conflict domains', summary: 'Создать конфликтный домен', body: '{"key":"checkout","name":"Checkout","default_policy":"mutual_exclusion","description":"Зона оформления"}' },
-  { method: 'GET', path: '/api/v1/conflict-domains/{id}', tag: 'Conflict domains', summary: 'Получить конфликтный домен по ID' },
-  { method: 'PATCH', path: '/api/v1/conflict-domains/{id}', tag: 'Conflict domains', summary: 'Обновить конфликтный домен', body: '{"name":"Checkout updated","default_policy":"priority","description":"Описание"}' },
-  { method: 'DELETE', path: '/api/v1/conflict-domains/{id}', tag: 'Conflict domains', summary: 'Удалить конфликтный домен' },
-  { method: 'GET', path: '/api/v1/experiments/{id}/conflict-bindings', tag: 'Conflict domains', summary: 'Список привязок эксперимента к доменам' },
-  { method: 'POST', path: '/api/v1/experiments/{id}/conflict-bindings', tag: 'Conflict domains', summary: 'Добавить или обновить привязку к домену', body: '{"domain_id":"{domain_id}","policy":"mutual_exclusion","priority_tier":1,"bid_value":1,"is_enabled":true}' },
-  { method: 'DELETE', path: '/api/v1/experiments/{id}/conflict-bindings/{domain_id}', tag: 'Conflict domains', summary: 'Удалить привязку к домену' },
-  { method: 'GET', path: '/api/v1/experiments/{id}/conflict-preflight', tag: 'Conflict domains', summary: 'Preflight конфликтов при запуске' },
-  { method: 'GET', path: '/api/v1/experiments/{id}/conflict-log', tag: 'Conflict domains', summary: 'Аудит конфликтов по эксперименту' },
-  { method: 'POST', path: '/api/v1/decide', tag: 'Runtime Decide', summary: 'Получить значения флагов для субъекта', body: '{"subject_id":"u42","flags":["test_feature_flag"],"attributes":{"country":"RU","platform":"web"}}' },
-  { method: 'POST', path: '/api/v1/events', tag: 'Events', summary: 'Отправить пакет событий', body: '{"events":[{"event_id":"evt-1","decision_id":"{decision_id}","event_type_key":"demo_click","subject_id":"u42","timestamp":"2026-02-20T11:10:00Z","payload":{}}]}' },
-  { method: 'GET', path: '/api/v1/event-types?status=active', tag: 'Events', summary: 'Список типов событий' },
-  { method: 'POST', path: '/api/v1/event-types', tag: 'Events', summary: 'Создать тип события', body: '{"key":"demo_click","display_name":"Demo click","description":"Клик","is_critical":false,"required_params":{}}' },
-  { method: 'GET', path: '/api/v1/event-types/{id}', tag: 'Events', summary: 'Получить тип события' },
-  { method: 'PATCH', path: '/api/v1/event-types/{id}', tag: 'Events', summary: 'Обновить тип события', body: '{"display_name":"Updated event","description":"Описание","is_critical":false}' },
-  { method: 'DELETE', path: '/api/v1/event-types/{id}', tag: 'Events', summary: 'Архивировать тип события' },
-  { method: 'GET', path: '/api/v1/experiments/{id}/report?start=2026-02-01&end=2026-12-31', tag: 'Reports', summary: 'Отчёт по эксперименту' },
-  { method: 'GET', path: '/api/v1/learnings?q=demo&limit=20', tag: 'Learnings', summary: 'Поиск learnings' },
-  { method: 'GET', path: '/api/v1/learnings/{id}', tag: 'Learnings', summary: 'Получить learning по ID' },
-  { method: 'GET', path: '/api/v1/learnings/{id}/audit', tag: 'Learnings', summary: 'История изменений learning' },
-  { method: 'GET', path: '/api/v1/learnings/{id}/similar', tag: 'Learnings', summary: 'Похожие эксперименты для learning' },
-  { method: 'GET', path: '/api/v1/experiments/{id}/learning', tag: 'Learnings', summary: 'Получить learning по эксперименту' },
-  { method: 'PUT', path: '/api/v1/experiments/{id}/learning', tag: 'Learnings', summary: 'Создать или обновить learning для эксперимента', body: '{"hypothesis":"Гипотеза","notes":"Вывод","primary_metric_key":"demo_click_rate","result_action":"continue","result_outcome":"no_effect","product_tags":[],"platforms":["web"],"countries":[],"app_versions":[],"variant_structure":{},"is_completed":true}' },
-  { method: 'GET', path: '/api/v1/metrics', tag: 'Reports', summary: 'Каталог метрик' },
-  { method: 'POST', path: '/api/v1/metrics', tag: 'Reports', summary: 'Создать метрику в каталоге', body: '{"key":"demo_clicks","name":"Demo clicks","aggregation_rule":{"kind":"count_events","event_type_key":"demo_click"},"event_expectations":{"demo_click":"higher"}}' },
-  { method: 'GET', path: '/api/v1/metrics/{key}', tag: 'Reports', summary: 'Получить метрику по ключу' },
-  { method: 'PATCH', path: '/api/v1/metrics/{key}', tag: 'Reports', summary: 'Обновить метрику в каталоге', body: '{"name":"Updated metric","aggregation_rule":{"kind":"count_events","event_type_key":"demo_click"},"event_expectations":{"demo_click":"higher"}}' },
-]
 
 const accountPresets = [
   { id: 'admin-seed', label: 'Администратор', role: 'admin', email: 'admin@test.com', password: 'admin123', note: 'Пользователи и approver-группы' },
@@ -281,12 +199,11 @@ const initialDrafts: Drafts = {
     latency_p95_ms: 1000,
     safety_action: 'pause',
   },
-  raw: { method: 'GET', path: '/health', body: '{}' },
 }
 
 function App() {
-  const [active, setActive] = useState<(typeof nav)[number]['id']>('overview')
-  const [apiBase, setApiBase] = useStickyState('lotty_api_base', '/__api')
+  const [active, setActive] = useState<NavId>('overview')
+  const [apiBase] = useStickyState('lotty_api_base', '/__api')
   const [selectedAccount, setSelectedAccount] = useStickyState('lotty_account', 'experimenter-seed')
   const [email, setEmail] = useStickyState('lotty_email', 'experimenter@test.com')
   const [password, setPassword] = useStickyState('lotty_password', 'exp123')
@@ -295,15 +212,15 @@ function App() {
   const [health, setHealth] = useState<HealthState>({})
   const [catalogs, setCatalogs] = useState<Catalogs>({ flags: [], experiments: [], users: [], approverGroups: [], eventTypes: [], metrics: [], guardrails: [], learnings: [], conflictDomains: [] })
   const [drafts, setDrafts] = useState<Drafts>(initialDrafts)
-  const [logs, setLogs] = useState<RequestLog[]>([])
   const [busy, setBusy] = useState(false)
   const [scenarioRunning, setScenarioRunning] = useState(false)
 
-  const lastLog = logs[0]
   const activeExperiment = catalogs.experiments.find((item) => item.id === drafts.report.experiment_id || item.id === drafts.status.experiment_id || item.id === drafts.variant.experiment_id)
   const runningCount = catalogs.experiments.filter((item) => item.status === 'running').length
   const draftCount = catalogs.experiments.filter((item) => item.status === 'draft').length
   const selectedPreset = accountPresets.find((account) => account.id === selectedAccount) || accountPresets[1]
+  const currentRole = (isRecord(currentUser) && typeof currentUser.role === 'string' ? currentUser.role : selectedPreset.role) as Role
+  const visibleNav = nav.filter((item) => navByRole[currentRole]?.includes(item.id) || item.id === 'overview')
 
   const api = async (method: HttpMethod, path: string, body?: unknown, options?: { silent?: boolean; authToken?: string }) => {
     const started = performance.now()
@@ -320,21 +237,15 @@ function App() {
       })
       const text = await response.text()
       const data = parseMaybeJson(text)
-      if (!options?.silent) {
-        pushLog({ method, path: normalizedPath, status: response.status, ok: response.ok, duration: performance.now() - started, request: body, response: data })
-      }
+      void started
+      void normalizedPath
       return { ok: response.ok, status: response.status, data }
     } catch (error) {
       const data = error instanceof Error ? { error: error.message } : { error: String(error) }
-      if (!options?.silent) {
-        pushLog({ method, path: normalizedPath, status: 'ERR', ok: false, duration: performance.now() - started, request: body, response: data })
-      }
+      void started
+      void normalizedPath
       return { ok: false, status: 'ERR' as const, data }
     }
-  }
-
-  const pushLog = (entry: Omit<RequestLog, 'id' | 'at'>) => {
-    setLogs((prev) => [{ ...entry, id: crypto.randomUUID(), at: new Date().toLocaleTimeString('ru-RU') }, ...prev].slice(0, 30))
   }
 
   const applyAccountPreset = (presetId: string) => {
@@ -428,6 +339,12 @@ function App() {
     refreshAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    if (!visibleNav.some((item) => item.id === active)) {
+      setActive('overview')
+    }
+  }, [active, visibleNav])
 
   const updateDraft = <K extends keyof Drafts>(section: K, patch: Partial<Drafts[K]>) => {
     setDrafts((prev) => ({ ...prev, [section]: { ...prev[section], ...patch } }))
@@ -662,7 +579,7 @@ function App() {
   }
 
   const module = useMemo(() => {
-    const common = { api, catalogs, drafts, updateDraft, refreshAll, register }
+    const common = { api, catalogs, drafts, updateDraft, refreshAll, register, role: currentRole }
     switch (active) {
       case 'overview':
         return (
@@ -689,6 +606,8 @@ function App() {
         return <ExperimentsModule {...common} activeExperiment={activeExperiment} />
       case 'runtime':
         return <RuntimeModule {...common} />
+      case 'developers':
+        return <DevelopersModule />
       case 'reports':
         return <ReportsModule {...common} />
       case 'safety':
@@ -699,26 +618,49 @@ function App() {
         return <ConflictsModule {...common} />
       case 'ramp':
         return <RampModule {...common} />
-      case 'raw':
-        return <RawModule {...common} />
       default:
         return null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, health, catalogs, drafts, logs, busy, scenarioRunning])
+  }, [active, health, catalogs, drafts, busy, scenarioRunning, currentRole])
+
+  const logout = () => {
+    setToken('')
+    setCurrentUser(null)
+    setCatalogs({ flags: [], experiments: [], users: [], approverGroups: [], eventTypes: [], metrics: [], guardrails: [], learnings: [], conflictDomains: [] })
+  }
+
+  if (!token) {
+    return (
+      <AuthScreen
+        busy={busy}
+        selectedAccount={selectedAccount}
+        selectedPreset={selectedPreset}
+        email={email}
+        password={password}
+        drafts={drafts}
+        applyAccountPreset={applyAccountPreset}
+        setEmail={setEmail}
+        setPassword={setPassword}
+        updateDraft={updateDraft}
+        login={login}
+        register={register}
+      />
+    )
+  }
 
   return (
-    <div className="app-shell container-fluid p-0">
-      <aside className="sidebar d-flex flex-column">
+    <div className="app-shell">
+      <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">AB</div>
+          <LogoMark />
           <div>
             <strong>LOTTY</strong>
-            <span>A/B Platform GUI</span>
+            <span>Система экспериментов</span>
           </div>
         </div>
-        <nav className="nav flex-column">
-          {nav.map((item) => {
+        <nav>
+          {visibleNav.map((item) => {
             const Icon = item.icon
             return (
               <button key={item.id} className={active === item.id ? 'nav-item active' : 'nav-item'} onClick={() => setActive(item.id)} title={item.label}>
@@ -731,55 +673,165 @@ function App() {
       </aside>
 
       <main className="main">
-        <header className="topbar navbar">
-          <div className="connection">
-            <label>
-              Адрес backend
-              <input value={apiBase} onChange={(event) => setApiBase(event.target.value)} />
-              <span className="field-help">Обычно /__api: Vite проксирует в localhost:8080</span>
-            </label>
-            <form className="login-form" onSubmit={login}>
-              <label>
-                Аккаунт
-                <select value={selectedAccount} onChange={(event) => applyAccountPreset(event.target.value)}>
-                  {accountPresets.map((account) => (
-                    <option key={account.id} value={account.id}>{account.label}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Почта
-                <input value={email} onChange={(event) => setEmail(event.target.value)} />
-              </label>
-              <label>
-                Пароль
-                <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
-              </label>
-              <button className="primary btn btn-primary" disabled={busy} title="Авторизоваться">
-                <KeyRound size={16} />
-                Войти
-              </button>
-            </form>
-            <div className="role-hint">
+        <header className="topbar">
+          <div className="topbar-product">
+            <div>
+              <span>Рабочее пространство</span>
+              <strong>Управление экспериментами</strong>
+            </div>
+            <div className="role-hint compact">
               <strong>{selectedPreset.label}</strong>
-              <span>{selectedPreset.note} · role: {selectedPreset.role}</span>
+              <span>{isRecord(currentUser) && typeof currentUser.email === 'string' ? currentUser.email : selectedPreset.note}</span>
             </div>
           </div>
           <div className="top-actions">
-            <StatusDot label="health" state={health.health} />
-            <StatusDot label="ready" state={health.ready} />
-            <button className="secondary success btn btn-outline-success" onClick={() => refreshAll()} disabled={busy} title="Обновить справочники">
+            <StatusDot label="сервис" state={health.health} />
+            <StatusDot label="готов" state={health.ready} />
+            <button className="secondary success" onClick={() => refreshAll()} disabled={busy} title="Обновить рабочие данные">
               <RefreshCw size={16} />
-              Обновить данные
+              Обновить
+            </button>
+            <button className="secondary" onClick={logout} title="Выйти из аккаунта">
+              <LogOut size={16} />
+              Выйти
             </button>
           </div>
         </header>
 
-        <section className="workspace row g-3">
-          <div className="module col">{module}</div>
-          <Inspector log={lastLog} logs={logs} token={token} currentUser={currentUser} onClear={() => setLogs([])} />
+        <section className="workspace">
+          <div className="module">{module}</div>
         </section>
       </main>
+    </div>
+  )
+}
+
+function AuthScreen({
+  busy,
+  selectedAccount,
+  selectedPreset,
+  email,
+  password,
+  drafts,
+  applyAccountPreset,
+  setEmail,
+  setPassword,
+  updateDraft,
+  login,
+  register,
+}: {
+  busy: boolean
+  selectedAccount: string
+  selectedPreset: (typeof accountPresets)[number]
+  email: string
+  password: string
+  drafts: Drafts
+  applyAccountPreset: (presetId: string) => void
+  setEmail: (value: string) => void
+  setPassword: (value: string) => void
+  updateDraft: <K extends keyof Drafts>(section: K, patch: Partial<Drafts[K]>) => void
+  login: (event?: FormEvent) => Promise<void>
+  register: (payload: { email: string; first_name: string; password: string }) => Promise<void>
+}) {
+  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const d = drafts.register
+  return (
+    <main className="auth-page">
+      <section className="auth-hero">
+        <div className="brand auth-brand">
+          <LogoMark />
+          <div>
+            <strong>LOTTY</strong>
+            <span>Система экспериментов</span>
+          </div>
+        </div>
+        <div className="auth-copy">
+          <h1>Управляйте экспериментами как продуктом, а не как набором ручных проверок</h1>
+          <p>Единое рабочее место для флагов функций, A/B-тестов, ревью, защитных метрик, отчётов и знаний команды.</p>
+        </div>
+        <div className="auth-proof-grid">
+          <div><strong>Назначения</strong><span>Стабильные варианты для пользователей</span></div>
+          <div><strong>Защитные метрики</strong><span>Остановка рискованных раскаток</span></div>
+          <div><strong>База знаний</strong><span>Память экспериментов для команды</span></div>
+        </div>
+      </section>
+
+      <section className="auth-panel">
+        <div className="auth-tabs">
+          <button className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>Вход</button>
+          <button className={mode === 'register' ? 'active' : ''} onClick={() => setMode('register')}>Регистрация</button>
+        </div>
+
+        {mode === 'login' ? (
+          <form className="auth-form" onSubmit={login}>
+            <div>
+              <h2>Войти в рабочее пространство</h2>
+              <p>Выберите роль для демо или используйте свой аккаунт.</p>
+            </div>
+            <label>
+              Роль
+              <select value={selectedAccount} onChange={(event) => applyAccountPreset(event.target.value)}>
+                {accountPresets.map((account) => (
+                  <option key={account.id} value={account.id}>{account.label}</option>
+                ))}
+              </select>
+            </label>
+            <div className="auth-role-note">
+              <strong>{selectedPreset.label}</strong>
+              <span>{selectedPreset.note}</span>
+            </div>
+            <label>
+              Почта
+              <input value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
+            </label>
+            <label>
+              Пароль
+              <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" />
+            </label>
+            <button className="primary auth-submit" disabled={busy}>
+              <KeyRound size={16} />
+              Войти
+            </button>
+          </form>
+        ) : (
+          <form
+            className="auth-form"
+            onSubmit={async (event) => {
+              event.preventDefault()
+              await register({ email: d.email, first_name: d.first_name, password: d.password })
+            }}
+          >
+            <div>
+              <h2>Создать аккаунт</h2>
+              <p>Подходит для нового участника команды, которому нужен доступ к экспериментам.</p>
+            </div>
+            <label>
+              Почта
+              <input value={d.email} onChange={(event) => updateDraft('register', { email: event.target.value })} autoComplete="email" />
+            </label>
+            <label>
+              Имя
+              <input value={d.first_name} onChange={(event) => updateDraft('register', { first_name: event.target.value })} autoComplete="given-name" />
+            </label>
+            <label>
+              Пароль
+              <input type="password" value={d.password} onChange={(event) => updateDraft('register', { password: event.target.value })} autoComplete="new-password" />
+            </label>
+            <button className="primary auth-submit" disabled={busy}>
+              <UserPlus size={16} />
+              Создать аккаунт
+            </button>
+          </form>
+        )}
+      </section>
+    </main>
+  )
+}
+
+function LogoMark() {
+  return (
+    <div className="brand-mark" aria-hidden="true">
+      <img src="/lotty-logo.svg" alt="" />
     </div>
   )
 }
@@ -791,9 +843,10 @@ type ModuleProps = {
   updateDraft: <K extends keyof Drafts>(section: K, patch: Partial<Drafts[K]>) => void
   refreshAll: () => Promise<void>
   register: (payload: { email: string; first_name: string; password: string }) => Promise<void>
+  role: Role
 }
 
-function Overview({ health, catalogs, runningCount, draftCount, onRefresh, onScenario, scenarioRunning, onNavigate }: {
+function Overview({ health, catalogs, runningCount, draftCount, onRefresh, onNavigate }: {
   health: HealthState
   catalogs: Catalogs
   runningCount: number
@@ -806,35 +859,65 @@ function Overview({ health, catalogs, runningCount, draftCount, onRefresh, onSce
   return (
     <>
       <ModuleHeader
-        title="Проверка A/B backend"
-        description="Начните с готового сценария или выберите роль сверху. Интерфейс сам подставляет тестовые логины и показывает, какие действия доступны каждой роли."
+        title="LOTTY"
+        description="Операционный центр для флагов функций, A/B-экспериментов, защитных метрик и доказательных продуктовых решений. Запускайте гипотезы, управляйте трафиком и фиксируйте выводы в одном рабочем контуре."
         actions={
           <>
             <button className="secondary success" onClick={onRefresh}><RefreshCw size={16} />Обновить данные</button>
-            <button className="primary" onClick={onScenario} disabled={scenarioRunning}><Play size={16} />Быстрый сценарий по ролям</button>
+            <button className="primary" onClick={() => onNavigate('demo')}><Play size={16} />Открыть демо</button>
           </>
         }
       />
-      <section className="starter-panel">
-        <div>
-          <span className="eyebrow">Если пока непонятно, что нажимать</span>
-          <h2>Проверьте backend как готовый продукт за 3 шага</h2>
-          <p>GUI работает поверх реального API на localhost:8080: выбираете роль, выполняете действие, смотрите HTTP-запрос и ответ справа.</p>
+      <section className="product-hero">
+        <div className="hero-copy">
+          <h2>Запускайте эксперименты без хаоса в релизах и спорных решений на глаз</h2>
+          <p>LOTTY связывает флаги, аудитории, ревью, события, отчёты, защитные правила и автопилот раскатки в единый рабочий процесс для продуктовых и инженерных команд.</p>
+          <div className="hero-actions">
+            <button className="primary hero-primary" onClick={() => onNavigate('demo')}><Play size={16} />Открыть демо</button>
+          </div>
+          <div className="hero-proof">
+            <span>Ролевое согласование</span>
+            <span>Атрибуция метрик</span>
+            <span>Защитные правила</span>
+          </div>
         </div>
-        <div className="starter-actions">
-          <button className="primary" onClick={onScenario} disabled={scenarioRunning}><Play size={16} />Запустить полный сценарий</button>
-          <button className="secondary success" onClick={() => onNavigate('demo')}><Play size={16} />Открыть живое демо</button>
-          <button className="secondary" onClick={() => onNavigate('experiments')}><FlaskConical size={16} />Открыть эксперименты</button>
-          <button className="secondary" onClick={() => onNavigate('reports')}><BarChart3 size={16} />Посмотреть отчёты</button>
+        <div className="hero-console" aria-label="Product cockpit preview">
+          <div className="console-top">
+            <div>
+              <span>Состояние экспериментов</span>
+              <strong>{runningCount} запущено</strong>
+            </div>
+            <StatusDot label="готов" state={health.ready} />
+          </div>
+          <div className="decision-card">
+            <div>
+              <span>Активный эксперимент</span>
+              <strong>{catalogs.experiments[0]?.name || 'Демо checkout CTA'}</strong>
+            </div>
+            <span className="status-pill">{statusLabel(catalogs.experiments[0]?.status || 'running')}</span>
+          </div>
+          <div className="chart-bars">
+            <span style={{ height: '44%' }} />
+            <span style={{ height: '68%' }} />
+            <span style={{ height: '52%' }} />
+            <span style={{ height: '82%' }} />
+            <span style={{ height: '74%' }} />
+            <span style={{ height: '92%' }} />
+          </div>
+          <div className="console-grid">
+            <div><span>Флаги</span><strong>{catalogs.flags.length}</strong></div>
+            <div><span>Метрики</span><strong>{catalogs.metrics.length}</strong></div>
+            <div><span>Выводы</span><strong>{catalogs.learnings.length}</strong></div>
+          </div>
         </div>
       </section>
-      <div className="guide-grid">
-        <GuideCard step="1" title="Выберите аккаунт" text="Сверху есть готовые роли: админ управляет пользователями, экспериментатор создаёт флаги и эксперименты, approver одобряет, viewer проверяет runtime и отчёты." />
-        <GuideCard step="2" title="Нажмите главное действие" text="В каждом разделе первая форма делает основной запрос. Таблицы ниже помогают выбрать ID без ручного копирования." />
-        <GuideCard step="3" title="Смотрите справа" text="Инспектор API показывает body, статус и ответ. Старые запросы можно открыть кликом, а новый запрос снова откроется автоматически." />
+      <div className="value-grid">
+        <GuideCard step="01" title="От гипотезы к запуску" text="Создайте флаг, соберите варианты, отправьте эксперимент на ревью и запустите его только после понятного согласования." />
+        <GuideCard step="02" title="Назначения в рантайме" text="Получайте стабильные варианты для пользователей, записывайте показы и конверсии, проверяйте атрибуцию без ручных догадок." />
+        <GuideCard step="03" title="Защитные правила и автопилот" text="Поднимайте трафик ступенями, останавливайте рискованные изменения и превращайте результаты в переиспользуемую базу знаний." />
       </div>
       <div className="stats-grid">
-        <Stat icon={<Activity />} label="Health" value={health.health === 'ok' ? 'ok' : 'нет ответа'} tone={health.health === 'ok' ? 'good' : 'bad'} />
+        <Stat icon={<Activity />} label="Статус платформы" value={health.health === 'ok' ? 'онлайн' : 'нет связи'} tone={health.health === 'ok' ? 'good' : 'bad'} />
         <Stat icon={<Flag />} label="Флаги" value={catalogs.flags.length} />
         <Stat icon={<FlaskConical />} label="Эксперименты" value={catalogs.experiments.length} />
         <Stat icon={<CheckCircle2 />} label="Запущены" value={runningCount} tone="good" />
@@ -843,8 +926,8 @@ function Overview({ health, catalogs, runningCount, draftCount, onRefresh, onSce
       </div>
       <section className="panel">
         <div className="panel-title">
-          <h2>Кто что делает</h2>
-          <span>быстрый сценарий сам переключает роли</span>
+          <h2>Для всей команды экспериментов</h2>
+          <span>каждая роль видит только доступные разделы</span>
         </div>
         <div className="role-grid">
           {accountPresets.slice(0, 4).map((account) => (
@@ -858,7 +941,7 @@ function Overview({ health, catalogs, runningCount, draftCount, onRefresh, onSce
       </section>
       <section className="panel">
         <div className="panel-title">
-          <h2>Жизненный цикл</h2>
+          <h2>Жизненный цикл эксперимента</h2>
           <span>черновик → ревью → одобрено → запущен → завершён → архив</span>
         </div>
         <div className="status-lane">
@@ -871,10 +954,10 @@ function Overview({ health, catalogs, runningCount, draftCount, onRefresh, onSce
         </div>
       </section>
       <DataTable
-        title="Последние эксперименты"
+        title="Портфель экспериментов"
         rows={catalogs.experiments.slice(0, 8)}
         columns={['name', 'status', 'flag_key', 'audience_fraction', 'id']}
-        empty="После логина и обновления данных здесь появятся эксперименты."
+        empty="После синхронизации здесь появится портфель экспериментов."
       />
     </>
   )
@@ -901,9 +984,9 @@ function AccessModule({ api, catalogs, drafts, updateDraft, refreshAll, register
           }}
         >
           <div className="helper-strip success">
-            POST /api/v1/register создаёт аккаунт и сразу возвращает JWT, поэтому после успеха GUI сам переключится на нового пользователя.
+            После регистрации рабочее пространство откроется автоматически, без отдельной настройки доступа.
           </div>
-          <TextInput label="Email" value={d.register.email} onChange={(v) => updateDraft('register', { email: v })} />
+          <TextInput label="Почта" value={d.register.email} onChange={(v) => updateDraft('register', { email: v })} />
           <TextInput label="Имя" value={d.register.first_name} onChange={(v) => updateDraft('register', { first_name: v })} />
           <TextInput label="Пароль" type="password" value={d.register.password} onChange={(v) => updateDraft('register', { password: v })} />
         </FormCard>
@@ -922,7 +1005,7 @@ function AccessModule({ api, catalogs, drafts, updateDraft, refreshAll, register
             await refreshAll()
           }}
         >
-          <TextInput label="Email" value={d.user.email} onChange={(v) => updateDraft('user', { email: v })} />
+          <TextInput label="Почта" value={d.user.email} onChange={(v) => updateDraft('user', { email: v })} />
           <TextInput label="Имя" value={d.user.first_name} onChange={(v) => updateDraft('user', { first_name: v })} />
           <TextInput label="Пароль" type="password" value={d.user.password} onChange={(v) => updateDraft('user', { password: v })} />
           <SelectInput label="Роль" value={d.user.role} options={['admin', 'experimenter', 'approver', 'viewer']} onChange={(v) => updateDraft('user', { role: v })} />
@@ -943,7 +1026,7 @@ function AccessModule({ api, catalogs, drafts, updateDraft, refreshAll, register
           }}
         >
           <TextInput label="User ID" value={d.user.id} onChange={(v) => updateDraft('user', { id: v })} />
-          <TextInput label="Email" value={d.user.email} onChange={(v) => updateDraft('user', { email: v })} />
+          <TextInput label="Почта" value={d.user.email} onChange={(v) => updateDraft('user', { email: v })} />
           <TextInput label="Имя" value={d.user.first_name} onChange={(v) => updateDraft('user', { first_name: v })} />
           <TextInput label="Новый пароль" type="password" value={d.user.password} onChange={(v) => updateDraft('user', { password: v })} />
           <SelectInput label="Роль" value={d.user.role} options={['admin', 'experimenter', 'approver', 'viewer']} onChange={(v) => updateDraft('user', { role: v })} />
@@ -962,7 +1045,7 @@ function AccessModule({ api, catalogs, drafts, updateDraft, refreshAll, register
             await refreshAll()
           }}
         >
-          <TextInput label="Experimenter ID или пусто для default" value={d.approverGroup.experimenter_id} onChange={(v) => updateDraft('approverGroup', { experimenter_id: v })} />
+          <TextInput label="ID экспериментатора или пусто для общего правила" value={d.approverGroup.experimenter_id} onChange={(v) => updateDraft('approverGroup', { experimenter_id: v })} />
           <TextInput label="Approver IDs через запятую" value={d.approverGroup.approver_ids} onChange={(v) => updateDraft('approverGroup', { approver_ids: v })} />
           <NumberInput label="Минимум одобрений" value={d.approverGroup.min_approvals} onChange={(v) => updateDraft('approverGroup', { min_approvals: v })} />
         </FormCard>
@@ -982,7 +1065,7 @@ function AccessModule({ api, catalogs, drafts, updateDraft, refreshAll, register
           })}><Edit3 size={14} />редактировать</button>
         )}
       />
-      <DataTable title="Approver groups" rows={catalogs.approverGroups} columns={['experimenter_id', 'approver_ids', 'min_approvals', 'id']} empty="Группы approver-ов появятся после входа администратором." />
+      <DataTable title="Группы согласования" rows={catalogs.approverGroups} columns={['experimenter_id', 'approver_ids', 'min_approvals', 'id']} empty="Группы согласования появятся после входа администратором." />
     </>
   )
 }
@@ -1005,7 +1088,7 @@ function CatalogModule({ api, catalogs, drafts, updateDraft, refreshAll }: Modul
             await refreshAll()
           }}
         >
-          <TextInput label="Key" value={d.eventType.key} onChange={(v) => updateDraft('eventType', { key: v })} />
+          <TextInput label="Ключ" value={d.eventType.key} onChange={(v) => updateDraft('eventType', { key: v })} />
           <TextInput label="Название" value={d.eventType.display_name} onChange={(v) => updateDraft('eventType', { display_name: v })} />
           <TextInput label="Описание" value={d.eventType.description} onChange={(v) => updateDraft('eventType', { description: v })} />
           <Toggle label="Critical" checked={d.eventType.is_critical} onChange={(v) => updateDraft('eventType', { is_critical: v })} />
@@ -1027,7 +1110,7 @@ function CatalogModule({ api, catalogs, drafts, updateDraft, refreshAll }: Modul
             await refreshAll()
           }}
         >
-          <TextInput label="Key" value={d.metric.key} onChange={(v) => updateDraft('metric', { key: v })} />
+          <TextInput label="Ключ" value={d.metric.key} onChange={(v) => updateDraft('metric', { key: v })} />
           <TextInput label="Название" value={d.metric.name} onChange={(v) => updateDraft('metric', { name: v })} />
           <TextInput label="Unit" value={d.metric.unit} onChange={(v) => updateDraft('metric', { unit: v })} />
           <JsonArea label="Aggregation rule" value={d.metric.aggregation_rule} onChange={(v) => updateDraft('metric', { aggregation_rule: v })} />
@@ -1035,7 +1118,7 @@ function CatalogModule({ api, catalogs, drafts, updateDraft, refreshAll }: Modul
         </FormCard>
       </div>
       <DataTable title="Event types" rows={catalogs.eventTypes} columns={['key', 'display_name', 'is_critical', 'status', 'id']} empty="Каталог событий пуст." />
-      <DataTable title="Metrics" rows={catalogs.metrics} columns={['key', 'name', 'unit', 'description', 'id']} empty="Каталог метрик пуст." />
+      <DataTable title="Метрики" rows={catalogs.metrics} columns={['key', 'name', 'unit', 'description', 'id']} empty="Каталог метрик пуст." />
     </>
   )
 }
@@ -1055,13 +1138,13 @@ function FlagsModule({ api, catalogs, drafts, updateDraft, refreshAll, onOpenExp
         }}
       >
         <div className="form-grid">
-          <TextInput label="Key" value={d.key} onChange={(v) => updateDraft('flag', { key: v })} />
+          <TextInput label="Ключ" value={d.key} onChange={(v) => updateDraft('flag', { key: v })} />
           <SelectInput label="Тип значения" value={d.value_type} options={['string', 'number', 'bool']} onChange={(v) => updateDraft('flag', { value_type: v })} />
           <TextInput label="Значение по умолчанию" value={d.default_value} onChange={(v) => updateDraft('flag', { default_value: v })} />
           <TextInput label="Владелец" value={d.owner} onChange={(v) => updateDraft('flag', { owner: v })} />
         </div>
         <TextInput label="Описание" value={d.description} onChange={(v) => updateDraft('flag', { description: v })} />
-        <JsonArea label="Metadata" value={d.metadata} onChange={(v) => updateDraft('flag', { metadata: v })} />
+        <JsonArea label="Метаданные" value={d.metadata} onChange={(v) => updateDraft('flag', { metadata: v })} />
       </FormCard>
       <DataTable
         title="Флаги"
@@ -1079,52 +1162,59 @@ function FlagsModule({ api, catalogs, drafts, updateDraft, refreshAll, onOpenExp
   )
 }
 
-function ExperimentsModule({ api, catalogs, drafts, updateDraft, refreshAll, activeExperiment }: ModuleProps & { activeExperiment?: ExperimentItem }) {
+function ExperimentsModule({ api, catalogs, drafts, updateDraft, refreshAll, activeExperiment, role }: ModuleProps & { activeExperiment?: ExperimentItem }) {
   const d = drafts
+  const canDesignExperiment = role === 'experimenter'
+  const statusOptions = role === 'approver'
+    ? ['approved', 'rejected']
+    : ['draft', 'on_review', 'running', 'paused', 'archived']
+  const statusValue = statusOptions.includes(d.status.status) ? d.status.status : statusOptions[0]
   return (
     <>
       <ModuleHeader title="Эксперименты и жизненный цикл" description="Создание, варианты, ревью-статусы, завершение и архивирование. Веса вариантов должны суммарно соответствовать доле аудитории." />
-      <div className="two-col">
-        <FormCard
-          title="Создать эксперимент"
-          submitLabel="Создать эксперимент"
-          onSubmit={async () => {
-            await api('POST', '/api/v1/experiments', clean({
-              name: d.experiment.name,
-              flag_id: d.experiment.flag_id,
-              audience_fraction: Number(d.experiment.audience_fraction),
-              targeting_rule: d.experiment.targeting_rule || null,
-              metrics: parseJson(d.experiment.metrics),
-            }))
-            await refreshAll()
-          }}
-        >
-          <TextInput label="Название" value={d.experiment.name} onChange={(v) => updateDraft('experiment', { name: v })} />
-          <SelectInput label="Флаг" value={d.experiment.flag_id} options={catalogs.flags.map((f) => ({ value: f.id || '', label: `${f.key} ${f.id ? `(${short(f.id)})` : ''}` }))} onChange={(v) => updateDraft('experiment', { flag_id: v })} />
-          <NumberInput label="Доля аудитории" value={d.experiment.audience_fraction} step={0.05} onChange={(v) => updateDraft('experiment', { audience_fraction: v })} />
-          <TextInput label="Правило таргетинга" value={d.experiment.targeting_rule} onChange={(v) => updateDraft('experiment', { targeting_rule: v })} />
-          <JsonArea label="Метрики" value={d.experiment.metrics} onChange={(v) => updateDraft('experiment', { metrics: v })} />
-        </FormCard>
-        <FormCard
-          title="Добавить вариант"
-          submitLabel="Добавить вариант"
-          onSubmit={async () => {
-            await api('POST', `/api/v1/experiments/${d.variant.experiment_id}/variants`, clean({
-              variant_name: d.variant.variant_name,
-              variant_value: d.variant.variant_value,
-              weight: Number(d.variant.weight),
-              is_control: d.variant.is_control,
-            }))
-            await refreshAll()
-          }}
-        >
-          <SelectInput label="Эксперимент" value={d.variant.experiment_id} options={catalogs.experiments.map(expOption)} onChange={(v) => updateDraft('variant', { experiment_id: v })} />
-          <TextInput label="Название варианта" value={d.variant.variant_name} onChange={(v) => updateDraft('variant', { variant_name: v })} />
-          <TextInput label="Значение варианта" value={d.variant.variant_value} onChange={(v) => updateDraft('variant', { variant_value: v })} />
-          <NumberInput label="Вес" value={d.variant.weight} step={0.05} onChange={(v) => updateDraft('variant', { weight: v })} />
-          <Toggle label="Контрольный" checked={d.variant.is_control} onChange={(v) => updateDraft('variant', { is_control: v })} />
-        </FormCard>
-      </div>
+      {canDesignExperiment && (
+        <div className="two-col">
+          <FormCard
+            title="Создать эксперимент"
+            submitLabel="Создать эксперимент"
+            onSubmit={async () => {
+              await api('POST', '/api/v1/experiments', clean({
+                name: d.experiment.name,
+                flag_id: d.experiment.flag_id,
+                audience_fraction: Number(d.experiment.audience_fraction),
+                targeting_rule: d.experiment.targeting_rule || null,
+                metrics: parseJson(d.experiment.metrics),
+              }))
+              await refreshAll()
+            }}
+          >
+            <TextInput label="Название" value={d.experiment.name} onChange={(v) => updateDraft('experiment', { name: v })} />
+            <SelectInput label="Флаг" value={d.experiment.flag_id} options={catalogs.flags.map((f) => ({ value: f.id || '', label: `${f.key} ${f.id ? `(${short(f.id)})` : ''}` }))} onChange={(v) => updateDraft('experiment', { flag_id: v })} />
+            <NumberInput label="Доля аудитории" value={d.experiment.audience_fraction} step={0.05} onChange={(v) => updateDraft('experiment', { audience_fraction: v })} />
+            <TextInput label="Правило таргетинга" value={d.experiment.targeting_rule} onChange={(v) => updateDraft('experiment', { targeting_rule: v })} />
+            <JsonArea label="Метрики" value={d.experiment.metrics} onChange={(v) => updateDraft('experiment', { metrics: v })} />
+          </FormCard>
+          <FormCard
+            title="Добавить вариант"
+            submitLabel="Добавить вариант"
+            onSubmit={async () => {
+              await api('POST', `/api/v1/experiments/${d.variant.experiment_id}/variants`, clean({
+                variant_name: d.variant.variant_name,
+                variant_value: d.variant.variant_value,
+                weight: Number(d.variant.weight),
+                is_control: d.variant.is_control,
+              }))
+              await refreshAll()
+            }}
+          >
+            <SelectInput label="Эксперимент" value={d.variant.experiment_id} options={catalogs.experiments.map(expOption)} onChange={(v) => updateDraft('variant', { experiment_id: v })} />
+            <TextInput label="Название варианта" value={d.variant.variant_name} onChange={(v) => updateDraft('variant', { variant_name: v })} />
+            <TextInput label="Значение варианта" value={d.variant.variant_value} onChange={(v) => updateDraft('variant', { variant_value: v })} />
+            <NumberInput label="Вес" value={d.variant.weight} step={0.05} onChange={(v) => updateDraft('variant', { weight: v })} />
+            <Toggle label="Контрольный" checked={d.variant.is_control} onChange={(v) => updateDraft('variant', { is_control: v })} />
+          </FormCard>
+        </div>
+      )}
       <div className="two-col">
         <FormCard
           title="Сменить статус"
@@ -1135,26 +1225,28 @@ function ExperimentsModule({ api, catalogs, drafts, updateDraft, refreshAll, act
           }}
         >
           <SelectInput label="Эксперимент" value={d.status.experiment_id} options={catalogs.experiments.map(expOption)} onChange={(v) => updateDraft('status', { experiment_id: v })} />
-          <SelectInput label="Статус" value={d.status.status} options={['draft', 'on_review', 'approved', 'running', 'paused', 'rejected', 'archived'].map((status) => ({ value: status, label: statusLabel(status) }))} onChange={(v) => updateDraft('status', { status: v })} />
+          <SelectInput label="Статус" value={statusValue} options={statusOptions.map((status) => ({ value: status, label: statusLabel(status) }))} onChange={(v) => updateDraft('status', { status: v })} />
           <TextInput label="Комментарий" value={d.status.comment} onChange={(v) => updateDraft('status', { comment: v })} />
         </FormCard>
-        <FormCard
-          title="Завершить эксперимент"
-          submitLabel="Завершить"
-          onSubmit={async () => {
-            await api('POST', `/api/v1/experiments/${d.complete.experiment_id}/complete`, clean({
-              completion_outcome: d.complete.completion_outcome,
-              completion_winner_variant_id: d.complete.completion_winner_variant_id || null,
-              comment: d.complete.comment,
-            }))
-            await refreshAll()
-          }}
-        >
-          <SelectInput label="Эксперимент" value={d.complete.experiment_id} options={catalogs.experiments.map(expOption)} onChange={(v) => updateDraft('complete', { experiment_id: v })} />
-          <SelectInput label="Исход" value={d.complete.completion_outcome} options={[{ value: 'rollout_winner', label: 'Раскатить победителя' }, { value: 'rollback', label: 'Откатить' }, { value: 'no_effect', label: 'Эффект не найден' }]} onChange={(v) => updateDraft('complete', { completion_outcome: v })} />
-          <TextInput label="ID варианта-победителя" value={d.complete.completion_winner_variant_id} onChange={(v) => updateDraft('complete', { completion_winner_variant_id: v })} />
-          <TextInput label="Комментарий" value={d.complete.comment} onChange={(v) => updateDraft('complete', { comment: v })} />
-        </FormCard>
+        {canDesignExperiment && (
+          <FormCard
+            title="Завершить эксперимент"
+            submitLabel="Завершить"
+            onSubmit={async () => {
+              await api('POST', `/api/v1/experiments/${d.complete.experiment_id}/complete`, clean({
+                completion_outcome: d.complete.completion_outcome,
+                completion_winner_variant_id: d.complete.completion_winner_variant_id || null,
+                comment: d.complete.comment,
+              }))
+              await refreshAll()
+            }}
+          >
+            <SelectInput label="Эксперимент" value={d.complete.experiment_id} options={catalogs.experiments.map(expOption)} onChange={(v) => updateDraft('complete', { experiment_id: v })} />
+            <SelectInput label="Исход" value={d.complete.completion_outcome} options={[{ value: 'rollout_winner', label: 'Раскатить победителя' }, { value: 'rollback', label: 'Откатить' }, { value: 'no_effect', label: 'Эффект не найден' }]} onChange={(v) => updateDraft('complete', { completion_outcome: v })} />
+            <TextInput label="ID варианта-победителя" value={d.complete.completion_winner_variant_id} onChange={(v) => updateDraft('complete', { completion_winner_variant_id: v })} />
+            <TextInput label="Комментарий" value={d.complete.comment} onChange={(v) => updateDraft('complete', { comment: v })} />
+          </FormCard>
+        )}
       </div>
       {activeExperiment && (
         <section className="panel">
@@ -1177,7 +1269,7 @@ function ExperimentsModule({ api, catalogs, drafts, updateDraft, refreshAll, act
               updateDraft('complete', { experiment_id: id })
               updateDraft('learning', { experiment_id: id })
             }}>выбрать</button>
-            <button className="mini danger" onClick={() => api('POST', `/api/v1/experiments/${row.id}/archive`).then(() => refreshAll())}><Archive size={14} />архивировать</button>
+            {canDesignExperiment && <button className="mini danger" onClick={() => api('POST', `/api/v1/experiments/${row.id}/archive`).then(() => refreshAll())}><Archive size={14} />архивировать</button>}
           </div>
         )}
       />
@@ -1187,13 +1279,33 @@ function ExperimentsModule({ api, catalogs, drafts, updateDraft, refreshAll, act
 
 function RuntimeModule({ api, catalogs, drafts, updateDraft }: ModuleProps) {
   const d = drafts
+  const flagOptions = catalogs.flags
+    .map((flag) => ({ value: flag.key, label: `${flag.key}${flag.description ? ` - ${flag.description}` : ''}` }))
+    .filter((flag) => Boolean(flag.value))
+  const eventOptions = catalogs.eventTypes
+    .map((eventType) => ({ value: String(eventType.key || ''), label: `${eventType.display_name || eventType.key}${eventType.key ? ` - ${eventType.key}` : ''}` }))
+    .filter((eventType) => Boolean(eventType.value))
+
   return (
     <>
-      <ModuleHeader title="Выдача решений и события" description="Проверка закрепления варианта, fallback на default, decision_id, дедупликации и атрибуции событий." />
+      <ModuleHeader title="Назначения и события" description="Проверка закрепления варианта, fallback-логики, дедупликации и атрибуции событий без ручной сверки технических запросов." />
+      <section className="workflow-panel">
+        <div>
+          <strong>Рабочий сценарий</strong>
+          <span>Выберите флаг, получите назначение и сразу отправьте событие с тем же ID. Так разработчик видит полный продуктовый контур без ручной сборки запроса.</span>
+        </div>
+        <div className="workflow-steps">
+          <span>1. Флаг</span>
+          <span>2. Вариант</span>
+          <span>3. Событие</span>
+        </div>
+      </section>
       <div className="two-col">
         <FormCard
-          title="Выдать решение"
-          submitLabel="Получить решение"
+          title="Назначить вариант пользователю"
+          submitLabel="Получить вариант"
+          icon={<Route size={16} />}
+          defaultOpen
           onSubmit={async () => {
             const res = await api('POST', '/api/v1/decide', { subject_id: d.decide.subject_id, attributes: parseJson(d.decide.attributes), flags: splitCsv(d.decide.flags) })
             const decisionId = findDecisionId(res.data)
@@ -1201,24 +1313,183 @@ function RuntimeModule({ api, catalogs, drafts, updateDraft }: ModuleProps) {
           }}
         >
           <TextInput label="ID субъекта" value={d.decide.subject_id} onChange={(v) => updateDraft('decide', { subject_id: v })} />
-          <TextInput label="Flags через запятую" value={d.decide.flags} onChange={(v) => updateDraft('decide', { flags: v })} />
-          <JsonArea label="Attributes" value={d.decide.attributes} onChange={(v) => updateDraft('decide', { attributes: v })} />
+          <SelectInput label="Флаг для назначения" value={d.decide.flags.split(',')[0] || ''} options={flagOptions} onChange={(v) => updateDraft('decide', { flags: v })} />
+          <JsonArea label="Атрибуты сегментации" value={d.decide.attributes} rows={4} onChange={(v) => updateDraft('decide', { attributes: v })} />
+          <div className="field-notes">
+            <strong>Подсказка</strong>
+            <span>Если эксперимент по выбранному флагу запущен и пользователь попадает в аудиторию, платформа вернёт вариант и заполнит ID назначения для события.</span>
+          </div>
         </FormCard>
         <FormCard
-          title="Отправить событие"
-          submitLabel="Отправить событие"
+          title="Записать событие пользователя"
+          submitLabel="Записать событие"
+          icon={<Send size={16} />}
+          defaultOpen
           onSubmit={async () => {
             await api('POST', '/api/v1/events', { events: [{ event_id: `gui-${crypto.randomUUID()}`, decision_id: d.event.decision_id, event_type_key: d.event.event_type_key, subject_id: d.event.subject_id, timestamp: new Date().toISOString(), payload: parseJson(d.event.payload) }] })
           }}
         >
-          <TextInput label="Decision ID" value={d.event.decision_id} onChange={(v) => updateDraft('event', { decision_id: v })} />
+          <TextInput label="ID назначения" value={d.event.decision_id} onChange={(v) => updateDraft('event', { decision_id: v })} />
           <TextInput label="ID субъекта" value={d.event.subject_id} onChange={(v) => updateDraft('event', { subject_id: v })} />
-          <SelectInput label="Тип события" value={d.event.event_type_key} options={catalogs.eventTypes.map((x) => String(x.key || '')).filter(Boolean)} onChange={(v) => updateDraft('event', { event_type_key: v })} />
-          <JsonArea label="Payload" value={d.event.payload} onChange={(v) => updateDraft('event', { payload: v })} />
+          <SelectInput label="Тип события" value={d.event.event_type_key} options={eventOptions} onChange={(v) => updateDraft('event', { event_type_key: v })} />
+          <JsonArea label="Данные события" value={d.event.payload} rows={4} onChange={(v) => updateDraft('event', { payload: v })} />
+          <div className="field-notes">
+            <strong>Атрибуция</strong>
+            <span>Событие привязывается к варианту через ID назначения. Это помогает отчёту считать метрики без ручной сверки пользователя и флага.</span>
+          </div>
         </FormCard>
       </div>
-      <DataTable title="Доступные флаги для decide" rows={catalogs.flags} columns={['key', 'default_value', 'value_type', 'id']} empty="Флаги не загружены." />
+      <DataTable title="Доступные флаги" rows={catalogs.flags} columns={['key', 'default_value', 'value_type', 'id']} empty="Флаги не загружены." />
     </>
+  )
+}
+
+const apiLifecycle = [
+  { title: 'Авторизация', text: 'Получите Bearer-токен через вход или регистрацию и передавайте его во все защищённые запросы.' },
+  { title: 'Флаги и эксперимент', text: 'Создайте флаг, настройте варианты, метрики и долю аудитории, затем переведите эксперимент в running.' },
+  { title: 'Runtime', text: 'На клиенте или backend-for-frontend вызывайте decide, сохраняйте decision_id и отправляйте события с этим ID.' },
+  { title: 'Отчёт и выводы', text: 'Смотрите отчёт, guardrails и фиксируйте learning, чтобы решение осталось в базе знаний.' },
+]
+
+const apiGroups = [
+  { name: 'Auth', endpoints: ['POST /api/v1/auth', 'POST /api/v1/register'], text: 'Вход, регистрация и получение токена.' },
+  { name: 'Флаги', endpoints: ['GET /api/v1/flags', 'POST /api/v1/flags', 'PATCH /api/v1/flags/{key}'], text: 'Каталог управляемых фич и fallback-значений.' },
+  { name: 'Эксперименты', endpoints: ['POST /api/v1/experiments', 'PATCH /api/v1/experiments/{id}/status', 'POST /api/v1/experiments/{id}/variants'], text: 'Дизайн A/B-теста, статусы, варианты и завершение.' },
+  { name: 'Runtime', endpoints: ['POST /api/v1/decide', 'POST /api/v1/events'], text: 'Назначение варианта и поток событий для метрик.' },
+  { name: 'Аналитика', endpoints: ['GET /api/v1/experiments/{id}/report', 'GET /api/v1/metrics', 'GET /api/v1/learnings'], text: 'Отчёты, метрики, выводы и история решений.' },
+  { name: 'Контроль качества', endpoints: ['GET /api/v1/guardrails', 'GET /api/v1/conflict-domains', 'GET /api/v1/experiments/{id}/ramp-plan'], text: 'Защитные метрики, конфликты трафика и автораскатка.' },
+]
+
+const codeSnippets = [
+  {
+    title: '1. Клиент API',
+    code: `const API_URL = 'https://your-lotty-host.example.com';
+
+async function lotty(path, { method = 'GET', token, body } = {}) {
+  const response = await fetch(\`\${API_URL}\${path}\`, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: \`Bearer \${token}\` } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (!response.ok) {
+    throw new Error(\`LOTTY API error: \${response.status}\`);
+  }
+
+  return response.json();
+}`,
+  },
+  {
+    title: '2. Получить вариант',
+    code: `const decision = await lotty('/api/v1/decide', {
+  method: 'POST',
+  token,
+  body: {
+    subject_id: currentUser.id,
+    flags: ['checkout_cta'],
+    attributes: {
+      country: 'RU',
+      platform: 'web',
+      plan: currentUser.plan,
+    },
+  },
+});
+
+const assignment = decision.assignments?.[0];
+renderCheckoutButton(assignment?.variant_value ?? 'default');`,
+  },
+  {
+    title: '3. Отправить событие',
+    code: `await lotty('/api/v1/events', {
+  method: 'POST',
+  token,
+  body: {
+    events: [{
+      event_id: crypto.randomUUID(),
+      decision_id: assignment.decision_id,
+      event_type_key: 'checkout_click',
+      subject_id: currentUser.id,
+      timestamp: new Date().toISOString(),
+      payload: { surface: 'checkout', placement: 'primary_cta' },
+    }],
+  },
+});`,
+  },
+  {
+    title: '4. Быстрый отчёт',
+    code: `const report = await lotty(
+  \`/api/v1/experiments/\${experimentId}/report?start=2026-05-01&end=2026-05-13&include_dynamics=true\`,
+  { token },
+);
+
+console.table(report.variants);`,
+  },
+]
+
+function DevelopersModule() {
+  return (
+    <>
+      <ModuleHeader
+        title="API для разработчиков"
+        description="Короткий маршрут интеграции LOTTY: как авторизоваться, получить вариант, отправить событие и забрать отчёт без чтения сырого Swagger-файла."
+      />
+      <section className="developer-hero">
+        <div>
+          <h2>Подключение строится вокруг одного цикла: decide, событие, отчёт.</h2>
+          <p>Swagger описывает сервис как LOTTY A/B Platform API v1. В продуктовой интеграции обычно достаточно Bearer-токена, стабильного ID пользователя, выбранного флага и сохранённого decision_id для последующей атрибуции событий.</p>
+        </div>
+        <div className="developer-checklist">
+          <strong>Рекомендации</strong>
+          <span>Кэшируйте назначение на время сессии пользователя.</span>
+          <span>Всегда отправляйте уникальный event_id для дедупликации.</span>
+          <span>Передавайте сегментационные attributes только с нужными бизнес-полями.</span>
+          <span>Для отчётов используйте одинаковые окна дат и include_dynamics, когда нужна динамика.</span>
+        </div>
+      </section>
+
+      <section className="api-flow-grid">
+        {apiLifecycle.map((item, index) => (
+          <div key={item.title}>
+            <span>{index + 1}</span>
+            <strong>{item.title}</strong>
+            <p>{item.text}</p>
+          </div>
+        ))}
+      </section>
+
+      <section className="panel">
+        <div className="panel-title"><h2>Основные возможности API</h2><span>сгруппировано по задачам</span></div>
+        <div className="api-section-grid">
+          {apiGroups.map((group) => (
+            <div className="api-section-card" key={group.name}>
+              <strong>{group.name}</strong>
+              <p>{group.text}</p>
+              <div>
+                {group.endpoints.map((endpoint) => <code key={endpoint}>{endpoint}</code>)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="code-grid">
+        {codeSnippets.map((snippet) => (
+          <CodeExample key={snippet.title} title={snippet.title} code={snippet.code} />
+        ))}
+      </section>
+    </>
+  )
+}
+
+function CodeExample({ title, code }: { title: string; code: string }) {
+  return (
+    <section className="code-card">
+      <div className="panel-title"><h2>{title}</h2><span>готовая заготовка</span></div>
+      <pre><code>{code}</code></pre>
+    </section>
   )
 }
 
@@ -1228,7 +1499,7 @@ function AbDemoModule({ api, catalogs, updateDraft, onOpenReports, onPrepareDemo
   const [flagKey, setFlagKey] = useState(defaultFlag)
   const [preparedFlagKeys, setPreparedFlagKeys] = useState<string[]>([])
   const [assignment, setAssignment] = useState<Record<string, unknown> | null>(null)
-  const [demoLog, setDemoLog] = useState<string[]>(['Нажмите “Подготовить демо”, чтобы создать отдельный running-эксперимент для этого экрана.'])
+  const [demoLog, setDemoLog] = useState<string[]>(['Нажмите “Подготовить демо”, чтобы создать отдельный запущенный эксперимент для этого экрана.'])
   const [preparing, setPreparing] = useState(false)
   const [trafficRunning, setTrafficRunning] = useState(false)
 
@@ -1255,7 +1526,7 @@ function AbDemoModule({ api, catalogs, updateDraft, onOpenReports, onPrepareDemo
       }
       setAssignment(null)
       appendDemoLog(result.message)
-      if (result.ok) appendDemoLog('Теперь нажмите “Получить вариант”: default больше не должен приходить, если эксперимент running.')
+      if (result.ok) appendDemoLog('Теперь нажмите “Получить вариант”: пользователь должен попасть в активный эксперимент.')
     } finally {
       setPreparing(false)
     }
@@ -1273,7 +1544,7 @@ function AbDemoModule({ api, catalogs, updateDraft, onOpenReports, onPrepareDemo
       const nextDecisionId = String(nextAssignment.decision_id || '')
       const experimentId = String(nextAssignment.experiment_id || '')
       if (experimentId) updateDraft('report', { experiment_id: experimentId })
-      appendDemoLog(`Backend назначил вариант: ${nextAssignment.variant_name || nextAssignment.value || 'default'}`)
+      appendDemoLog(`Назначен вариант: ${nextAssignment.variant_name || nextAssignment.value || 'базовый'}`)
       if (nextDecisionId) {
         await api('POST', '/api/v1/events', {
           events: [{
@@ -1285,13 +1556,13 @@ function AbDemoModule({ api, catalogs, updateDraft, onOpenReports, onPrepareDemo
             payload: { surface: 'checkout_demo', flag_key: flagKey },
           }],
         })
-        appendDemoLog('Отправили demo_exposure: пользователь увидел вариант.')
+        appendDemoLog('Зафиксировали показ: пользователь увидел назначенный вариант.')
       }
     } else {
-      appendDemoLog('Backend не вернул назначение. Нажмите “Подготовить демо” или проверьте viewer token.')
+      appendDemoLog('Вариант не назначен. Подготовьте демо или проверьте права текущей роли.')
     }
     if (res.ok && nextAssignment && String(nextAssignment.value || nextAssignment.variant_name || '').toLowerCase() === 'default') {
-      appendDemoLog('Пришёл default: для выбранного флага нет подходящего running-эксперимента или пользователь не попал в аудиторию.')
+      appendDemoLog('Показан базовый вариант: нет подходящего запущенного эксперимента или пользователь не попал в аудиторию.')
     }
   }
 
@@ -1310,7 +1581,7 @@ function AbDemoModule({ api, catalogs, updateDraft, onOpenReports, onPrepareDemo
         payload: { surface: 'checkout_demo', cta_theme: theme, flag_key: flagKey },
       }],
     })
-    appendDemoLog('Отправили demo_click: это клик для demo_click_rate в отчёте.')
+    appendDemoLog('Зафиксировали клик: он попадёт в метрику конверсии отчёта.')
   }
 
   const generateDemoTraffic = async () => {
@@ -1368,12 +1639,12 @@ function AbDemoModule({ api, catalogs, updateDraft, onOpenReports, onPrepareDemo
     <>
       <ModuleHeader
         title="Наглядное демо A/B"
-        description="Мини-продукт получает вариант через /decide, реально меняет интерфейс и отправляет события в backend. Так видно, как автоматическое A/B-тестирование работает для пользователя."
+        description="Мини-продукт получает вариант от decision engine, реально меняет интерфейс и записывает события. Так видно, как A/B-тестирование работает для пользователя."
       />
       <section className="demo-shell">
         <div className={`demo-product ${theme}`}>
           <div className="demo-product-top">
-            <span>Checkout demo</span>
+            <span>Демо checkout</span>
             <strong>{assignment ? `Вариант: ${variantName}` : 'Пользователь ещё не зашёл'}</strong>
           </div>
           {assignment ? (
@@ -1381,28 +1652,28 @@ function AbDemoModule({ api, catalogs, updateDraft, onOpenReports, onPrepareDemo
               <div className="demo-offer">
                 <span className="demo-badge">{theme === 'treatment' ? 'Новый вариант' : 'Контроль'}</span>
                 <h2>{theme === 'treatment' ? 'Быстрая покупка с ярким CTA' : 'Классическая карточка покупки'}</h2>
-                <p>{theme === 'treatment' ? 'Backend назначил экспериментальный вариант: кнопка заметнее, текст увереннее, акцент сильнее.' : 'Контрольный вариант спокойнее: привычный текст, сдержанный акцент, базовая компоновка.'}</p>
+                <p>{theme === 'treatment' ? 'Пользователь попал в экспериментальный вариант: кнопка заметнее, текст увереннее, акцент сильнее.' : 'Контрольный вариант спокойнее: привычный текст, сдержанный акцент, базовая компоновка.'}</p>
                 <button className="demo-cta" onClick={sendConversion}>{theme === 'treatment' ? 'Купить сейчас' : 'Добавить в корзину'}</button>
               </div>
               <div className="demo-receipt">
                 <div><span>Subject</span><strong>{subjectId}</strong></div>
-                <div><span>Flag</span><strong>{flagKey}</strong></div>
-                <div><span>Decision ID</span><strong>{decisionId ? short(decisionId) : '—'}</strong></div>
+                <div><span>Флаг</span><strong>{flagKey}</strong></div>
+                <div><span>ID назначения</span><strong>{decisionId ? short(decisionId) : '—'}</strong></div>
               </div>
             </>
           ) : (
             <div className="demo-empty-site">
               <span>Сайт ещё не открыт</span>
               <h2>Пользователь не видел страницу, поэтому варианта пока нет</h2>
-              <p>Нажмите запуск ниже: GUI вызовет /decide, backend назначит control или treatment, и только после этого появится реальный экран сайта.</p>
+              <p>Нажмите запуск ниже: платформа назначит control или treatment, и только после этого появится реальный экран сайта.</p>
               <button className="demo-cta" onClick={getDecision}><Play size={16} />Запустить визит пользователя</button>
             </div>
           )}
         </div>
         <div className="demo-control">
-          <div className="panel-title"><h2>Как запустить</h2><span>реальные API-вызовы</span></div>
+          <div className="panel-title"><h2>Как запустить</h2><span>демо работает на реальных данных платформы</span></div>
           <div className="demo-fields">
-            <TextInput label="Subject ID" value={subjectId} onChange={(value) => {
+            <TextInput label="ID пользователя" value={subjectId} onChange={(value) => {
               setSubjectId(value)
               setAssignment(null)
             }} />
@@ -1423,10 +1694,10 @@ function AbDemoModule({ api, catalogs, updateDraft, onOpenReports, onPrepareDemo
             <button className="secondary" onClick={onOpenReports}><BarChart3 size={16} />Открыть отчёт</button>
           </div>
           <div className="demo-flow">
-            <div className={assignment ? 'done' : ''}><strong>1</strong><span>/decide назначает вариант</span></div>
+            <div className={assignment ? 'done' : ''}><strong>1</strong><span>Платформа назначает вариант</span></div>
             <div className={assignment ? 'done' : ''}><strong>2</strong><span>UI меняется для пользователя</span></div>
-            <div className={decisionId ? 'done' : ''}><strong>3</strong><span>/events пишет exposure и click</span></div>
-            <div><strong>4</strong><span>/report считает click_rate</span></div>
+            <div className={decisionId ? 'done' : ''}><strong>3</strong><span>Показы и клики попадают в аналитику</span></div>
+            <div><strong>4</strong><span>Отчёт считает эффект по метрике</span></div>
           </div>
           <div className="demo-log">
             {demoLog.map((item, index) => <p key={index}>{item}</p>)}
@@ -1511,17 +1782,13 @@ function ReportView({ report }: { report: unknown }) {
       <DataTable title="Сравнение с контролем" rows={resultRows} columns={['variant_name', 'value', 'vs_control', 'change_percent']} empty="Сводка по основной метрике пока пустая." formatCell={(column, value) => reportCell(column, value)} />
       <DataTable title="Метрики отчёта" rows={metrics} columns={['metric_key', 'name', 'metric_type', 'unit', 'event_expectations']} empty="В отчёте нет блока metrics." formatCell={(column, value) => reportCell(column, value)} />
       <DataTable title="Динамика по дням" rows={dynamics} columns={['date', 'variant_name', 'metric_key', 'value']} empty="Dynamics не вернулся или выключен." formatCell={(column, value) => reportCell(column, value)} />
-      <section className="panel">
-        <div className="panel-title"><h2>Raw report</h2><span>полный ответ backend для сверки со swagger</span></div>
-        <pre className="json-inline">{pretty(report)}</pre>
-      </section>
     </>
   )
 }
 
 function ReportVariants({ variants }: { variants: Array<Record<string, unknown>> }) {
   if (variants.length === 0) {
-    return <section className="panel"><div className="empty-note">Backend вернул отчёт без строк variants.</div></section>
+    return <section className="panel"><div className="empty-note">В отчёте пока нет строк по вариантам.</div></section>
   }
   return (
     <section className="panel">
@@ -1605,43 +1872,46 @@ function SafetyModule({ api, catalogs, drafts, updateDraft, refreshAll }: Module
   )
 }
 
-function LearningsModule({ api, catalogs, drafts, updateDraft, refreshAll }: ModuleProps) {
+function LearningsModule({ api, catalogs, drafts, updateDraft, refreshAll, role }: ModuleProps) {
   const d = drafts.learning
+  const canEdit = role === 'experimenter'
   return (
     <>
-      <ModuleHeader title="Библиотека выводов" description="Фиксация вывода эксперимента нужна для завершения, если backend запущен с LEARNINGS_REQUIRED_ON_COMPLETE=true." />
-      <FormCard
-        title="Заполнить вывод по эксперименту"
-        wide
-        submitLabel="Сохранить вывод"
-        onSubmit={async () => {
-          await api('PUT', `/api/v1/experiments/${d.experiment_id}/learning`, clean({
-            hypothesis: d.hypothesis,
-            notes: d.notes,
-            primary_metric_key: d.primary_metric_key,
-            result_action: d.result_action,
-            result_outcome: d.result_outcome,
-            effect_summary: d.effect_summary || null,
-            product_tags: splitCsv(d.product_tags),
-            countries: [],
-            platforms: ['web'],
-            app_versions: [],
-            variant_structure: {},
-            is_completed: true,
-          }))
-          await refreshAll()
-        }}
-      >
-        <SelectInput label="Эксперимент" value={d.experiment_id} options={catalogs.experiments.map(expOption)} onChange={(v) => updateDraft('learning', { experiment_id: v })} />
-        <TextInput label="Гипотеза" value={d.hypothesis} onChange={(v) => updateDraft('learning', { hypothesis: v })} />
-        <TextInput label="Заметки" value={d.notes} onChange={(v) => updateDraft('learning', { notes: v })} />
-        <div className="form-grid">
-          <TextInput label="Основная метрика" value={d.primary_metric_key} onChange={(v) => updateDraft('learning', { primary_metric_key: v })} />
-          <SelectInput label="Действие" value={d.result_action} options={['rollout', 'rollback', 'continue', 'repeat']} onChange={(v) => updateDraft('learning', { result_action: v })} />
-          <SelectInput label="Итог" value={d.result_outcome} options={['rollout_winner', 'rollback', 'no_effect', 'worse']} onChange={(v) => updateDraft('learning', { result_outcome: v })} />
-          <TextInput label="Теги продукта" value={d.product_tags} onChange={(v) => updateDraft('learning', { product_tags: v })} />
-        </div>
-      </FormCard>
+      <ModuleHeader title="База знаний" description="Фиксируйте выводы экспериментов, чтобы команда видела историю решений, результаты и повторяемые паттерны." />
+      {canEdit && (
+        <FormCard
+          title="Заполнить вывод по эксперименту"
+          wide
+          submitLabel="Сохранить вывод"
+          onSubmit={async () => {
+            await api('PUT', `/api/v1/experiments/${d.experiment_id}/learning`, clean({
+              hypothesis: d.hypothesis,
+              notes: d.notes,
+              primary_metric_key: d.primary_metric_key,
+              result_action: d.result_action,
+              result_outcome: d.result_outcome,
+              effect_summary: d.effect_summary || null,
+              product_tags: splitCsv(d.product_tags),
+              countries: [],
+              platforms: ['web'],
+              app_versions: [],
+              variant_structure: {},
+              is_completed: true,
+            }))
+            await refreshAll()
+          }}
+        >
+          <SelectInput label="Эксперимент" value={d.experiment_id} options={catalogs.experiments.map(expOption)} onChange={(v) => updateDraft('learning', { experiment_id: v })} />
+          <TextInput label="Гипотеза" value={d.hypothesis} onChange={(v) => updateDraft('learning', { hypothesis: v })} />
+          <TextInput label="Заметки" value={d.notes} onChange={(v) => updateDraft('learning', { notes: v })} />
+          <div className="form-grid">
+            <TextInput label="Основная метрика" value={d.primary_metric_key} onChange={(v) => updateDraft('learning', { primary_metric_key: v })} />
+            <SelectInput label="Действие" value={d.result_action} options={['rollout', 'rollback', 'continue', 'repeat']} onChange={(v) => updateDraft('learning', { result_action: v })} />
+            <SelectInput label="Итог" value={d.result_outcome} options={['rollout_winner', 'rollback', 'no_effect', 'worse']} onChange={(v) => updateDraft('learning', { result_outcome: v })} />
+            <TextInput label="Теги продукта" value={d.product_tags} onChange={(v) => updateDraft('learning', { product_tags: v })} />
+          </div>
+        </FormCard>
+      )}
       <DataTable title="Выводы" rows={catalogs.learnings} columns={['experiment_name', 'result_outcome', 'result_action', 'primary_metric_key', 'is_completed', 'id']} empty="Выводов пока нет." />
     </>
   )
@@ -1651,7 +1921,7 @@ function ConflictsModule({ api, catalogs, drafts, updateDraft, refreshAll }: Mod
   const d = drafts
   return (
     <>
-      <ModuleHeader title="Conflict domains" description="Прозрачное разрешение конфликтов между экспериментами в одной продуктовой зоне." />
+      <ModuleHeader title="Политики трафика" description="Прозрачное разрешение конфликтов между экспериментами в одной продуктовой зоне." />
       <div className="two-col">
         <FormCard
           title="Создать домен"
@@ -1661,9 +1931,9 @@ function ConflictsModule({ api, catalogs, drafts, updateDraft, refreshAll }: Mod
             await refreshAll()
           }}
         >
-          <TextInput label="Key" value={d.conflictDomain.key} onChange={(v) => updateDraft('conflictDomain', { key: v })} />
-          <TextInput label="Name" value={d.conflictDomain.name} onChange={(v) => updateDraft('conflictDomain', { name: v })} />
-          <SelectInput label="Default policy" value={d.conflictDomain.default_policy} options={['mutual_exclusion', 'bid', 'priority']} onChange={(v) => updateDraft('conflictDomain', { default_policy: v })} />
+          <TextInput label="Ключ" value={d.conflictDomain.key} onChange={(v) => updateDraft('conflictDomain', { key: v })} />
+          <TextInput label="Название" value={d.conflictDomain.name} onChange={(v) => updateDraft('conflictDomain', { name: v })} />
+          <SelectInput label="Политика по умолчанию" value={d.conflictDomain.default_policy} options={['mutual_exclusion', 'bid', 'priority']} onChange={(v) => updateDraft('conflictDomain', { default_policy: v })} />
           <TextInput label="Описание" value={d.conflictDomain.description} onChange={(v) => updateDraft('conflictDomain', { description: v })} />
         </FormCard>
         <FormCard
@@ -1680,14 +1950,14 @@ function ConflictsModule({ api, catalogs, drafts, updateDraft, refreshAll }: Mod
             await refreshAll()
           }}
         >
-          <SelectInput label="Experiment" value={d.conflictBinding.experiment_id} options={catalogs.experiments.map(expOption)} onChange={(v) => updateDraft('conflictBinding', { experiment_id: v })} />
-          <SelectInput label="Domain" value={d.conflictBinding.domain_id} options={catalogs.conflictDomains.map((x) => ({ value: String(x.id || ''), label: `${x.key || x.name} (${short(String(x.id || ''))})` }))} onChange={(v) => updateDraft('conflictBinding', { domain_id: v })} />
-          <SelectInput label="Policy" value={d.conflictBinding.policy} options={['mutual_exclusion', 'bid', 'priority']} onChange={(v) => updateDraft('conflictBinding', { policy: v })} />
-          <NumberInput label="Priority" value={d.conflictBinding.priority_tier} onChange={(v) => updateDraft('conflictBinding', { priority_tier: v })} />
-          <Toggle label="Enabled" checked={d.conflictBinding.is_enabled} onChange={(v) => updateDraft('conflictBinding', { is_enabled: v })} />
+          <SelectInput label="Эксперимент" value={d.conflictBinding.experiment_id} options={catalogs.experiments.map(expOption)} onChange={(v) => updateDraft('conflictBinding', { experiment_id: v })} />
+          <SelectInput label="Домен" value={d.conflictBinding.domain_id} options={catalogs.conflictDomains.map((x) => ({ value: String(x.id || ''), label: `${x.key || x.name} (${short(String(x.id || ''))})` }))} onChange={(v) => updateDraft('conflictBinding', { domain_id: v })} />
+          <SelectInput label="Политика" value={d.conflictBinding.policy} options={['mutual_exclusion', 'bid', 'priority']} onChange={(v) => updateDraft('conflictBinding', { policy: v })} />
+          <NumberInput label="Приоритет" value={d.conflictBinding.priority_tier} onChange={(v) => updateDraft('conflictBinding', { priority_tier: v })} />
+          <Toggle label="Включено" checked={d.conflictBinding.is_enabled} onChange={(v) => updateDraft('conflictBinding', { is_enabled: v })} />
         </FormCard>
       </div>
-      <DataTable title="Conflict domains" rows={catalogs.conflictDomains} columns={['key', 'name', 'default_policy', 'id']} empty="Конфликтных доменов пока нет." />
+      <DataTable title="Домены конфликтов" rows={catalogs.conflictDomains} columns={['key', 'name', 'default_policy', 'id']} empty="Конфликтных доменов пока нет." />
     </>
   )
 }
@@ -1764,132 +2034,6 @@ function RampModule({ api, catalogs, drafts, updateDraft }: ModuleProps) {
         <pre className="json-inline compact">{pretty({ steps })}</pre>
       </FormCard>
     </>
-  )
-}
-
-function RawModule({ api, drafts, updateDraft }: ModuleProps) {
-  const d = drafts.raw
-  const endpointRows = swaggerEndpoints.map((endpoint) => ({ ...endpoint }))
-  return (
-    <>
-      <ModuleHeader title="Swagger API console" description="Все эндпоинты из Swagger явно перечислены ниже: можно подставить метод, путь и пример body, заменить {id}/{key} на реальные значения и выполнить запрос." />
-      <FormCard
-        title="HTTP request"
-        wide
-        defaultOpen
-        icon={<TerminalSquare size={16} />}
-        tone="neutral"
-        submitLabel="Выполнить"
-        onSubmit={async () => {
-          await api(d.method, d.path, d.method === 'GET' || d.method === 'DELETE' ? undefined : parseJson(d.body))
-        }}
-      >
-        <div className="form-grid">
-          <SelectInput label="Method" value={d.method} options={['GET', 'POST', 'PATCH', 'PUT', 'DELETE']} onChange={(v) => updateDraft('raw', { method: v as HttpMethod })} />
-          <TextInput label="Path" value={d.path} onChange={(v) => updateDraft('raw', { path: v })} />
-        </div>
-        <JsonArea label="Body" value={d.body} onChange={(v) => updateDraft('raw', { body: v })} rows={10} />
-      </FormCard>
-      <section className="panel endpoint-summary">
-        <div>
-          <span className="caption">Покрытие Swagger</span>
-          <strong>{swaggerEndpoints.length} endpoint-ов</strong>
-        </div>
-        <div>
-          <span className="caption">Поддержка</span>
-          <strong>метод + путь + пример body</strong>
-        </div>
-        <div>
-          <span className="caption">Как запускать</span>
-          <strong>подставьте реальные ID вместо {'{id}'}</strong>
-        </div>
-      </section>
-      <DataTable
-        title="Каталог Swagger endpoints"
-        rows={endpointRows}
-        columns={['tag', 'method', 'path', 'summary']}
-        empty="Эндпоинты Swagger не найдены."
-        formatCell={(column, value) => column === 'method' ? <span className={`method ${String(value).toLowerCase()}`}>{String(value)}</span> : cell(value)}
-        actions={(row) => (
-          <button
-            className="mini"
-            onClick={() => updateDraft('raw', {
-              method: row.method as HttpMethod,
-              path: String(row.path || ''),
-              body: typeof row.body === 'string' ? row.body : '{}',
-            })}
-          >
-            <TerminalSquare size={14} />
-            подставить
-          </button>
-        )}
-      />
-    </>
-  )
-}
-
-function Inspector({ log, logs, token, currentUser, onClear }: { log?: RequestLog; logs: RequestLog[]; token: string; currentUser: unknown; onClear: () => void }) {
-  const [selectedLogId, setSelectedLogId] = useState('')
-  const latestLogId = logs[0]?.id || ''
-  const latestSeenLogId = useRef(latestLogId)
-  const selectedLog = logs.find((entry) => entry.id === selectedLogId) || log
-  useEffect(() => {
-    if (selectedLogId && !logs.some((entry) => entry.id === selectedLogId)) setSelectedLogId('')
-  }, [logs, selectedLogId])
-  useEffect(() => {
-    if (!latestLogId) {
-      latestSeenLogId.current = ''
-      setSelectedLogId('')
-      return
-    }
-    if (latestLogId !== latestSeenLogId.current) {
-      latestSeenLogId.current = latestLogId
-      setSelectedLogId(latestLogId)
-    }
-  }, [latestLogId])
-  return (
-    <aside className="inspector">
-      <div className="inspector-head">
-        <div>
-          <h2>Инспектор API</h2>
-          <span>{token ? 'Bearer token сохранён · новые запросы открываются автоматически' : 'Token отсутствует'}</span>
-        </div>
-        <button className="icon-button" onClick={onClear} title="Очистить историю"><XCircle size={16} /></button>
-      </div>
-      {currentUser ? <pre className="user-chip">{pretty(currentUser)}</pre> : <div className="empty-note">Выберите аккаунт сверху и войдите. Для полного сценария используйте seed-пользователей из reviewer guide.</div>}
-      {selectedLog ? (
-        <div className="request-card">
-          <div className="request-line">
-            <span className={`method ${selectedLog.method.toLowerCase()}`}>{selectedLog.method}</span>
-            <strong>{selectedLog.path}</strong>
-          </div>
-          <div className="response-meta">
-            <span className={selectedLog.ok ? 'ok' : 'fail'}>{selectedLog.status}</span>
-            <span>{Math.round(selectedLog.duration)} ms</span>
-            <span>{selectedLog.at}</span>
-          </div>
-          <h3>Ответ</h3>
-          <pre>{pretty(selectedLog.response)}</pre>
-          {selectedLog.request !== undefined && (
-            <>
-              <h3>Запрос</h3>
-              <pre>{pretty(selectedLog.request)}</pre>
-            </>
-          )}
-        </div>
-      ) : (
-        <div className="empty-note">Здесь появится последний HTTP-запрос.</div>
-      )}
-      <div className="history-list">
-        {logs.slice(0, 12).map((entry) => (
-          <button key={entry.id} className={selectedLog?.id === entry.id ? 'history-item active' : 'history-item'} onClick={() => setSelectedLogId(entry.id)} title="Открыть запрос">
-            <span className={`method ${entry.method.toLowerCase()}`}>{entry.method}</span>
-            <span>{entry.status}</span>
-            <p>{entry.path}</p>
-          </button>
-        ))}
-      </div>
-    </aside>
   )
 }
 
