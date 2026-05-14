@@ -89,20 +89,6 @@ services:
     command: ["sh", "-c", "python /app/tests/seed_test_data.py && pytest /app/tests/ -s"]
     profiles: ["test"]
 
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
-    container_name: prod_frontend
-    restart: unless-stopped
-    depends_on:
-      backend:
-        condition: service_healthy
-    ports:
-      - "30080:80"
-
 volumes:
   postgres_data:
   backend_logs:

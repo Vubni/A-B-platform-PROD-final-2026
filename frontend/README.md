@@ -19,7 +19,7 @@ Backend ожидается на `http://localhost:18080`. В dev-режиме GU
 npm run build
 ```
 
-После `npm run build` Vite proxy уже не работает. Если `VITE_API_BASE_URL` не задан, GUI обращается к API по тому же origin: `/api`, `/health`, `/ready`, `/metrics`. Docker-образ frontend отдаёт статику через nginx и проксирует эти пути на `backend:18080` внутри Docker-сети.
+После `npm run build` Vite proxy уже не работает. Если `VITE_API_BASE_URL` не задан, GUI обращается к API по тому же origin: `/api`, `/health`, `/ready`, `/metrics`. Поэтому nginx, который отдаёт папку `dist`, должен проксировать эти пути на backend: `http://127.0.0.1:18080`.
 
 Для отдельного API-домена создайте `.env.production` по примеру `.env.production.example`:
 
@@ -27,7 +27,7 @@ npm run build
 VITE_API_BASE_URL=https://api.your-domain.ru
 ```
 
-Также frontend можно поднять через Docker Compose из корня проекта: контейнер отдаёт статические файлы на `http://localhost:30080`.
+Пример nginx-конфига для сервера лежит в `nginx-site.example.conf`. Путь `root` в нём нужно заменить на реальный путь до вашей папки `dist`.
 
 ## Быстрый вход и роли
 

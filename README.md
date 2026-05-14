@@ -383,7 +383,7 @@ docker compose up -d
 
 API: `http://localhost:18080`. Логи: `backend_logs` volume.
 
-Frontend-контейнер: `http://localhost:30080`. В production-сборке GUI по умолчанию обращается к API по тому же origin (`/api`, `/health`, `/ready`, `/metrics`), а nginx внутри frontend-контейнера проксирует эти запросы на `backend:18080` по Docker-сети. Для HTTPS-домена достаточно проксировать внешний домен на frontend-контейнер; backend-порт наружу открывать не нужно.
+Frontend собирается отдельно командой `npm run build` в каталоге `frontend`, после чего содержимое `frontend/dist` отдаётся вашим nginx. В production-сборке GUI по умолчанию обращается к API по тому же origin (`/api`, `/health`, `/ready`, `/metrics`), поэтому во внешнем nginx нужно проксировать эти пути на `http://127.0.0.1:18080`. Пример конфига: `frontend/nginx-site.example.conf`.
 
 **Без Docker**:
 
