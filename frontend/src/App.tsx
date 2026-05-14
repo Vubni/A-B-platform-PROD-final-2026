@@ -2340,14 +2340,19 @@ function defaultApiBase() {
   const configuredBase = import.meta.env.VITE_API_BASE_URL?.trim()
   if (configuredBase) return configuredBase.replace(/\/$/, '')
   if (import.meta.env.DEV) return '/__api'
-  if (typeof window !== 'undefined' && window.location.hostname) {
-    return `${window.location.protocol}//${window.location.hostname}:${backendPort}`
-  }
-  return `http://localhost:${backendPort}`
+  return ''
 }
 
 function normalizeStoredApiBase(value: string) {
   if (!import.meta.env.DEV && value === '/__api') return defaultApiBase()
+  if (!import.meta.env.DEV && typeof window !== 'undefined') {
+    try {
+      const url = new URL(value)
+      if (url.hostname === window.location.hostname && url.port === backendPort) return defaultApiBase()
+    } catch {
+      return value
+    }
+  }
   return value
 }
 

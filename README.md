@@ -383,7 +383,7 @@ docker compose up -d
 
 API: `http://localhost:18080`. Логи: `backend_logs` volume.
 
-Frontend-контейнер: `http://localhost:30080`. В production-сборке GUI по умолчанию обращается к backend на том же hostname и порту `18080`, поэтому на сервере достаточно открыть/пробросить порты `30080` и `18080`. Если нужен явный адрес API, задайте `VITE_API_BASE_URL=http://your-server-host:18080` перед сборкой frontend.
+Frontend-контейнер: `http://localhost:30080`. В production-сборке GUI по умолчанию обращается к API по тому же origin (`/api`, `/health`, `/ready`, `/metrics`), а nginx внутри frontend-контейнера проксирует эти запросы на `backend:18080` по Docker-сети. Для HTTPS-домена достаточно проксировать внешний домен на frontend-контейнер; backend-порт наружу открывать не нужно.
 
 **Без Docker**:
 

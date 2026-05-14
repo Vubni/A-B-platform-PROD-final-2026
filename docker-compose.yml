@@ -60,7 +60,7 @@ services:
       SEED_DEMO_USERS: 1
       LEARNINGS_REQUIRED_ON_COMPLETE: ${LEARNINGS_REQUIRED_ON_COMPLETE:-true}
     ports:
-      - "18080:18080"
+      - "127.0.0.1:18080:18080"
     volumes:
       - backend_logs:/app/logs
     healthcheck:
