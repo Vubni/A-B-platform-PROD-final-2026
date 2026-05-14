@@ -13,7 +13,7 @@
 | Требование | Описание |
 |------------|----------|
 | Docker, Docker Compose | Приложение запускается командой `docker compose up -d`. |
-| Порты | Backend слушает порт **8080**; общение между контейнерами — через docker-сеть. |
+| Порты | Backend слушает порт **18080**; общение между контейнерами — через docker-сеть. |
 
 ### Переменные окружения
 
@@ -30,7 +30,7 @@
 
 Полный список переменных и описание — в `backend/README.md`, раздел «Переменные конфигурации».
 
-Для запуска тестов локально задают `API_BASE_URL=http://localhost:8080` (или порт, на котором слушает backend).
+Для запуска тестов локально задают `API_BASE_URL=http://localhost:18080` (или порт, на котором слушает backend).
 
 ### Точные команды старта
 
@@ -40,7 +40,7 @@
 docker compose up -d
 ```
 
-API доступен по адресу: `http://localhost:8080`. Логи backend — volume `backend_logs` или вывод контейнера.
+API доступен по адресу: `http://localhost:18080`. Логи backend — volume `backend_logs` или вывод контейнера.
 
 **Вариант 2 — Локально (без Docker):**
 
@@ -59,7 +59,7 @@ python server.py
 **1. Проверка доступности (liveness):**
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health
+curl -s -o /dev/null -w "%{http_code}" http://localhost:18080/health
 ```
 
 **Ожидаемый вывод:** `200` (в теле при полном выводе может быть `{"status":"ok"}` или аналог).
@@ -67,7 +67,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health
 **2. Проверка готовности (readiness, БД инициализирована):**
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/ready
+curl -s -o /dev/null -w "%{http_code}" http://localhost:18080/ready
 ```
 
 **Ожидаемый вывод:** `200` — сервис готов к приёму запросов. До инициализации БД может быть `503`; повторять до 200 в течение 180 с.
@@ -75,7 +75,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/ready
 **3. Проверка метрик (observability):**
 
 ```bash
-curl -s http://localhost:8080/metrics | head -30
+curl -s http://localhost:18080/metrics | head -30
 ```
 
 **Ожидаемый вывод:** текст в формате Prometheus, например строки вида `# HELP http_requests_total ...`, `http_requests_total{...} 0` и т.п.
@@ -85,7 +85,7 @@ curl -s http://localhost:8080/metrics | head -30
 Получение токена и запрос списка флагов (после готовности `/ready` и при включённом сиде демо-данных):
 
 ```bash
-curl -s -X POST http://localhost:8080/api/v1/auth \
+curl -s -X POST http://localhost:18080/api/v1/auth \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@test.com","password":"admin123"}'
 ```
@@ -97,9 +97,9 @@ curl -s -X POST http://localhost:8080/api/v1/auth \
 | Шаг | Действие | Ожидаемый результат |
 |-----|-----------|----------------------|
 | 1 | `docker compose up -d` | Контейнеры запущены |
-| 2 | `curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/ready` | `200` (в течение 180 с) |
-| 3 | `curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health` | `200` |
-| 4 | `curl -s http://localhost:8080/metrics` | Строки Prometheus-метрик |
+| 2 | `curl -s -o /dev/null -w "%{http_code}" http://localhost:18080/ready` | `200` (в течение 180 с) |
+| 3 | `curl -s -o /dev/null -w "%{http_code}" http://localhost:18080/health` | `200` |
+| 4 | `curl -s http://localhost:18080/metrics` | Строки Prometheus-метрик |
 
 После шага 2 система готова к приёму запросов; тестовые пользователи и флаг `test_feature_flag` доступны при `SEED_DEMO_USERS=1` (значение по умолчанию в docker-compose).
 

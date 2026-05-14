@@ -11,7 +11,23 @@ npm run dev -- --host 127.0.0.1
 
 GUI откроется на `http://127.0.0.1:5173`.
 
-Backend ожидается на `http://localhost:8080`. По умолчанию поле `API` содержит `/__api`: это Vite proxy, который прокидывает запросы в Docker-backend и помогает избежать CORS-проблем.
+Backend ожидается на `http://localhost:18080`. В dev-режиме GUI использует `/__api`: это Vite proxy, который прокидывает запросы в Docker-backend и помогает избежать CORS-проблем.
+
+## Production build
+
+```bash
+npm run build
+```
+
+После `npm run build` Vite proxy уже не работает. Если `VITE_API_BASE_URL` не задан, GUI автоматически обращается к backend на том же hostname, где открыт frontend, и порту `18080`: например `http://your-server-host:18080`.
+
+Для явного адреса API создайте `.env.production` по примеру `.env.production.example`:
+
+```bash
+VITE_API_BASE_URL=http://your-server-host:18080
+```
+
+Также frontend можно поднять через Docker Compose из корня проекта: контейнер отдаёт статические файлы на `http://localhost:30080`.
 
 ## Быстрый вход и роли
 

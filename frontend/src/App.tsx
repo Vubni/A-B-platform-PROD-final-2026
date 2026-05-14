@@ -141,6 +141,7 @@ const navByRole: Record<Role, NavId[]> = {
 
 const statuses = ['draft', 'on_review', 'approved', 'running', 'paused', 'rejected', 'completed', 'archived']
 const demoStamp = () => new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)
+const backendPort = '18080'
 
 const accountPresets = [
   { id: 'admin-seed', label: 'Администратор', role: 'admin', email: 'admin@test.com', password: 'admin123', note: 'Пользователи и approver-группы' },
@@ -203,7 +204,7 @@ const initialDrafts: Drafts = {
 
 function App() {
   const [active, setActive] = useState<NavId>('overview')
-  const [apiBase] = useStickyState('lotty_api_base', '/__api')
+  const [apiBase] = useStickyState('lotty_api_base', defaultApiBase(), normalizeStoredApiBase)
   const [selectedAccount, setSelectedAccount] = useStickyState('lotty_account', 'experimenter-seed')
   const [email, setEmail] = useStickyState('lotty_email', 'experimenter@test.com')
   const [password, setPassword] = useStickyState('lotty_password', 'exp123')
@@ -2335,8 +2336,23 @@ function StatusDot({ label, state }: { label: string; state?: 'ok' | 'fail' }) {
   return <span className={`status-dot ${state || ''}`}><span />{label}</span>
 }
 
-function useStickyState(key: string, fallback: string) {
-  const [value, setValue] = useState(() => localStorage.getItem(key) || fallback)
+function defaultApiBase() {
+  const configuredBase = import.meta.env.VITE_API_BASE_URL?.trim()
+  if (configuredBase) return configuredBase.replace(/\/$/, '')
+  if (import.meta.env.DEV) return '/__api'
+  if (typeof window !== 'undefined' && window.location.hostname) {
+    return `${window.location.protocol}//${window.location.hostname}:${backendPort}`
+  }
+  return `http://localhost:${backendPort}`
+}
+
+function normalizeStoredApiBase(value: string) {
+  if (!import.meta.env.DEV && value === '/__api') return defaultApiBase()
+  return value
+}
+
+function useStickyState(key: string, fallback: string, normalize?: (value: string) => string) {
+  const [value, setValue] = useState(() => normalize ? normalize(localStorage.getItem(key) || fallback) : localStorage.getItem(key) || fallback)
   useEffect(() => {
     localStorage.setItem(key, value)
   }, [key, value])

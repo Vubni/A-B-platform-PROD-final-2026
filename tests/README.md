@@ -6,7 +6,7 @@
 
 ```bash
 pip install -r backend/requirements.txt -r tests/requirements-test.txt
-export API_BASE_URL=http://localhost:8080
+export API_BASE_URL=http://localhost:18080
 python tests/seed_test_data.py
 pytest
 ```
@@ -14,7 +14,7 @@ pytest
 Только pytest (backend и сид уже есть):
 
 ```bash
-export API_BASE_URL=http://localhost:8080
+export API_BASE_URL=http://localhost:18080
 pytest
 ```
 
@@ -40,7 +40,7 @@ pytest tests/test_decide_api.py
 
 | Переменная     | По умолчанию          |
 |----------------|------------------------|
-| `API_BASE_URL` | `http://localhost:8080`  |
+| `API_BASE_URL` | `http://localhost:18080`  |
 
 ---
 
@@ -89,7 +89,7 @@ docker compose up -d
 3. Сидинг тестовых данных (пользователи, флаг `test_feature_flag`, типы событий `demo_exposure`/`demo_click`/`demo_conversion`, метрики `demo_impressions`/`demo_conversions`/`demo_conversion_rate`, группа аппруверов для experimenter):
 
 ```bash
-export API_BASE_URL=http://localhost:8080
+export API_BASE_URL=http://localhost:18080
 python tests/seed_test_data.py
 ```
 

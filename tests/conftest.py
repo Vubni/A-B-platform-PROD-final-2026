@@ -12,7 +12,7 @@ _backend_dir = _project_root / "backend"
 if _backend_dir.exists() and str(_backend_dir) not in sys.path:
     sys.path.insert(0, str(_backend_dir))
 
-BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8080")
+BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:18080")
 
 
 TEST_SECTIONS = {

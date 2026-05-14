@@ -13,6 +13,8 @@ COPY . .
 
 RUN mkdir -p logs
 
-EXPOSE 8080
+ENV PORT=18080
+
+EXPOSE 18080
 
 CMD ["python", "server.py"]
